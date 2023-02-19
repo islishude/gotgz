@@ -2,6 +2,13 @@
 
 Similar to `tar + gzip`, but supports S3
 
+**differences from tar**
+
+1. gzip is enabled as default
+2. `-xvf` form is not supported, you should use `-x -v -f`
+3. keep the leading slash of absolute paths
+4. Only files and directories are supported
+
 ## Compress
 
 ```console

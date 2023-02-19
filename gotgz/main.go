@@ -21,6 +21,9 @@ func main() {
 		Create   bool
 		Extract  bool
 		Timeout  time.Duration
+
+		NoSameOwner       bool
+		NoSamePermissions bool
 	)
 
 	flag.StringVar(&destPath, "C", "", "change to DIR before performing any operations")
@@ -34,6 +37,8 @@ func main() {
 	flag.BoolVar(&Extract, "x", false, "extract files from an archive")
 	flag.BoolVar(&Extract, "extract", false, "extract files from an archive")
 	flag.DurationVar(&Timeout, "timeout", time.Hour, "timeout in go time.Duration expression")
+	flag.BoolVar(&NoSameOwner, "no-same-owner", true, "(x mode only) Do not extract owner and group IDs.")
+	flag.BoolVar(&NoSamePermissions, "no-same-permissions", true, "(x mode only) Do not extract full permissions")
 	flag.Parse()
 
 	if FileName == "" {
@@ -47,7 +52,7 @@ func main() {
 	start := time.Now()
 	defer func() {
 		if gotgz.Debug {
-			fmt.Println("Time cost:", time.Now().Sub(start).String())
+			fmt.Println("Time cost:", time.Since(start).String())
 		}
 	}()
 
@@ -72,7 +77,8 @@ func main() {
 				Faltalf(err.Error())
 			}
 		case Extract:
-			if _, err := client.Download(basectx, fnParsed.Path, destPath); err != nil {
+			if _, err := client.Download(basectx, fnParsed.Path, destPath,
+				gotgz.DecompressFlags{NoSamePermissions: NoSamePermissions, NoSameOwners: NoSameOwner}); err != nil {
 				Faltalf(err.Error())
 			}
 		}
@@ -98,7 +104,8 @@ func main() {
 		if err != nil {
 			Faltalf(err.Error())
 		}
-		if err := gotgz.Decompress(file, destPath); err != nil {
+		if err := gotgz.Decompress(file, destPath,
+			gotgz.DecompressFlags{NoSamePermissions: NoSamePermissions, NoSameOwners: NoSameOwner}); err != nil {
 			Faltalf(err.Error())
 		}
 	}

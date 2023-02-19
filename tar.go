@@ -5,13 +5,13 @@ import (
 	"compress/gzip"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
 )
 
-// Fork from https://github.com/mimoo/eureka and fix many memory leak bugs
-// https://github.com/mimoo/eureka/blob/master/LICENSE
+// Fork from https://github.com/mimoo/eureka/blob/master/folders.go and fix many memory leak bugs
 
 var Debug bool
 
@@ -39,7 +39,7 @@ func Compress(buf io.WriteCloser, fileList ...string) (err error) {
 		case mode.IsRegular():
 			debugf("a %s", src)
 			// get header
-			header, err := tar.FileInfoHeader(fi, src)
+			header, err := tar.FileInfoHeader(fi, fi.Name())
 			if err != nil {
 				return err
 			}
@@ -117,12 +117,16 @@ func Compress(buf io.WriteCloser, fileList ...string) (err error) {
 	return buf.Close()
 }
 
-// check for path traversal and correct forward slashes
-func isRelPathInvalid(p string) bool {
-	return p == "" || strings.Contains(p, `\`) || strings.HasPrefix(p, "/") || strings.Contains(p, "../")
+func isPathInvalid(p string) bool {
+	return p == "" || strings.Contains(p, `\`) || strings.Contains(p, "../")
 }
 
-func Decompress(src io.ReadCloser, dir string) (err error) {
+type DecompressFlags struct {
+	NoSamePermissions bool
+	NoSameOwners      bool
+}
+
+func Decompress(src io.ReadCloser, dir string, dflags DecompressFlags) (err error) {
 	defer src.Close()
 
 	zr, err := gzip.NewReader(src)
@@ -142,8 +146,7 @@ func Decompress(src io.ReadCloser, dir string) (err error) {
 		}
 
 		target := header.Name
-		// validate name against path traversal
-		if isRelPathInvalid(target) {
+		if isPathInvalid(target) {
 			return fmt.Errorf("file name %q is invalid", target)
 		}
 
@@ -154,28 +157,34 @@ func Decompress(src io.ReadCloser, dir string) (err error) {
 			target = filepath.Join(dir, target)
 		}
 
-		// check the type
 		switch header.Typeflag {
-		// if its a dir and it doesn't exist create it (with 0755 permission)
 		case tar.TypeDir:
-			if _, err := os.Stat(target); err != nil {
-				if err := os.MkdirAll(target, 0755); err != nil {
-					return err
-				}
+			var mode = fs.FileMode(header.Mode)
+			if dflags.NoSamePermissions {
+				mode = fs.FileMode(0775)
 			}
-		// if it's a file create it (with same permission)
+			if err := os.MkdirAll(target, mode); err != nil {
+				return err
+			}
 		case tar.TypeReg:
-			fileToWrite, err := os.OpenFile(target, os.O_CREATE|os.O_RDWR|os.O_TRUNC, os.FileMode(header.Mode))
+			var mode = fs.FileMode(header.Mode)
+			if dflags.NoSamePermissions {
+				mode = fs.FileMode(0664)
+			}
+			fileToWrite, err := os.OpenFile(target, os.O_CREATE|os.O_RDWR|os.O_TRUNC, mode)
 			if err != nil {
 				return err
 			}
-			// copy over contents
 			if _, err := io.Copy(fileToWrite, tr); err != nil {
 				return err
 			}
-			// manually close here after each file operation; defering would cause each file close
-			// to wait until all operations have completed.
 			if err := fileToWrite.Close(); err != nil {
+				return err
+			}
+		}
+
+		if !dflags.NoSameOwners {
+			if err := os.Chown(target, header.Uid, header.Gid); err != nil {
 				return err
 			}
 		}

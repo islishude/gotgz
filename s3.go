@@ -34,7 +34,7 @@ func NewWithClient(s3c *s3.S3, bucket string) S3 {
 	}
 }
 
-func (s S3) Upload(ctx context.Context, s3path string, metadata map[string]*string, localPath ...string) error {
+func (s S3) Upload(ctx context.Context, s3Path string, s3Metadata map[string]string, localPath ...string) error {
 	reader, writer := io.Pipe()
 
 	errChan := make(chan error, 1)
@@ -43,12 +43,16 @@ func (s S3) Upload(ctx context.Context, s3path string, metadata map[string]*stri
 		close(errChan)
 	}()
 
+	smt := make(map[string]*string, len(s3Metadata))
+	for key, value := range s3Metadata {
+		smt[key] = aws.String(value)
+	}
 	_, err := s.uploader.UploadWithContext(ctx, &s3manager.UploadInput{
 		Body:        reader,
 		Bucket:      aws.String(s.bucket),
-		Key:         aws.String(s3path),
+		Key:         aws.String(s3Path),
 		ContentType: aws.String("application/x-gzip"),
-		Metadata:    metadata,
+		Metadata:    smt,
 	})
 	if tgzerr := <-errChan; tgzerr != nil {
 		return tgzerr
@@ -56,24 +60,31 @@ func (s S3) Upload(ctx context.Context, s3path string, metadata map[string]*stri
 	return err
 }
 
-func (s S3) Download(ctx context.Context, s3path, localPath string) (metadata map[string]*string, err error) {
+func (s S3) Download(ctx context.Context, s3Path, localPath string, dflags DecompressFlags) (metadata map[string]string, err error) {
 	data, err := s.s3Client.GetObjectWithContext(ctx, &s3.GetObjectInput{
 		Bucket: aws.String(s.bucket),
-		Key:    aws.String(s3path),
+		Key:    aws.String(s3Path),
 	})
 	if err != nil {
 		return nil, err
 	}
-	if err := Decompress(data.Body, localPath); err != nil {
+	if err := Decompress(data.Body, localPath, dflags); err != nil {
 		return nil, err
 	}
-	return data.Metadata, nil
+
+	metadata = make(map[string]string, len(data.Metadata))
+	for key, value := range data.Metadata {
+		if value != nil {
+			metadata[key] = *value
+		}
+	}
+	return metadata, nil
 }
 
-func (s S3) IsExist(ctx context.Context, s3path string) (bool, error) {
+func (s S3) IsExist(ctx context.Context, s3Path string) (bool, error) {
 	_, err := s.s3Client.HeadObjectWithContext(ctx, &s3.HeadObjectInput{
 		Bucket: aws.String(s.bucket),
-		Key:    aws.String(s3path),
+		Key:    aws.String(s3Path),
 	})
 
 	if err != nil {
