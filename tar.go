@@ -161,7 +161,7 @@ func Decompress(src io.ReadCloser, dir string, dflags DecompressFlags) (err erro
 		case tar.TypeDir:
 			var mode = fs.FileMode(header.Mode)
 			if dflags.NoSamePermissions {
-				mode = fs.FileMode(0775)
+				mode = fs.FileMode(0755)
 			}
 			if err := os.MkdirAll(target, mode); err != nil {
 				return err
