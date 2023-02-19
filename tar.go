@@ -181,6 +181,8 @@ func Decompress(src io.ReadCloser, dir string, dflags DecompressFlags) (err erro
 			if err := fileToWrite.Close(); err != nil {
 				return err
 			}
+		default:
+			continue
 		}
 
 		if !dflags.NoSameOwners {
