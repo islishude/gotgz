@@ -36,7 +36,7 @@ Time cost: 7.154367ms
 ## Decompress
 
 ```console
-$ gotgz -v -c -f s3://your-s3-bucket/path.tgz public src
+$ gotgz -v -x -f s3://your-s3-bucket/path.tgz
 x public
 x public/favicon.ico
 x public/next.svg
