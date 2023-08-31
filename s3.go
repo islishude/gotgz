@@ -2,33 +2,35 @@ package gotgz
 
 import (
 	"context"
+	"errors"
 	"io"
 
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/awserr"
-	"github.com/aws/aws-sdk-go/aws/session"
-	"github.com/aws/aws-sdk-go/service/s3"
-	"github.com/aws/aws-sdk-go/service/s3/s3manager"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/config"
+	s3manager "github.com/aws/aws-sdk-go-v2/feature/s3/manager"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 )
 
 type S3 struct {
 	uploader *s3manager.Uploader
-	s3Client *s3.S3
+	s3Client *s3.Client
 	bucket   string
 }
 
 func New(bucket string) S3 {
-	awsSession := session.Must(session.NewSessionWithOptions(session.Options{
-		SharedConfigState: session.SharedConfigEnable,
-	}))
+	sdkConfig, err := config.LoadDefaultConfig(context.Background())
+	if err != nil {
+		panic(err)
+	}
 
-	s3c := s3.New(awsSession)
-	return NewWithClient(s3c, bucket)
+	s3Client := s3.NewFromConfig(sdkConfig)
+	return NewWithClient(s3Client, bucket)
 }
 
-func NewWithClient(s3c *s3.S3, bucket string) S3 {
+func NewWithClient(s3c *s3.Client, bucket string) S3 {
 	return S3{
-		uploader: s3manager.NewUploaderWithClient(s3c),
+		uploader: s3manager.NewUploader(s3c),
 		s3Client: s3c,
 		bucket:   bucket,
 	}
@@ -43,16 +45,12 @@ func (s S3) Upload(ctx context.Context, s3Path string, s3Metadata map[string]str
 		close(errChan)
 	}()
 
-	smt := make(map[string]*string, len(s3Metadata))
-	for key, value := range s3Metadata {
-		smt[key] = aws.String(value)
-	}
-	_, err := s.uploader.UploadWithContext(ctx, &s3manager.UploadInput{
+	_, err := s.uploader.Upload(ctx, &s3.PutObjectInput{
 		Body:        reader,
 		Bucket:      aws.String(s.bucket),
 		Key:         aws.String(s3Path),
 		ContentType: aws.String("application/x-gzip"),
-		Metadata:    smt,
+		Metadata:    s3Metadata,
 	})
 	if tgzerr := <-errChan; tgzerr != nil {
 		return tgzerr
@@ -61,7 +59,7 @@ func (s S3) Upload(ctx context.Context, s3Path string, s3Metadata map[string]str
 }
 
 func (s S3) Download(ctx context.Context, s3Path, localPath string, dflags DecompressFlags) (metadata map[string]string, err error) {
-	data, err := s.s3Client.GetObjectWithContext(ctx, &s3.GetObjectInput{
+	data, err := s.s3Client.GetObject(ctx, &s3.GetObjectInput{
 		Bucket: aws.String(s.bucket),
 		Key:    aws.String(s3Path),
 	})
@@ -71,28 +69,20 @@ func (s S3) Download(ctx context.Context, s3Path, localPath string, dflags Decom
 	if err := Decompress(data.Body, localPath, dflags); err != nil {
 		return nil, err
 	}
-
-	metadata = make(map[string]string, len(data.Metadata))
-	for key, value := range data.Metadata {
-		if value != nil {
-			metadata[key] = *value
-		}
-	}
-	return metadata, nil
+	return data.Metadata, nil
 }
 
 func (s S3) IsExist(ctx context.Context, s3Path string) (bool, error) {
-	_, err := s.s3Client.HeadObjectWithContext(ctx, &s3.HeadObjectInput{
+	_, err := s.s3Client.HeadObject(ctx, &s3.HeadObjectInput{
 		Bucket: aws.String(s.bucket),
 		Key:    aws.String(s3Path),
 	})
 
 	if err != nil {
-		if awsErr, ok := err.(awserr.Error); ok && awsErr.Code() == "NotFound" {
+		if nfe := (*types.NotFound)(nil); errors.As(err, &nfe) {
 			return false, nil
 		}
 		return false, err
 	}
-
 	return true, nil
 }
