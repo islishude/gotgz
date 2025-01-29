@@ -2,16 +2,22 @@ package main
 
 import (
 	"fmt"
-	"net/url"
 	"os"
+	"strings"
 )
 
-func Faltalf(l string, p ...interface{}) {
-	fmt.Printf(l, p...)
-	fmt.Println()
+func faltaln(l string) {
+	fmt.Println(l)
 	os.Exit(1)
 }
 
-func IsS3(u *url.URL) bool {
-	return u.Scheme == "s3"
+type stringsFlag []string
+
+func (a *stringsFlag) Set(s string) error {
+	*a = append(*a, s)
+	return nil
+}
+
+func (a *stringsFlag) String() string {
+	return strings.Join(*a, " ")
 }

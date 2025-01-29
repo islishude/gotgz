@@ -18,14 +18,14 @@ type S3 struct {
 	bucket   string
 }
 
-func New(bucket string) S3 {
-	sdkConfig, err := config.LoadDefaultConfig(context.Background())
+func New(basectx context.Context, bucket string) (S3, error) {
+	sdkConfig, err := config.LoadDefaultConfig(basectx)
 	if err != nil {
-		panic(err)
+		return S3{}, err
 	}
 
 	s3Client := s3.NewFromConfig(sdkConfig)
-	return NewWithClient(s3Client, bucket)
+	return NewWithClient(s3Client, bucket), nil
 }
 
 func NewWithClient(s3c *s3.Client, bucket string) S3 {
@@ -36,21 +36,22 @@ func NewWithClient(s3c *s3.Client, bucket string) S3 {
 	}
 }
 
-func (s S3) Upload(ctx context.Context, s3Path string, s3Metadata map[string]string, localPath ...string) error {
+func (s S3) Upload(ctx context.Context, path, contentType string,
+	metadata map[string]string, flags CompressFlags, localPath ...string) error {
 	reader, writer := io.Pipe()
 
-	errChan := make(chan error, 1)
+	errChan := make(chan error)
 	go func() {
-		errChan <- Compress(writer, localPath...)
+		errChan <- Compress(writer, flags, localPath...)
 		close(errChan)
 	}()
 
 	_, err := s.uploader.Upload(ctx, &s3.PutObjectInput{
 		Body:        reader,
 		Bucket:      aws.String(s.bucket),
-		Key:         aws.String(s3Path),
-		ContentType: aws.String("application/x-gzip"),
-		Metadata:    s3Metadata,
+		Key:         aws.String(path),
+		ContentType: aws.String(contentType),
+		Metadata:    metadata,
 	})
 	if tgzerr := <-errChan; tgzerr != nil {
 		return tgzerr
