@@ -1,6 +1,6 @@
 module github.com/islishude/gotgz
 
-go 1.21
+go 1.22
 
 require (
 	github.com/aws/aws-sdk-go-v2 v1.34.0
@@ -8,6 +8,8 @@ require (
 	github.com/aws/aws-sdk-go-v2/feature/s3/manager v1.17.54
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.74.1
 	github.com/bmatcuk/doublestar/v4 v4.8.1
+	github.com/klauspost/compress v1.17.11
+	github.com/pierrec/lz4/v4 v4.1.22
 )
 
 require (

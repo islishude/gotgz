@@ -1,24 +1,23 @@
 package gotgz
 
 import (
-	"compress/gzip"
 	"fmt"
-	"io"
 	"net/url"
 	"os"
-	"strconv"
+	"path/filepath"
 	"strings"
+	"time"
 )
 
-func debugf(debug bool, l string, p ...interface{}) {
-	if debug {
-		fmt.Printf(l, p...)
-		fmt.Println()
-	}
+type Logger interface {
+	Error(msg string, args ...any)
+	Debug(msg string, args ...any)
+	Warn(msg string, args ...any)
+	Info(msg string, args ...any)
 }
 
 func isPathInvalid(p string) bool {
-	return p == "" || strings.Contains(p, `\`) || strings.Contains(p, "../")
+	return p == "" || strings.Contains(p, `\`) || strings.Contains(p, "../") || strings.HasPrefix(p, "/")
 }
 
 func isSymbolicLink(mode os.FileMode) bool {
@@ -67,34 +66,38 @@ func ParseMetadata(raw string) (map[string]string, error) {
 	return meta, nil
 }
 
-func GetCompressionHandlers(alg string) (ZipWriter, ZipReader, string, error) {
+func GetCompressionHandlers(alg string) (Archiver, error) {
 	parsed, err := url.Parse(alg)
 	if err != nil {
-		return nil, nil, "", err
+		return nil, err
 	}
 
 	query, err := url.ParseQuery(parsed.RawQuery)
 	if err != nil {
-		return nil, nil, "", err
+		return nil, err
 	}
 
 	switch parsed.Path {
 	case "gzip", "gz":
-		var level = gzip.DefaultCompression
-		if levelQuery := query.Get("level"); levelQuery != "" {
-			level, err = strconv.Atoi(levelQuery)
-			if err != nil {
-				return nil, nil, "", err
-			}
-		}
-		return func(buf io.WriteCloser) (io.WriteCloser, error) {
-				return gzip.NewWriterLevel(buf, level)
-			},
-			func(src io.ReadCloser) (io.Reader, error) {
-				return gzip.NewReader(src)
-			},
-			"application/x-gzip", nil
+		return NewGZip(query)
+	case "lz4":
+		return NewLz4(query)
+	case "zstd":
+		return NewZstd(query)
 	default:
-		return nil, nil, "", fmt.Errorf("unsupported compression algorithm: %s", alg)
+		return nil, fmt.Errorf("unsupported compression algorithm: %s", alg)
 	}
+}
+
+func AddFileSuffix(fileName, suffix string) string {
+	if suffix == "" {
+		return fileName
+	}
+	dir, ext := filepath.Dir(fileName), filepath.Ext(fileName)
+	file := strings.TrimSuffix(filepath.Base(fileName), ext)
+	switch suffix {
+	case "date":
+		file = fmt.Sprintf("%s-%s%s", file, time.Now().Format("20060102"), ext)
+	}
+	return filepath.Join(dir, file)
 }

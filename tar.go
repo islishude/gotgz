@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -13,27 +14,28 @@ import (
 	"github.com/bmatcuk/doublestar/v4"
 )
 
-type ZipWriter func(io.WriteCloser) (io.WriteCloser, error)
-
-type ZipReader func(io.ReadCloser) (io.Reader, error)
-
 type CompressFlags struct {
-	Debug    bool
 	DryRun   bool
 	Relative bool
-	Zipper   ZipWriter
+	Archiver Archiver
+	Logger   Logger
 	Exclude  []string
 }
 
 func Compress(dest io.WriteCloser, flags CompressFlags, fileList ...string) (err error) {
 	var zr io.WriteCloser
-	if flags.Zipper != nil {
-		zr, err = flags.Zipper(dest)
+	if flags.Archiver != nil {
+		zr, err = flags.Archiver.Writer(dest)
 		if err != nil {
 			return err
 		}
 	} else {
 		zr = gzip.NewWriter(dest)
+	}
+
+	var logger = flags.Logger
+	if logger == nil {
+		logger = slog.Default()
 	}
 
 	tw := tar.NewWriter(zr)
@@ -45,9 +47,8 @@ func Compress(dest io.WriteCloser, flags CompressFlags, fileList ...string) (err
 		}
 	}()
 
-	if flags.DryRun {
-		debugf(true, "flags %#v", flags)
-	}
+	flags.Logger.Debug("flags",
+		"dry-run", flags.DryRun, "relative", flags.Relative, "exclude", flags.Exclude)
 
 	var iterater = func(rootPath string) filepath.WalkFunc {
 		return func(absPath string, fi os.FileInfo, err error) error {
@@ -58,15 +59,22 @@ func Compress(dest io.WriteCloser, flags CompressFlags, fileList ...string) (err
 			isLink, isFile := isSymbolicLink(fi.Mode()), fi.Mode().IsRegular()
 			switch {
 			case isLink, isFile, fi.Mode().IsDir():
+				// if we have path rootPath `/data` and absPath `/data/.github/dependabot.yml` and pattern `.github/**`
+				// we should use `.github/dependabot.yml` as the path, so the user don't need to use pattern `/data.github/**`
+				path := absPath
+				rel, err := filepath.Rel(rootPath, absPath)
+				if err == nil {
+					path = rel
+				}
 				for _, pattern := range flags.Exclude {
-					if match, _ := doublestar.Match(pattern, absPath); match {
-						debugf(flags.Debug, "e %s", absPath)
+					if doublestar.MatchUnvalidated(pattern, path) {
+						logger.Debug("exclude", "target", absPath, "parttern", pattern)
 						return nil
 					}
 				}
-				debugf(flags.Debug, "a %s", absPath)
+				logger.Info("append", "target", absPath)
 			default:
-				debugf(flags.Debug, "i %s", absPath)
+				logger.Debug("skip", "target", absPath)
 				return nil
 			}
 
@@ -90,7 +98,7 @@ func Compress(dest io.WriteCloser, flags CompressFlags, fileList ...string) (err
 
 			// if we have absPath `../demo/test.txt` and basePath `../demo`
 			// we should use `test.txt` as the name
-			if flags.Relative || strings.HasPrefix(absPath, "..") {
+			if flags.Relative || strings.HasPrefix(absPath, "../") {
 				rel, err := filepath.Rel(rootPath, absPath)
 				if err != nil {
 					return err
@@ -145,36 +153,36 @@ func Compress(dest io.WriteCloser, flags CompressFlags, fileList ...string) (err
 }
 
 type DecompressFlags struct {
-	Debug           bool
 	DryRun          bool
 	NoSamePerm      bool
 	NoSameOwner     bool
 	NoSameTime      bool
 	NoOverwrite     bool
 	StripComponents int
-	ZipReader       ZipReader
+	Archiver        Archiver
+	Logger          Logger
 }
 
 func Decompress(src io.ReadCloser, dir string, flags DecompressFlags) (err error) {
 	defer src.Close()
 
 	var zr io.Reader
-	if flags.ZipReader != nil {
-		zr, err = flags.ZipReader(src)
-		if err != nil {
-			return err
-		}
+	if flags.Archiver != nil {
+		zr, err = flags.Archiver.Reader(src)
 	} else {
 		zr, err = gzip.NewReader(src)
-		if err != nil {
-			return err
-		}
+	}
+	if err != nil {
+		return err
 	}
 
-	if flags.DryRun {
-		debugf(true, "flags %#v", flags)
+	var logger = flags.Logger
+	if logger == nil {
+		logger = slog.Default()
 	}
 
+	logger.Debug("flags", "dry-run", flags.DryRun, "strip-components", flags.StripComponents,
+		"no-same-perm", flags.NoSamePerm, "no-same-owner", flags.NoSameOwner, "no-same-time", flags.NoSameTime, "no-overwrite", flags.NoOverwrite)
 	tr := tar.NewReader(zr)
 
 	for {
@@ -187,20 +195,22 @@ func Decompress(src io.ReadCloser, dir string, flags DecompressFlags) (err error
 		}
 
 		target := header.Name
-		if isPathInvalid(target) || filepath.IsAbs(target) {
+		if isPathInvalid(target) {
 			return fmt.Errorf("file name %q is invalid", target)
 		}
 
-		debugf(flags.Debug, "x %s", target)
+		logger.Info("extract", "target", target)
 
 		// strip components
 		if flags.StripComponents > 0 {
 			target = stripComponents(target, flags.StripComponents)
+			logger.Debug("strip", "target", target)
 		}
 
 		// it's the same with `-C` flag in tar command
 		if dir != "" {
 			target = filepath.Join(dir, target)
+			logger.Debug("join", "target", target)
 		}
 
 		if flags.DryRun {
@@ -222,12 +232,15 @@ func Decompress(src io.ReadCloser, dir string, flags DecompressFlags) (err error
 				mode = fs.FileMode(0664)
 			}
 
-			flag := os.O_CREATE | os.O_RDWR
 			if !flags.NoOverwrite {
-				flag = flag | os.O_TRUNC
+				// check if the file is exist, if so, skip
+				if _, err := os.Stat(target); err == nil {
+					logger.Debug("skip", "target", target)
+					continue
+				}
 			}
 
-			fileToWrite, err := os.OpenFile(target, flag, mode)
+			fileToWrite, err := os.OpenFile(target, os.O_CREATE|os.O_RDWR|os.O_TRUNC, mode)
 			if err != nil {
 				return err
 			}

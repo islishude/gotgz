@@ -3,8 +3,8 @@ package main
 import (
 	"context"
 	"flag"
-	"fmt"
 	"io"
+	"log/slog"
 	"net/url"
 	"os"
 	"os/signal"
@@ -25,10 +25,10 @@ func main() {
 		Timeout time.Duration
 
 		Relative bool
-		Debug    bool
+		LogLevel string
 
 		Algorithm         string
-		Metadata          string
+		FileSuffix        string
 		NoSameOwner       bool
 		NoSamePermissions bool
 		NoSameTime        bool
@@ -40,10 +40,10 @@ func main() {
 
 	flag.StringVar(&Dest, "C", "", "alias to -directory")
 	flag.StringVar(&Dest, "directory", "", "change to DIR before performing any operations")
-	flag.BoolVar(&Debug, "v", true, "alias to -verbose")
-	flag.BoolVar(&Debug, "verbose", true, "debug mode")
+	flag.StringVar(&LogLevel, "v", slog.LevelInfo.String(), "alias to -verbose")
+	flag.StringVar(&LogLevel, "verbose", slog.LevelInfo.String(), "the log level")
 	flag.StringVar(&FileName, "f", "", "alias to -file")
-	flag.StringVar(&FileName, "file", "", "Use archive file or device ARCHIVE.")
+	flag.StringVar(&FileName, "file", "", "Use archive file")
 	flag.BoolVar(&Create, "c", false, "alias to -create")
 	flag.BoolVar(&Create, "create", false, "create a new local archive")
 	flag.BoolVar(&Extract, "x", false, "alias to -extract")
@@ -53,12 +53,12 @@ func main() {
 	flag.BoolVar(&NoSamePermissions, "no-same-permissions", true, "(x mode only) Do not extract full permissions")
 	flag.BoolVar(&NoOverwrite, "no-overwrite", false, "(x mode only) Do not overwrite files")
 	flag.BoolVar(&NoSameTime, "no-same-time", true, "(x mode only) Do not extract modification time")
-	flag.Int64Var(&StripComponents, "strip-components", 0, "strip N leading components from file names on extraction")
-	flag.BoolVar(&Relative, "relative", false, "extract files into a relative path")
+	flag.Int64Var(&StripComponents, "strip-components", 0, "(x mode only) strip N leading components from file names on extraction")
+	flag.BoolVar(&Relative, "relative", false, "(x mode only) extract files into a relative path")
 	flag.StringVar(&Algorithm, "algo", "gzip", "compression algorithm")
-	flag.StringVar(&Metadata, "metadata", "", "metadata for the file")
 	flag.BoolVar(&DryRun, "dry-run", false, "only print the file list")
-	flag.Var(&Excludes, "exclude", "exclude files from the tarball, the pattern is the same as the filepath.Match")
+	flag.Var(&Excludes, "exclude", "(c mode only)exclude files from the tarball, the pattern is the same as the filepath.Match")
+	flag.StringVar(&FileSuffix, "suffix", "", "(c mode only) suffix for the archive file")
 	flag.Parse()
 
 	if FileName == "" {
@@ -69,11 +69,10 @@ func main() {
 		faltaln("No action :)")
 	}
 
+	slog.SetLogLoggerLevel(ParseLogLevel(LogLevel))
 	start := time.Now()
 	defer func() {
-		if Debug {
-			fmt.Println("Time cost:", time.Since(start).String())
-		}
+		slog.Info("Time cost:", "period", time.Since(start).String())
 	}()
 
 	basectx, cancel := func() (context.Context, context.CancelFunc) {
@@ -94,30 +93,30 @@ func main() {
 		faltaln(err.Error())
 	}
 
-	zipWriter, zipReader, contentType, err := gotgz.GetCompressionHandlers(Algorithm)
+	archiver, err := gotgz.GetCompressionHandlers(Algorithm)
 	if err != nil {
 		faltaln(err.Error())
 	}
 
 	ctFlags := gotgz.CompressFlags{
-		Debug:    Debug,
 		DryRun:   DryRun,
 		Relative: Relative,
-		Zipper:   zipWriter,
+		Archiver: archiver,
 		Exclude:  Excludes,
+		Logger:   slog.Default(),
 	}
 
 	deFlags := gotgz.DecompressFlags{
-		Debug:       Debug,
 		NoSamePerm:  NoSamePermissions,
 		NoSameOwner: NoSameOwner,
 		NoOverwrite: NoOverwrite,
 		NoSameTime:  NoSameTime,
-		ZipReader:   zipReader,
+		Archiver:    archiver,
+		Logger:      slog.Default(),
 	}
 
 	if gotgz.IsS3(source) {
-		metadata, err := gotgz.ParseMetadata(Metadata)
+		metadata, err := gotgz.ParseMetadata(source.RawQuery)
 		if err != nil {
 			faltaln(err.Error())
 		}
@@ -128,8 +127,9 @@ func main() {
 		}
 		switch {
 		case Create:
-			if err := client.Upload(basectx, source.Path,
-				contentType, metadata, ctFlags, flag.Args()...); err != nil {
+			filePath := gotgz.AddFileSuffix(source.Path, FileSuffix)
+			if err := client.Upload(basectx, filePath,
+				archiver.MediaType(), metadata, ctFlags, flag.Args()...); err != nil {
 				faltaln(err.Error())
 			}
 		case Extract:
@@ -146,10 +146,14 @@ func main() {
 		if FileName == "-" {
 			buf = os.Stdout
 		} else {
+			if filepath.Ext(FileName) != archiver.Extension() {
+				slog.Warn("File extension might be not match", "archive", archiver.Name())
+			}
 			if err := os.MkdirAll(filepath.Dir(FileName), os.ModePerm); err != nil {
 				faltaln(err.Error())
 			}
-			buf, err = os.OpenFile(FileName, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0644)
+			FileName = gotgz.AddFileSuffix(FileName, FileSuffix)
+			buf, err = os.Create(FileName)
 			if err != nil {
 				faltaln(err.Error())
 			}
@@ -158,11 +162,16 @@ func main() {
 			faltaln(err.Error())
 		}
 	case Extract:
-		file, err := os.Open(FileName)
-		if err != nil {
-			faltaln(err.Error())
+		var src io.ReadCloser
+		if FileName == "-" {
+			src = os.Stdin
+		} else {
+			src, err = os.Open(FileName)
+			if err != nil {
+				faltaln(err.Error())
+			}
 		}
-		if err := gotgz.Decompress(file, Dest, deFlags); err != nil {
+		if err := gotgz.Decompress(src, Dest, deFlags); err != nil {
 			faltaln(err.Error())
 		}
 	}

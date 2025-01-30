@@ -2,12 +2,13 @@ package main
 
 import (
 	"fmt"
+	"log/slog"
 	"os"
 	"strings"
 )
 
-func faltaln(l string) {
-	fmt.Println(l)
+func faltaln(args ...any) {
+	fmt.Println(args...)
 	os.Exit(1)
 }
 
@@ -20,4 +21,12 @@ func (a *stringsFlag) Set(s string) error {
 
 func (a *stringsFlag) String() string {
 	return strings.Join(*a, " ")
+}
+
+func ParseLogLevel(name string) slog.Level {
+	var l slog.Level
+	if err := l.UnmarshalText([]byte(name)); err == nil {
+		return l
+	}
+	return slog.LevelInfo
 }
