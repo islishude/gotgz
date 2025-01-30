@@ -1,6 +1,7 @@
 package gotgz
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"io"
@@ -62,7 +63,7 @@ func TestTar(t *testing.T) {
 					Relative: true,
 					Exclude:  []string{"parent/.exclude/**"},
 				}
-				if err := Compress(file, flags, "testdata"); err != nil {
+				if err := Compress(context.Background(), file, flags, "testdata"); err != nil {
 					t.Fatal(err)
 				}
 			}
@@ -81,7 +82,7 @@ func TestTar(t *testing.T) {
 					StripComponents: 1,
 				}
 
-				if err := Decompress(source, extract, flags); err != nil {
+				if err := Decompress(context.Background(), source, extract, flags); err != nil {
 					t.Fatal(err)
 				}
 			}

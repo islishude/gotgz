@@ -2,6 +2,7 @@ package gotgz
 
 import (
 	"archive/tar"
+	"context"
 	"fmt"
 	"io"
 	"io/fs"
@@ -21,7 +22,7 @@ type CompressFlags struct {
 	Exclude  []string
 }
 
-func Compress(dest io.WriteCloser, flags CompressFlags, fileList ...string) (err error) {
+func Compress(ctx context.Context, dest io.WriteCloser, flags CompressFlags, sources ...string) (err error) {
 	if flags.Archiver == nil {
 		return fmt.Errorf("archiver is nil")
 	}
@@ -52,6 +53,12 @@ func Compress(dest io.WriteCloser, flags CompressFlags, fileList ...string) (err
 		return func(absPath string, fi os.FileInfo, err error) error {
 			if err != nil {
 				return err
+			}
+
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			default:
 			}
 
 			isLink, isFile := IsSymbolicLink(fi.Mode()), fi.Mode().IsRegular()
@@ -132,7 +139,7 @@ func Compress(dest io.WriteCloser, flags CompressFlags, fileList ...string) (err
 		}
 	}
 
-	for _, src := range fileList {
+	for _, src := range sources {
 		if err := filepath.Walk(src,
 			iterater(filepath.Clean(src))); err != nil {
 			return err
@@ -161,7 +168,7 @@ type DecompressFlags struct {
 	Logger          Logger
 }
 
-func Decompress(src io.ReadCloser, dir string, flags DecompressFlags) (err error) {
+func Decompress(ctx context.Context, src io.ReadCloser, dir string, flags DecompressFlags) (err error) {
 	defer src.Close()
 
 	if flags.Archiver == nil {
@@ -185,6 +192,12 @@ func Decompress(src io.ReadCloser, dir string, flags DecompressFlags) (err error
 	var links = make(map[string]*tar.Header)
 
 	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
+
 		header, err := tr.Next()
 		if err == io.EOF {
 			break
@@ -272,6 +285,12 @@ func Decompress(src io.ReadCloser, dir string, flags DecompressFlags) (err error
 
 	// create symbolic links
 	for target, header := range links {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
+
 		logger.Debug("link", "source", header.Linkname, "target", target)
 		if err := os.Symlink(header.Linkname, target); err != nil {
 			return err

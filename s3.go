@@ -43,8 +43,7 @@ func (s S3) Upload(ctx context.Context, path string,
 
 	errChan := make(chan error)
 	go func() {
-		errChan <- Compress(writer, flags, localPath...)
-		close(errChan)
+		errChan <- Compress(ctx, writer, flags, localPath...)
 	}()
 
 	_, err := s.uploader.Upload(ctx, &s3.PutObjectInput{
@@ -54,10 +53,10 @@ func (s S3) Upload(ctx context.Context, path string,
 		ContentType: aws.String(flags.Archiver.MediaType()),
 		Metadata:    metadata,
 	})
-	if tgzerr := <-errChan; tgzerr != nil {
-		return tgzerr
+	if err != nil {
+		return err
 	}
-	return err
+	return <-errChan
 }
 
 func (s S3) Download(ctx context.Context, s3Path, localPath string, dflags DecompressFlags) (metadata map[string]string, err error) {
@@ -68,7 +67,7 @@ func (s S3) Download(ctx context.Context, s3Path, localPath string, dflags Decom
 	if err != nil {
 		return nil, err
 	}
-	if err := Decompress(data.Body, localPath, dflags); err != nil {
+	if err := Decompress(ctx, data.Body, localPath, dflags); err != nil {
 		return nil, err
 	}
 	return data.Metadata, nil

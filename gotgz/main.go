@@ -170,7 +170,7 @@ func main() {
 				faltaln(err.Error())
 			}
 		}
-		if err := gotgz.Compress(buf, ctFlags, flag.Args()...); err != nil {
+		if err := gotgz.Compress(basectx, buf, ctFlags, flag.Args()...); err != nil {
 			faltaln(err.Error())
 		}
 	case Extract:
@@ -183,7 +183,7 @@ func main() {
 				faltaln(err.Error())
 			}
 		}
-		if err := gotgz.Decompress(src, flag.Arg(0), deFlags); err != nil {
+		if err := gotgz.Decompress(basectx, src, flag.Arg(0), deFlags); err != nil {
 			faltaln(err.Error())
 		}
 	}
