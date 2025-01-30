@@ -55,7 +55,7 @@ func main() {
 	flag.StringVar(&Algorithm, "algo", "gzip", "compression algorithm")
 	flag.BoolVar(&DryRun, "dry-run", false, "only print the file list")
 	flag.Var(&Excludes, "e", "alias to -exclude")
-	flag.Var(&Excludes, "exclude", "(c mode only)exclude files from the tarball, the pattern is the same as the filepath.Match")
+	flag.Var(&Excludes, "exclude", "(c mode only)exclude files from the tarball, the pattern is the same with shell glob, the pattern should be case-sensitive and relative to the root path")
 	flag.StringVar(&FileSuffix, "suffix", "", "(c mode only) suffix for the archive file")
 	flag.Parse()
 
