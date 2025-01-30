@@ -56,7 +56,7 @@ func Compress(dest io.WriteCloser, flags CompressFlags, fileList ...string) (err
 				return err
 			}
 
-			isLink, isFile := isSymbolicLink(fi.Mode()), fi.Mode().IsRegular()
+			isLink, isFile := IsSymbolicLink(fi.Mode()), fi.Mode().IsRegular()
 			switch {
 			case isLink, isFile, fi.Mode().IsDir():
 				// if we have path rootPath `/data` and absPath `/data/.github/dependabot.yml` and pattern `.github/**`
@@ -205,7 +205,7 @@ func Decompress(src io.ReadCloser, dir string, flags DecompressFlags) (err error
 
 		// strip components
 		if flags.StripComponents > 0 {
-			target = stripComponents(target, flags.StripComponents)
+			target = StripComponents(target, flags.StripComponents)
 			logger.Debug("strip", "target", target)
 		}
 

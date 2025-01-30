@@ -121,13 +121,13 @@ func TestTar(t *testing.T) {
 						file.Gid = int(sys.Gid)
 					}
 
-					if isSymbolicLink(info.Mode()) {
+					if IsSymbolicLink(info.Mode()) {
 						file.Link, err = os.Readlink(path)
 						if err != nil {
 							return err
 						}
 					}
-					origin[stripComponents(rel, 1)] = file
+					origin[StripComponents(rel, 1)] = file
 					count++
 					return nil
 				})
@@ -164,7 +164,7 @@ func TestTar(t *testing.T) {
 						file.Gid = int(sys.Gid)
 					}
 
-					if isSymbolicLink(info.Mode()) {
+					if IsSymbolicLink(info.Mode()) {
 						file.Link, err = os.Readlink(path)
 						if err != nil {
 							return err

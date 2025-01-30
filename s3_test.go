@@ -98,7 +98,7 @@ func TestS3(t *testing.T) {
 				file.Gid = int(sys.Gid)
 			}
 
-			if isSymbolicLink(info.Mode()) {
+			if IsSymbolicLink(info.Mode()) {
 				file.Link, err = os.Readlink(path)
 				if err != nil {
 					return err
@@ -144,7 +144,7 @@ func TestS3(t *testing.T) {
 				file.Gid = int(sys.Gid)
 			}
 
-			if isSymbolicLink(info.Mode()) {
+			if IsSymbolicLink(info.Mode()) {
 				file.Link, err = os.Readlink(path)
 				if err != nil {
 					return err

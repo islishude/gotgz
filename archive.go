@@ -19,6 +19,29 @@ type Archiver interface {
 	Extension() string
 }
 
+func GetCompressionHandlers(alg string) (Archiver, error) {
+	parsed, err := url.Parse(alg)
+	if err != nil {
+		return nil, err
+	}
+
+	query, err := url.ParseQuery(parsed.RawQuery)
+	if err != nil {
+		return nil, err
+	}
+
+	switch parsed.Path {
+	case "gzip", "gz":
+		return NewGZip(query)
+	case "lz4":
+		return NewLz4(query)
+	case "zstd":
+		return NewZstd(query)
+	default:
+		return nil, fmt.Errorf("unsupported compression algorithm: %s", alg)
+	}
+}
+
 type Optioner interface {
 	Get(string) string
 }

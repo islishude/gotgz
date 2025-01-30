@@ -20,11 +20,11 @@ func isPathInvalid(p string) bool {
 	return p == "" || strings.Contains(p, `\`) || strings.Contains(p, "../") || strings.HasPrefix(p, "/")
 }
 
-func isSymbolicLink(mode os.FileMode) bool {
+func IsSymbolicLink(mode os.FileMode) bool {
 	return mode&os.ModeSymlink != 0
 }
 
-func stripComponents(p string, n int) string {
+func StripComponents(p string, n int) string {
 	if n <= 0 {
 		return p
 	}
@@ -64,29 +64,6 @@ func ParseMetadata(raw string) (map[string]string, error) {
 		meta[k] = v[0]
 	}
 	return meta, nil
-}
-
-func GetCompressionHandlers(alg string) (Archiver, error) {
-	parsed, err := url.Parse(alg)
-	if err != nil {
-		return nil, err
-	}
-
-	query, err := url.ParseQuery(parsed.RawQuery)
-	if err != nil {
-		return nil, err
-	}
-
-	switch parsed.Path {
-	case "gzip", "gz":
-		return NewGZip(query)
-	case "lz4":
-		return NewLz4(query)
-	case "zstd":
-		return NewZstd(query)
-	default:
-		return nil, fmt.Errorf("unsupported compression algorithm: %s", alg)
-	}
 }
 
 func AddTarSuffix(fileName, suffix string) string {
