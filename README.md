@@ -4,10 +4,9 @@ Similar to `tar + gzip`, but supports S3
 
 **differences from tar**
 
-1. gzip is enabled as default
-2. `-xvf` form is not supported, you should use `-x -v -f`
+1. gzip is enabled as default, but you can also use zstd or lz4
+2. `-xvf` short form is not supported, you should use `-x -f`
 3. Only files, directories and symbol links are supported
-4. Built-in zstd+lz4 support
 
 ## Compress
 
