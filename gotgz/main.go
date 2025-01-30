@@ -57,7 +57,7 @@ func main() {
 	flag.Var(&Excludes, "e", "alias to -exclude")
 	flag.Var(&Excludes, "exclude", "(c mode only)exclude files from the tarball, the pattern is the same with shell glob, the pattern should be case-sensitive and relative to the root path")
 	flag.BoolVar(&Relative, "relative", false, "(c mode only) store file names as relative paths")
-	flag.StringVar(&FileSuffix, "suffix", "", "(c mode only) suffix for the archive file")
+	flag.StringVar(&FileSuffix, "suffix", "", "suffix for the archive file name, the buit-in date suffix can add current date to the file name")
 	flag.Parse()
 
 	if FileName == "" {
