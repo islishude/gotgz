@@ -57,6 +57,7 @@ func main() {
 	flag.BoolVar(&Relative, "relative", false, "(x mode only) extract files into a relative path")
 	flag.StringVar(&Algorithm, "algo", "gzip", "compression algorithm")
 	flag.BoolVar(&DryRun, "dry-run", false, "only print the file list")
+	flag.Var(&Excludes, "e", "alias to -exclude")
 	flag.Var(&Excludes, "exclude", "(c mode only)exclude files from the tarball, the pattern is the same as the filepath.Match")
 	flag.StringVar(&FileSuffix, "suffix", "", "(c mode only) suffix for the archive file")
 	flag.Parse()
