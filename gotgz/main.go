@@ -137,19 +137,30 @@ func main() {
 			faltaln(err.Error())
 		}
 		// remove the leading slash
-		s3Path := strings.TrimPrefix(filepath.Clean(source.Path), "/")
+		s3Path := gotgz.AddTarSuffix(strings.TrimPrefix(filepath.Clean(source.Path), "/"), FileSuffix)
 		switch {
 		case Create:
-			filePath := gotgz.AddTarSuffix(s3Path, FileSuffix)
-			if err := client.Upload(basectx, filePath, metadata, ctFlags, flag.Args()...); err != nil {
+			slog.Debug("s3 upload", "path", s3Path, "source", flag.Args())
+			if err := client.Upload(basectx, s3Path, metadata, ctFlags, flag.Args()...); err != nil {
 				faltaln(err.Error())
 			}
 		case Extract:
+			slog.Debug("s3 download", "path", s3Path, "dest", flag.Arg(0))
 			if _, err := client.Download(basectx, s3Path, flag.Arg(0), deFlags); err != nil {
 				faltaln(err.Error())
 			}
 		}
 		return
+	}
+
+	if FileName != "-" {
+		if filepath.Ext(FileName) != archiver.Extension() {
+			slog.Warn("File extension might be not match", "archive", archiver.Name())
+		}
+		if err := os.MkdirAll(filepath.Dir(FileName), os.ModePerm); err != nil {
+			faltaln(err.Error())
+		}
+		FileName = gotgz.AddTarSuffix(FileName, FileSuffix)
 	}
 
 	switch {
@@ -158,13 +169,6 @@ func main() {
 		if FileName == "-" {
 			buf = os.Stdout
 		} else {
-			if filepath.Ext(FileName) != archiver.Extension() {
-				slog.Warn("File extension might be not match", "archive", archiver.Name())
-			}
-			if err := os.MkdirAll(filepath.Dir(FileName), os.ModePerm); err != nil {
-				faltaln(err.Error())
-			}
-			FileName = gotgz.AddTarSuffix(FileName, FileSuffix)
 			buf, err = os.Create(FileName)
 			if err != nil {
 				faltaln(err.Error())

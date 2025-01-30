@@ -79,7 +79,7 @@ func Compress(ctx context.Context, dest io.WriteCloser, flags CompressFlags, sou
 				}
 				logger.Info("append", "target", absPath)
 			default:
-				logger.Debug("skip", "target", absPath)
+				logger.Debug("skip", "target", absPath, "mode", fi.Mode().String())
 				return nil
 			}
 
@@ -117,6 +117,7 @@ func Compress(ctx context.Context, dest io.WriteCloser, flags CompressFlags, sou
 			if filepath.IsAbs(header.Name) {
 				header.Name = header.Name[1:]
 			}
+			logger.Debug("tar", "path", header.Name)
 			if err := tw.WriteHeader(header); err != nil {
 				return err
 			}
