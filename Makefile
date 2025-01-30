@@ -4,5 +4,5 @@ install:
 test:
 	docker compose down
 	docker compose up -d --wait
-	S_CI=true go test -v ./...
+	IS_CI=true go test -v ./...
 	docker compose down
