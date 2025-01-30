@@ -45,8 +45,8 @@ func Compress(dest io.WriteCloser, flags CompressFlags, fileList ...string) (err
 		}
 	}()
 
-	logger.Debug("flags",
-		"dry-run", flags.DryRun, "relative", flags.Relative, "exclude", flags.Exclude)
+	logger.Debug("flags", "dry-run", flags.DryRun, "relative", flags.Relative,
+		"exclude", flags.Exclude, "archiver", flags.Archiver.Name())
 
 	var iterater = func(rootPath string) filepath.WalkFunc {
 		return func(absPath string, fi os.FileInfo, err error) error {
@@ -178,7 +178,7 @@ func Decompress(src io.ReadCloser, dir string, flags DecompressFlags) (err error
 		logger = slog.Default()
 	}
 
-	logger.Debug("flags", "dry-run", flags.DryRun, "strip-components", flags.StripComponents,
+	logger.Debug("flags", "dry-run", flags.DryRun, "strip-components", flags.StripComponents, "archiver", flags.Archiver.Name(),
 		"no-same-perm", flags.NoSamePerm, "no-same-owner", flags.NoSameOwner, "no-same-time", flags.NoSameTime, "no-overwrite", flags.NoOverwrite)
 	tr := tar.NewReader(zr)
 
