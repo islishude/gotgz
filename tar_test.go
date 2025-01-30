@@ -47,6 +47,7 @@ func TestTar(t *testing.T) {
 		{name: "lz4", args: args{archiver: &Lz4Archiver{Level: 1}}, wantErr: false},
 		{name: "zstd", args: args{archiver: &ZstdArchiver{Level: 0}}, wantErr: false},
 	}
+	// slog.SetLogLoggerLevel(slog.LevelDebug)
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			create, extract := t.TempDir(), t.TempDir()
@@ -78,7 +79,7 @@ func TestTar(t *testing.T) {
 					NoSamePerm:      false,
 					NoSameOwner:     false,
 					NoSameTime:      false,
-					NoOverwrite:     false,
+					NoOverwrite:     true,
 					StripComponents: 1,
 				}
 
@@ -88,7 +89,6 @@ func TestTar(t *testing.T) {
 			}
 
 			{
-				var count = 0
 				origin := make(map[string]TestFileInfo)
 				err := filepath.Walk("testdata", func(path string, info os.FileInfo, err error) error {
 					if err != nil {
@@ -128,8 +128,11 @@ func TestTar(t *testing.T) {
 							return err
 						}
 					}
-					origin[StripComponents(rel, 1)] = file
-					count++
+					stripped := StripComponents(rel, 1)
+					if stripped == "" {
+						return nil
+					}
+					origin[stripped] = file
 					return nil
 				})
 				if err != nil {
@@ -160,6 +163,10 @@ func TestTar(t *testing.T) {
 						return err
 					}
 
+					if rel == "." {
+						return nil
+					}
+
 					if sys, ok := info.Sys().(*syscall.Stat_t); ok {
 						file.Uid = int(sys.Uid)
 						file.Gid = int(sys.Gid)
@@ -180,12 +187,16 @@ func TestTar(t *testing.T) {
 					t.Fatal(err)
 				}
 
+				// for rel := range processed {
+				// 	t.Log(rel)
+				// }
+
+				// for rel := range origin {
+				// 	t.Log(rel)
+				// }
+
 				if len(origin) != len(processed) {
 					t.Fatalf("origin: %d, processed: %d", len(origin), len(processed))
-				}
-
-				if len(origin) != count {
-					t.Fatalf("origin: %d, count: %d", len(origin), count)
 				}
 
 				for rel, originFile := range origin {

@@ -34,7 +34,7 @@ func main() {
 		NoSameTime        bool
 		NoOverwrite       bool
 		DryRun            bool
-		StripComponents   int64
+		StripComponents   int
 		Excludes          stringsFlag
 	)
 
@@ -51,7 +51,7 @@ func main() {
 	flag.BoolVar(&NoSamePermissions, "no-same-permissions", true, "(x mode only) Do not extract full permissions")
 	flag.BoolVar(&NoOverwrite, "no-overwrite", false, "(x mode only) Do not overwrite files")
 	flag.BoolVar(&NoSameTime, "no-same-time", true, "(x mode only) Do not extract modification time")
-	flag.Int64Var(&StripComponents, "strip-components", 0, "(x mode only) strip N leading components from file names on extraction")
+	flag.IntVar(&StripComponents, "strip-components", 0, "(x mode only) strip N leading components from file names on extraction")
 	flag.StringVar(&Algorithm, "algo", "gzip", "compression algorithm")
 	flag.BoolVar(&DryRun, "dry-run", false, "only print the file list")
 	flag.Var(&Excludes, "e", "alias to -exclude")
@@ -118,12 +118,13 @@ func main() {
 	}
 
 	deFlags := gotgz.DecompressFlags{
-		NoSamePerm:  NoSamePermissions,
-		NoSameOwner: NoSameOwner,
-		NoOverwrite: NoOverwrite,
-		NoSameTime:  NoSameTime,
-		Archiver:    archiver,
-		Logger:      slog.Default(),
+		NoSamePerm:      NoSamePermissions,
+		NoSameOwner:     NoSameOwner,
+		NoOverwrite:     NoOverwrite,
+		NoSameTime:      NoSameTime,
+		Archiver:        archiver,
+		Logger:          slog.Default(),
+		StripComponents: StripComponents,
 	}
 
 	if gotgz.IsS3(source) {

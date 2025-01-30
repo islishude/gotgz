@@ -32,7 +32,7 @@ func StripComponents(p string, n int) string {
 	parts := strings.Split(p, "/")
 	// if n is greater than the number of parts, return the last part
 	if n >= len(parts) {
-		n = len(parts) - 1
+		return ""
 	}
 
 	return strings.Join(parts[n:], "/")
