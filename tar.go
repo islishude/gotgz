@@ -2,7 +2,6 @@ package gotgz
 
 import (
 	"archive/tar"
-	"compress/gzip"
 	"fmt"
 	"io"
 	"io/fs"
@@ -23,14 +22,13 @@ type CompressFlags struct {
 }
 
 func Compress(dest io.WriteCloser, flags CompressFlags, fileList ...string) (err error) {
-	var zr io.WriteCloser
-	if flags.Archiver != nil {
-		zr, err = flags.Archiver.Writer(dest)
-		if err != nil {
-			return err
-		}
-	} else {
-		zr = gzip.NewWriter(dest)
+	if flags.Archiver == nil {
+		return fmt.Errorf("archiver is nil")
+	}
+
+	zr, err := flags.Archiver.Writer(dest)
+	if err != nil {
+		return err
 	}
 
 	var logger = flags.Logger
@@ -166,12 +164,11 @@ type DecompressFlags struct {
 func Decompress(src io.ReadCloser, dir string, flags DecompressFlags) (err error) {
 	defer src.Close()
 
-	var zr io.Reader
-	if flags.Archiver != nil {
-		zr, err = flags.Archiver.Reader(src)
-	} else {
-		zr, err = gzip.NewReader(src)
+	if flags.Archiver == nil {
+		return fmt.Errorf("archiver is nil")
 	}
+
+	zr, err := flags.Archiver.Reader(src)
 	if err != nil {
 		return err
 	}

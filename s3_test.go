@@ -50,7 +50,7 @@ func TestS3(t *testing.T) {
 	fileName := "testdata.tar.gz"
 
 	createFlags := CompressFlags{Archiver: gzip}
-	err = client.Upload(basectx, fileName, gzip.MediaType(), metadata, createFlags, "testdata")
+	err = client.Upload(basectx, fileName, metadata, createFlags, "testdata")
 	if err != nil {
 		t.Fatal(err)
 	}

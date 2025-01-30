@@ -138,8 +138,7 @@ func main() {
 		switch {
 		case Create:
 			filePath := gotgz.AddTarSuffix(source.Path, FileSuffix)
-			if err := client.Upload(basectx, filePath,
-				archiver.MediaType(), metadata, ctFlags, flag.Args()...); err != nil {
+			if err := client.Upload(basectx, filePath, metadata, ctFlags, flag.Args()...); err != nil {
 				faltaln(err.Error())
 			}
 		case Extract:

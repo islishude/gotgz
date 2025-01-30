@@ -36,7 +36,7 @@ func NewWithClient(s3c *s3.Client, bucket string) S3 {
 	}
 }
 
-func (s S3) Upload(ctx context.Context, path, contentType string,
+func (s S3) Upload(ctx context.Context, path string,
 	metadata map[string]string, flags CompressFlags, localPath ...string) error {
 	reader, writer := io.Pipe()
 
@@ -50,7 +50,7 @@ func (s S3) Upload(ctx context.Context, path, contentType string,
 		Body:        reader,
 		Bucket:      aws.String(s.bucket),
 		Key:         aws.String(path),
-		ContentType: aws.String(contentType),
+		ContentType: aws.String(flags.Archiver.MediaType()),
 		Metadata:    metadata,
 	})
 	if tgzerr := <-errChan; tgzerr != nil {
