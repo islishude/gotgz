@@ -47,7 +47,7 @@ func Compress(dest io.WriteCloser, flags CompressFlags, fileList ...string) (err
 		}
 	}()
 
-	flags.Logger.Debug("flags",
+	logger.Debug("flags",
 		"dry-run", flags.DryRun, "relative", flags.Relative, "exclude", flags.Exclude)
 
 	var iterater = func(rootPath string) filepath.WalkFunc {
@@ -185,6 +185,8 @@ func Decompress(src io.ReadCloser, dir string, flags DecompressFlags) (err error
 		"no-same-perm", flags.NoSamePerm, "no-same-owner", flags.NoSameOwner, "no-same-time", flags.NoSameTime, "no-overwrite", flags.NoOverwrite)
 	tr := tar.NewReader(zr)
 
+	var links = make(map[string]*tar.Header)
+
 	for {
 		header, err := tr.Next()
 		if err == io.EOF {
@@ -251,9 +253,9 @@ func Decompress(src io.ReadCloser, dir string, flags DecompressFlags) (err error
 				return err
 			}
 		case tar.TypeSymlink:
-			if err := os.Symlink(header.Linkname, target); err != nil {
-				return err
-			}
+			// save the link for later
+			links[target] = header
+			continue
 		default:
 			continue
 		}
@@ -264,6 +266,24 @@ func Decompress(src io.ReadCloser, dir string, flags DecompressFlags) (err error
 			}
 		}
 
+		if !flags.NoSameTime {
+			if err := os.Chtimes(target, header.AccessTime, header.ModTime); err != nil {
+				return err
+			}
+		}
+	}
+
+	// create symbolic links
+	for target, header := range links {
+		logger.Debug("link", "source", header.Linkname, "target", target)
+		if err := os.Symlink(header.Linkname, target); err != nil {
+			return err
+		}
+		if !flags.NoSameOwner {
+			if err := os.Chown(target, header.Uid, header.Gid); err != nil {
+				return err
+			}
+		}
 		if !flags.NoSameTime {
 			if err := os.Chtimes(target, header.AccessTime, header.ModTime); err != nil {
 				return err

@@ -6,13 +6,12 @@ Similar to `tar + gzip`, but supports S3
 
 1. gzip is enabled as default
 2. `-xvf` form is not supported, you should use `-x -v -f`
-3. keep the leading slash of absolute paths
-4. Only files and directories are supported
+3. Only files, directories and symbol links are supported
 
 ## Compress
 
 ```console
-$ gotgz -v -c -f s3://your-s3-bucket/path.tgz public src
+$ gotgz -c -f s3://your-s3-bucket/path.tgz public src
 a public
 a public/favicon.ico
 a public/next.svg
@@ -36,7 +35,7 @@ Time cost: 7.154367ms
 ## Decompress
 
 ```console
-$ gotgz -v -x -f s3://your-s3-bucket/path.tgz
+$ gotgz -x -f s3://your-s3-bucket/path.tgz
 x public
 x public/favicon.ico
 x public/next.svg

@@ -127,7 +127,7 @@ func main() {
 		}
 		switch {
 		case Create:
-			filePath := gotgz.AddFileSuffix(source.Path, FileSuffix)
+			filePath := gotgz.AddTarSuffix(source.Path, FileSuffix)
 			if err := client.Upload(basectx, filePath,
 				archiver.MediaType(), metadata, ctFlags, flag.Args()...); err != nil {
 				faltaln(err.Error())
@@ -152,7 +152,7 @@ func main() {
 			if err := os.MkdirAll(filepath.Dir(FileName), os.ModePerm); err != nil {
 				faltaln(err.Error())
 			}
-			FileName = gotgz.AddFileSuffix(FileName, FileSuffix)
+			FileName = gotgz.AddTarSuffix(FileName, FileSuffix)
 			buf, err = os.Create(FileName)
 			if err != nil {
 				faltaln(err.Error())

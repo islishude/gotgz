@@ -148,10 +148,110 @@ func TestAddFileSuffix(t *testing.T) {
 			args: args{fileName: "/path/to/example.txt", suffix: "date"},
 			want: fmt.Sprintf("/path/to/example-%s.txt", time.Now().Format("20060102")),
 		},
+		{
+			name: "Add date suffix to file with tar extension",
+			args: args{fileName: "example.tar.gz", suffix: "date"},
+			want: fmt.Sprintf("example-%s.tar.gz", time.Now().Format("20060102")),
+		},
+		{
+			name: "Add date suffix to file with multiple dots",
+			args: args{fileName: "example.test.txt", suffix: "date"},
+			want: fmt.Sprintf("example.test-%s.txt", time.Now().Format("20060102")),
+		},
+		{
+			name: "Add date suffix to file without extension",
+			args: args{fileName: "example", suffix: "date"},
+			want: fmt.Sprintf("example-%s", time.Now().Format("20060102")),
+		},
+		{
+			name: "Add date suffix to hidden file",
+			args: args{fileName: ".example", suffix: "date"},
+			want: ".example",
+		},
+		{
+			name: "Add date suffix to hidden file with extension",
+			args: args{fileName: ".example.txt", suffix: "date"},
+			want: fmt.Sprintf(".example-%s.txt", time.Now().Format("20060102")),
+		},
+		{
+			name: "Add date suffix to file with multiple extensions",
+			args: args{fileName: "example.tar.gz", suffix: "date"},
+			want: fmt.Sprintf("example-%s.tar.gz", time.Now().Format("20060102")),
+		},
+		{
+			name: "Add date suffix to file with complex path",
+			args: args{fileName: "/complex/path/to/example.tar.gz", suffix: "date"},
+			want: fmt.Sprintf("/complex/path/to/example-%s.tar.gz", time.Now().Format("20060102")),
+		},
+		{
+			name: "Add custom suffix",
+			args: args{fileName: "example.txt", suffix: "custom"},
+			want: "example-custom.txt",
+		},
+		{
+			name: "Add custom suffix to file with path",
+			args: args{fileName: "/path/to/example.txt", suffix: "custom"},
+			want: "/path/to/example-custom.txt",
+		},
+		{
+			name: "Add custom suffix to file with tar extension",
+			args: args{fileName: "example.tar.gz", suffix: "custom"},
+			want: "example-custom.tar.gz",
+		},
+		{
+			name: "Add custom suffix to file with multiple dots",
+			args: args{fileName: "example.test.txt", suffix: "custom"},
+			want: "example.test-custom.txt",
+		},
+		{
+			name: "Add custom suffix to file without extension",
+			args: args{fileName: "example", suffix: "custom"},
+			want: "example-custom",
+		},
+		{
+			name: "Add custom suffix to hidden file",
+			args: args{fileName: ".example", suffix: "custom"},
+			want: ".example",
+		},
+		{
+			name: "Add custom suffix to hidden file with extension",
+			args: args{fileName: ".example.txt", suffix: "custom"},
+			want: ".example-custom.txt",
+		},
+		{
+			name: "Add custom suffix to file with multiple extensions",
+			args: args{fileName: "example.tar.gz", suffix: "custom"},
+			want: "example-custom.tar.gz",
+		},
+		{
+			name: "Add custom suffix to file with complex path",
+			args: args{fileName: "/complex/path/to/example.tar.gz", suffix: "custom"},
+			want: "/complex/path/to/example-custom.tar.gz",
+		},
+		{
+			name: "Add empty suffix to file with multiple extensions",
+			args: args{fileName: "example.tar.gz", suffix: ""},
+			want: "example.tar.gz",
+		},
+		{
+			name: "Add empty suffix to file with complex path",
+			args: args{fileName: "/complex/path/to/example.tar.gz", suffix: ""},
+			want: "/complex/path/to/example.tar.gz",
+		},
+		{
+			name: "Add empty suffix to hidden file",
+			args: args{fileName: ".example", suffix: ""},
+			want: ".example",
+		},
+		{
+			name: "Add empty suffix to hidden file with extension",
+			args: args{fileName: ".example.txt", suffix: ""},
+			want: ".example.txt",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := AddFileSuffix(tt.args.fileName, tt.args.suffix); got != tt.want {
+			if got := AddTarSuffix(tt.args.fileName, tt.args.suffix); got != tt.want {
 				t.Errorf("AddSuffix() = %v, want %v", got, tt.want)
 			}
 		})

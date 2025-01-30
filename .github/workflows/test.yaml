@@ -1,0 +1,31 @@
+name: test
+
+on:
+  push:
+    branches:
+      - "*"
+  pull_request:
+    branches:
+      - "main"
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      localstack:
+        image: localstack/localstack
+        ports: ["4566:4566"]
+        options: >-
+          --health-cmd "awslocal s3 ls" --health-interval 1s --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.23"
+          check-latest: true
+      - run: go build
+      - run: go test -v ./...
+        env:
+          IS_CI: "true"
