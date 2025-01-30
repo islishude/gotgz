@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"net/url"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
@@ -86,4 +87,8 @@ func (s S3) IsExist(ctx context.Context, s3Path string) (bool, error) {
 		return false, err
 	}
 	return true, nil
+}
+
+func IsS3(u *url.URL) bool {
+	return u.Scheme == "s3"
 }

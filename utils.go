@@ -38,10 +38,6 @@ func StripComponents(p string, n int) string {
 	return strings.Join(parts[n:], "/")
 }
 
-func IsS3(u *url.URL) bool {
-	return u.Scheme == "s3"
-}
-
 func ParseMetadata(raw string) (map[string]string, error) {
 	if raw == "" {
 		return nil, nil
