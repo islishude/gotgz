@@ -75,25 +75,25 @@ func TestGetCompressionHandlers(t *testing.T) {
 		{
 			name:    "gzip algorithm",
 			args:    args{alg: "gzip"},
-			want:    &GZipArchiver{}, // Assuming GZipArchiver implements Archiver
+			want:    GZipArchiver{Level: -1}, // Assuming GZipArchiver implements Archiver
 			wantErr: false,
 		},
 		{
 			name:    "gz algorithm",
 			args:    args{alg: "gz?level=1"},
-			want:    &GZipArchiver{Level: 1}, // Assuming GZipArchiver implements Archiver
+			want:    GZipArchiver{Level: 1}, // Assuming GZipArchiver implements Archiver
 			wantErr: false,
 		},
 		{
 			name:    "lz4 algorithm",
 			args:    args{alg: "lz4?level=1"},
-			want:    &Lz4Archiver{Level: 512}, // Assuming Lz4Archiver implements Archiver
+			want:    Lz4Archiver{Level: 1}, // Assuming Lz4Archiver implements Archiver
 			wantErr: false,
 		},
 		{
 			name:    "zstd algorithm",
 			args:    args{alg: "zstd?level=1"},
-			want:    &ZstdArchiver{Level: 1}, // Assuming ZstdArchiver implements Archiver
+			want:    ZstdArchiver{Level: 1}, // Assuming ZstdArchiver implements Archiver
 			wantErr: false,
 		},
 		{
