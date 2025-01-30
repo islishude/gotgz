@@ -52,11 +52,11 @@ func main() {
 	flag.BoolVar(&NoOverwrite, "no-overwrite", false, "(x mode only) Do not overwrite files")
 	flag.BoolVar(&NoSameTime, "no-same-time", true, "(x mode only) Do not extract modification time")
 	flag.Int64Var(&StripComponents, "strip-components", 0, "(x mode only) strip N leading components from file names on extraction")
-	flag.BoolVar(&Relative, "relative", false, "(x mode only) extract files into a relative path")
 	flag.StringVar(&Algorithm, "algo", "gzip", "compression algorithm")
 	flag.BoolVar(&DryRun, "dry-run", false, "only print the file list")
 	flag.Var(&Excludes, "e", "alias to -exclude")
 	flag.Var(&Excludes, "exclude", "(c mode only)exclude files from the tarball, the pattern is the same with shell glob, the pattern should be case-sensitive and relative to the root path")
+	flag.BoolVar(&Relative, "relative", false, "(c mode only) store file names as relative paths")
 	flag.StringVar(&FileSuffix, "suffix", "", "(c mode only) suffix for the archive file")
 	flag.Parse()
 
