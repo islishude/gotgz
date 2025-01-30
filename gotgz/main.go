@@ -17,7 +17,6 @@ import (
 
 func main() {
 	var (
-		Dest     string
 		FileName string
 
 		Create  bool
@@ -38,8 +37,6 @@ func main() {
 		Excludes          stringsFlag
 	)
 
-	flag.StringVar(&Dest, "C", "", "alias to -directory")
-	flag.StringVar(&Dest, "directory", "", "change to DIR before performing any operations")
 	flag.StringVar(&LogLevel, "v", slog.LevelInfo.String(), "alias to -verbose")
 	flag.StringVar(&LogLevel, "verbose", slog.LevelInfo.String(), "the log level")
 	flag.StringVar(&FileName, "f", "", "alias to -file")
@@ -68,6 +65,18 @@ func main() {
 
 	if !Create && !Extract {
 		faltaln("No action :)")
+	}
+
+	if Create && Extract {
+		faltaln("You can't create and extract at the same time")
+	}
+
+	if Extract && len(flag.Args()) != 1 {
+		faltaln("You can't extract and have arguments")
+	}
+
+	if Create && len(flag.Args()) == 0 {
+		faltaln("No files to compress")
 	}
 
 	slog.SetLogLoggerLevel(ParseLogLevel(LogLevel))
@@ -134,7 +143,7 @@ func main() {
 				faltaln(err.Error())
 			}
 		case Extract:
-			if _, err := client.Download(basectx, source.Path, Dest, deFlags); err != nil {
+			if _, err := client.Download(basectx, source.Path, flag.Arg(0), deFlags); err != nil {
 				faltaln(err.Error())
 			}
 		}
@@ -172,7 +181,7 @@ func main() {
 				faltaln(err.Error())
 			}
 		}
-		if err := gotgz.Decompress(src, Dest, deFlags); err != nil {
+		if err := gotgz.Decompress(src, flag.Arg(0), deFlags); err != nil {
 			faltaln(err.Error())
 		}
 	}
