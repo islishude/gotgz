@@ -165,6 +165,7 @@ func main() {
 
 	switch {
 	case Create:
+		slog.Debug("create", "path", FileName, "source", flag.Args())
 		var buf io.WriteCloser
 		if FileName == "-" {
 			buf = os.Stdout
@@ -178,6 +179,7 @@ func main() {
 			faltaln(err.Error())
 		}
 	case Extract:
+		slog.Debug("extract", "path", FileName, "dest", flag.Arg(0))
 		var src io.ReadCloser
 		if FileName == "-" {
 			src = os.Stdin
