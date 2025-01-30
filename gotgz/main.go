@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -135,14 +136,16 @@ func main() {
 		if err != nil {
 			faltaln(err.Error())
 		}
+		// remove the leading slash
+		s3Path := strings.TrimPrefix(filepath.Clean(source.Path), "/")
 		switch {
 		case Create:
-			filePath := gotgz.AddTarSuffix(source.Path, FileSuffix)
+			filePath := gotgz.AddTarSuffix(s3Path, FileSuffix)
 			if err := client.Upload(basectx, filePath, metadata, ctFlags, flag.Args()...); err != nil {
 				faltaln(err.Error())
 			}
 		case Extract:
-			if _, err := client.Download(basectx, source.Path, flag.Arg(0), deFlags); err != nil {
+			if _, err := client.Download(basectx, s3Path, flag.Arg(0), deFlags); err != nil {
 				faltaln(err.Error())
 			}
 		}
