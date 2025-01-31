@@ -32,6 +32,7 @@ func main() {
 		Excludes   stringsFlag
 
 		S3PartSize int64
+		S3Thread   int
 	)
 
 	var deFlags = gotgz.DecompressFlags{Logger: slog.Default()}
@@ -56,6 +57,7 @@ func main() {
 	flag.BoolVar(&Relative, "relative", false, "(c mode only) store file names as relative paths")
 	flag.StringVar(&FileSuffix, "suffix", "", "suffix for the archive file name, the buit-in date suffix can add current date to the file name")
 	flag.Int64Var(&S3PartSize, "s3-part-size", 10, "the part size for s3 upload , the unit is MB")
+	flag.IntVar(&S3Thread, "s3-thread", 5, "the concurrency for s3 upload")
 	flag.Parse()
 
 	if FileName == "" {
@@ -108,11 +110,13 @@ func main() {
 	}
 
 	ctFlags := gotgz.CompressFlags{
-		DryRun:   deFlags.DryRun,
-		Relative: Relative,
-		Archiver: archiver,
-		Exclude:  Excludes,
-		Logger:   slog.Default(),
+		DryRun:     deFlags.DryRun,
+		Relative:   Relative,
+		Archiver:   archiver,
+		Exclude:    Excludes,
+		Logger:     slog.Default(),
+		S3PartSize: S3PartSize,
+		S3Thread:   S3Thread,
 	}
 
 	deFlags.Archiver = archiver

@@ -57,6 +57,9 @@ func (s S3) Upload(ctx context.Context, path string,
 		if size > s3manager.MinUploadPartSize {
 			u.PartSize = size
 		}
+		if flags.S3Thread > 0 {
+			u.Concurrency = flags.S3Thread
+		}
 	})
 	if err != nil {
 		return err

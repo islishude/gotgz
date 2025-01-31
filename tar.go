@@ -21,6 +21,7 @@ type CompressFlags struct {
 	Logger     Logger
 	Exclude    []string
 	S3PartSize int64
+	S3Thread   int
 }
 
 func Compress(ctx context.Context, dest io.WriteCloser, flags CompressFlags, sources ...string) (err error) {
