@@ -31,7 +31,9 @@ func New(basectx context.Context, bucket string) (S3, error) {
 
 func NewWithClient(s3c *s3.Client, bucket string) S3 {
 	return S3{
-		uploader: s3manager.NewUploader(s3c),
+		uploader: s3manager.NewUploader(s3c, func(u *s3manager.Uploader) {
+			u.PartSize = 100 * 1024 * 1024
+		}),
 		s3Client: s3c,
 		bucket:   bucket,
 	}
