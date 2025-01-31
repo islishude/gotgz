@@ -80,6 +80,11 @@ func main() {
 		faltaln("No files to compress")
 	}
 
+	// https://docs.aws.amazon.com/AmazonS3/latest/userguide/qfacts.html
+	if S3PartSize < 5 || S3PartSize > 5*1024 {
+		faltaln("S3 part size should be between 5MB and 5GB")
+	}
+
 	slog.SetLogLoggerLevel(ParseLogLevel(LogLevel))
 	start := time.Now()
 	defer func() {
