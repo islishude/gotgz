@@ -49,8 +49,8 @@ func TestS3(t *testing.T) {
 	metadata := map[string]string{"x-client": "gotgz"}
 	fileName := "testdata.tar.gz"
 
-	createFlags := CompressFlags{Archiver: gzip}
-	err = client.Upload(basectx, fileName, metadata, createFlags, "testdata")
+	createFlags := CompressFlags{Archiver: gzip, Metadata: metadata}
+	err = client.Upload(basectx, createFlags, fileName, "testdata")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -65,7 +65,7 @@ func TestS3(t *testing.T) {
 
 	temp := t.TempDir()
 	extractFlags := DecompressFlags{Archiver: gzip}
-	metadata2, err := client.Download(basectx, fileName, temp, extractFlags)
+	metadata2, err := client.Download(basectx, extractFlags, fileName, temp)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -132,7 +132,7 @@ func main() {
 	deFlags.Archiver = archiver
 
 	if gotgz.IsS3(source) {
-		metadata, err := gotgz.ParseMetadata(source.RawQuery)
+		ctFlags.Metadata, err = gotgz.ParseMetadata(source.RawQuery)
 		if err != nil {
 			faltaln(err.Error())
 		}
@@ -146,12 +146,12 @@ func main() {
 		switch {
 		case Create:
 			slog.Debug("s3 upload", "path", s3Path, "source", flag.Args())
-			if err := client.Upload(basectx, s3Path, metadata, ctFlags, flag.Args()...); err != nil {
+			if err := client.Upload(basectx, ctFlags, s3Path, flag.Args()...); err != nil {
 				faltaln(err.Error())
 			}
 		case Extract:
 			slog.Debug("s3 download", "path", s3Path, "dest", flag.Arg(0))
-			if _, err := client.Download(basectx, s3Path, flag.Arg(0), deFlags); err != nil {
+			if _, err := client.Download(basectx, deFlags, s3Path, flag.Arg(0)); err != nil {
 				faltaln(err.Error())
 			}
 		}

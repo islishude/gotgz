@@ -37,21 +37,20 @@ func NewWithClient(s3c *s3.Client, bucket string) S3 {
 	}
 }
 
-func (s S3) Upload(ctx context.Context, path string,
-	metadata map[string]string, flags CompressFlags, localPath ...string) error {
+func (s S3) Upload(ctx context.Context, flags CompressFlags, s3Key string, sources ...string) error {
 	reader, writer := io.Pipe()
 
 	errChan := make(chan error)
 	go func() {
-		errChan <- Compress(ctx, writer, flags, localPath...)
+		errChan <- Compress(ctx, writer, flags, sources...)
 	}()
 
 	_, err := s.uploader.Upload(ctx, &s3.PutObjectInput{
 		Body:        reader,
 		Bucket:      aws.String(s.bucket),
-		Key:         aws.String(path),
+		Key:         aws.String(s3Key),
 		ContentType: aws.String(flags.Archiver.MediaType()),
-		Metadata:    metadata,
+		Metadata:    flags.Metadata,
 	}, func(u *s3manager.Uploader) {
 		size := flags.S3PartSize * 1024 * 1024
 		if size > s3manager.MinUploadPartSize {
@@ -67,24 +66,24 @@ func (s S3) Upload(ctx context.Context, path string,
 	return <-errChan
 }
 
-func (s S3) Download(ctx context.Context, s3Path, localPath string, dflags DecompressFlags) (metadata map[string]string, err error) {
+func (s S3) Download(ctx context.Context, flags DecompressFlags, s3Key, destination string) (metadata map[string]string, err error) {
 	data, err := s.s3Client.GetObject(ctx, &s3.GetObjectInput{
 		Bucket: aws.String(s.bucket),
-		Key:    aws.String(s3Path),
+		Key:    aws.String(s3Key),
 	})
 	if err != nil {
 		return nil, err
 	}
-	if err := Decompress(ctx, data.Body, localPath, dflags); err != nil {
+	if err := Decompress(ctx, data.Body, destination, flags); err != nil {
 		return nil, err
 	}
 	return data.Metadata, nil
 }
 
-func (s S3) IsExist(ctx context.Context, s3Path string) (bool, error) {
+func (s S3) IsExist(ctx context.Context, s3Key string) (bool, error) {
 	_, err := s.s3Client.HeadObject(ctx, &s3.HeadObjectInput{
 		Bucket: aws.String(s.bucket),
-		Key:    aws.String(s3Path),
+		Key:    aws.String(s3Key),
 	})
 
 	if err != nil {
