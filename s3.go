@@ -53,8 +53,9 @@ func (s S3) Upload(ctx context.Context, path string,
 		ContentType: aws.String(flags.Archiver.MediaType()),
 		Metadata:    metadata,
 	}, func(u *s3manager.Uploader) {
-		if flags.S3PartSize > s3manager.MinUploadPartSize {
-			u.PartSize = flags.S3PartSize
+		size := flags.S3PartSize * 1024 * 1024
+		if size > s3manager.MinUploadPartSize {
+			u.PartSize = size
 		}
 	})
 	if err != nil {
