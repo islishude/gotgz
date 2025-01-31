@@ -15,11 +15,12 @@ import (
 )
 
 type CompressFlags struct {
-	DryRun   bool
-	Relative bool
-	Archiver Archiver
-	Logger   Logger
-	Exclude  []string
+	DryRun     bool
+	Relative   bool
+	Archiver   Archiver
+	Logger     Logger
+	Exclude    []string
+	S3PartSize int64
 }
 
 func Compress(ctx context.Context, dest io.WriteCloser, flags CompressFlags, sources ...string) (err error) {
@@ -47,7 +48,7 @@ func Compress(ctx context.Context, dest io.WriteCloser, flags CompressFlags, sou
 	}()
 
 	logger.Debug("flags", "dry-run", flags.DryRun, "relative", flags.Relative,
-		"exclude", flags.Exclude, "archiver", flags.Archiver.Name())
+		"exclude", flags.Exclude, "archiver", flags.Archiver.Name(), "s3-part-size", flags.S3PartSize)
 
 	var iterater = func(rootPath string) filepath.WalkFunc {
 		return func(absPath string, fi os.FileInfo, err error) error {

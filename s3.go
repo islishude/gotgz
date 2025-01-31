@@ -31,9 +31,7 @@ func New(basectx context.Context, bucket string) (S3, error) {
 
 func NewWithClient(s3c *s3.Client, bucket string) S3 {
 	return S3{
-		uploader: s3manager.NewUploader(s3c, func(u *s3manager.Uploader) {
-			u.PartSize = 100 * 1024 * 1024
-		}),
+		uploader: s3manager.NewUploader(s3c),
 		s3Client: s3c,
 		bucket:   bucket,
 	}
@@ -54,6 +52,10 @@ func (s S3) Upload(ctx context.Context, path string,
 		Key:         aws.String(path),
 		ContentType: aws.String(flags.Archiver.MediaType()),
 		Metadata:    metadata,
+	}, func(u *s3manager.Uploader) {
+		if flags.S3PartSize > s3manager.MinUploadPartSize {
+			u.PartSize = flags.S3PartSize
+		}
 	})
 	if err != nil {
 		return err

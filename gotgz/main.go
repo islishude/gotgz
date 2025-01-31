@@ -30,6 +30,8 @@ func main() {
 
 		FileSuffix string
 		Excludes   stringsFlag
+
+		S3PartSize int64
 	)
 
 	var deFlags = gotgz.DecompressFlags{Logger: slog.Default()}
@@ -53,6 +55,7 @@ func main() {
 	flag.Var(&Excludes, "exclude", "(c mode only)exclude files from the tarball, the pattern is the same with shell glob, the pattern should be case-sensitive and relative to the root path")
 	flag.BoolVar(&Relative, "relative", false, "(c mode only) store file names as relative paths")
 	flag.StringVar(&FileSuffix, "suffix", "", "suffix for the archive file name, the buit-in date suffix can add current date to the file name")
+	flag.Int64Var(&S3PartSize, "s3-part-size", 100, "the part size for s3 upload , the unit is MB")
 	flag.Parse()
 
 	if FileName == "" {
