@@ -19,25 +19,20 @@ import (
 func main() {
 	var (
 		FileName string
+		Create   bool
+		Extract  bool
 
-		Create  bool
-		Extract bool
-		Timeout time.Duration
-
-		Relative bool
+		Timeout  time.Duration
 		LogLevel string
 
-		Algorithm         string
-		FileSuffix        string
-		NoSameOwner       bool
-		NoSamePermissions bool
-		NoSameTime        bool
-		NoOverwrite       bool
-		DryRun            bool
-		StripComponents   int
-		Excludes          stringsFlag
+		Relative  bool
+		Algorithm string
+
+		FileSuffix string
+		Excludes   stringsFlag
 	)
 
+	var deFlags = gotgz.DecompressFlags{Logger: slog.Default()}
 	flag.StringVar(&LogLevel, "v", slog.LevelInfo.String(), "alias to -verbose")
 	flag.StringVar(&LogLevel, "verbose", slog.LevelInfo.String(), "the log level")
 	flag.StringVar(&FileName, "f", "", "alias to -file")
@@ -47,13 +42,13 @@ func main() {
 	flag.BoolVar(&Extract, "x", false, "alias to -extract")
 	flag.BoolVar(&Extract, "extract", false, "extract files from an archive")
 	flag.DurationVar(&Timeout, "timeout", 0, "timeout in go time.Duration expression, if the value is less than or equal to 0, it will be ignored")
-	flag.BoolVar(&NoSameOwner, "no-same-owner", true, "(x mode only) Do not extract owner and group IDs.")
-	flag.BoolVar(&NoSamePermissions, "no-same-permissions", true, "(x mode only) Do not extract full permissions")
-	flag.BoolVar(&NoOverwrite, "no-overwrite", false, "(x mode only) Do not overwrite files")
-	flag.BoolVar(&NoSameTime, "no-same-time", true, "(x mode only) Do not extract modification time")
-	flag.IntVar(&StripComponents, "strip-components", 0, "(x mode only) strip N leading components from file names on extraction")
+	flag.BoolVar(&deFlags.NoSameOwner, "no-same-owner", true, "(x mode only) Do not extract owner and group IDs.")
+	flag.BoolVar(&deFlags.NoSamePerm, "no-same-permissions", true, "(x mode only) Do not extract full permissions")
+	flag.BoolVar(&deFlags.NoOverwrite, "no-overwrite", false, "(x mode only) Do not overwrite files")
+	flag.BoolVar(&deFlags.NoSameTime, "no-same-time", true, "(x mode only) Do not extract modification time")
+	flag.IntVar(&deFlags.StripComponents, "strip-components", 0, "(x mode only) strip N leading components from file names on extraction")
 	flag.StringVar(&Algorithm, "algo", "gzip", "compression algorithm")
-	flag.BoolVar(&DryRun, "dry-run", false, "only print the file list")
+	flag.BoolVar(&deFlags.DryRun, "dry-run", false, "only print the file list")
 	flag.Var(&Excludes, "e", "alias to -exclude")
 	flag.Var(&Excludes, "exclude", "(c mode only)exclude files from the tarball, the pattern is the same with shell glob, the pattern should be case-sensitive and relative to the root path")
 	flag.BoolVar(&Relative, "relative", false, "(c mode only) store file names as relative paths")
@@ -110,22 +105,14 @@ func main() {
 	}
 
 	ctFlags := gotgz.CompressFlags{
-		DryRun:   DryRun,
+		DryRun:   deFlags.DryRun,
 		Relative: Relative,
 		Archiver: archiver,
 		Exclude:  Excludes,
 		Logger:   slog.Default(),
 	}
 
-	deFlags := gotgz.DecompressFlags{
-		NoSamePerm:      NoSamePermissions,
-		NoSameOwner:     NoSameOwner,
-		NoOverwrite:     NoOverwrite,
-		NoSameTime:      NoSameTime,
-		Archiver:        archiver,
-		Logger:          slog.Default(),
-		StripComponents: StripComponents,
-	}
+	deFlags.Archiver = archiver
 
 	if gotgz.IsS3(source) {
 		metadata, err := gotgz.ParseMetadata(source.RawQuery)
