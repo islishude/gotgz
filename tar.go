@@ -197,7 +197,7 @@ func Decompress(ctx context.Context, src io.ReadCloser, dir string, flags Decomp
 
 	// create directory if not exist
 	if dir != "" {
-		if err := os.MkdirAll(dir, 0775); err != nil {
+		if err := os.MkdirAll(dir, DefaultDirPerm); err != nil {
 			return err
 		}
 	}
@@ -246,7 +246,7 @@ func Decompress(ctx context.Context, src io.ReadCloser, dir string, flags Decomp
 		case tar.TypeDir:
 			var mode = fs.FileMode(header.Mode)
 			if flags.NoSamePerm {
-				mode = fs.FileMode(0775)
+				mode = fs.FileMode(DefaultDirPerm)
 			}
 			if err := os.MkdirAll(dest, mode); err != nil {
 				return err
@@ -262,7 +262,7 @@ func Decompress(ctx context.Context, src io.ReadCloser, dir string, flags Decomp
 
 			var mode = fs.FileMode(header.Mode)
 			if flags.NoSamePerm {
-				mode = fs.FileMode(0664)
+				mode = fs.FileMode(DefaultFilePerm)
 			}
 
 			fileToWrite, err := os.OpenFile(dest, os.O_CREATE|os.O_RDWR|os.O_TRUNC, mode)

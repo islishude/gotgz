@@ -9,6 +9,11 @@ import (
 	"time"
 )
 
+const (
+	DefaultDirPerm  = 0755
+	DefaultFilePerm = 0644
+)
+
 type Logger interface {
 	Error(msg string, args ...any)
 	Debug(msg string, args ...any)
