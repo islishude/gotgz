@@ -49,7 +49,8 @@ func Compress(ctx context.Context, dest io.WriteCloser, flags CompressFlags, sou
 	}()
 
 	logger.Debug("flags", "dry-run", flags.DryRun, "relative", flags.Relative,
-		"exclude", flags.Exclude, "archiver", flags.Archiver.Name(), "s3-part-size", flags.S3PartSize)
+		"exclude", flags.Exclude, "archiver", flags.Archiver.Name(),
+		"s3-part-size", flags.S3PartSize, "s3-thread", flags.S3Thread)
 
 	var iterater = func(rootPath string) filepath.WalkFunc {
 		return func(absPath string, fi os.FileInfo, err error) error {
