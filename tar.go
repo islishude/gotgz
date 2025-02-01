@@ -65,9 +65,9 @@ func Compress(ctx context.Context, dest io.WriteCloser, flags CompressFlags, sou
 			default:
 			}
 
-			isLink, isFile := IsSymbolicLink(fi.Mode()), fi.Mode().IsRegular()
+			isLink, isFile, isDir := IsSymbolicLink(fi.Mode()), fi.Mode().IsRegular(), fi.Mode().IsDir()
 			switch {
-			case isLink, isFile, fi.Mode().IsDir():
+			case isLink, isFile, isDir:
 				// if we have path rootPath `/data` and absPath `/data/.github/dependabot.yml` and pattern `.github/**`
 				// we should use `.github/dependabot.yml` as the path, so the user don't need to use pattern `/data.github/**`
 				path := absPath
@@ -78,6 +78,9 @@ func Compress(ctx context.Context, dest io.WriteCloser, flags CompressFlags, sou
 				for _, pattern := range flags.Exclude {
 					if doublestar.MatchUnvalidated(pattern, path) {
 						logger.Debug("exclude", "target", absPath, "parttern", pattern)
+						if isDir {
+							return filepath.SkipDir
+						}
 						return nil
 					}
 				}
