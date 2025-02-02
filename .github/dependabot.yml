@@ -9,6 +9,10 @@ updates:
     directory: /
     schedule:
       interval: monthly
+    groups:
+      aws-sdk:
+        patterns:
+          - "github.com/aws/*"
 
   - package-ecosystem: "docker"
     directory: /
