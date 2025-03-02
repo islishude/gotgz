@@ -8,7 +8,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/feature/s3/manager v1.17.64
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.78.0
 	github.com/bmatcuk/doublestar/v4 v4.8.1
-	github.com/klauspost/compress v1.17.11
+	github.com/klauspost/compress v1.18.0
 	github.com/pierrec/lz4/v4 v4.1.22
 	go.uber.org/automaxprocs v1.6.0
 )
