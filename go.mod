@@ -1,6 +1,6 @@
 module github.com/islishude/gotgz
 
-go 1.22
+go 1.25.0
 
 require (
 	github.com/aws/aws-sdk-go-v2 v1.37.1
@@ -10,7 +10,6 @@ require (
 	github.com/bmatcuk/doublestar/v4 v4.9.1
 	github.com/klauspost/compress v1.18.0
 	github.com/pierrec/lz4/v4 v4.1.22
-	go.uber.org/automaxprocs v1.6.0
 )
 
 require (

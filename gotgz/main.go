@@ -14,12 +14,7 @@ import (
 	"time"
 
 	"github.com/islishude/gotgz"
-	"go.uber.org/automaxprocs/maxprocs"
 )
-
-func init() {
-	_, _ = maxprocs.Set()
-}
 
 func main() {
 	var (
