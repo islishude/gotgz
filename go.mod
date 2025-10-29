@@ -8,7 +8,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/feature/s3/manager v1.19.10
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.88.3
 	github.com/bmatcuk/doublestar/v4 v4.9.1
-	github.com/klauspost/compress v1.18.0
+	github.com/klauspost/compress v1.18.1
 	github.com/pierrec/lz4/v4 v4.1.22
 )
 
