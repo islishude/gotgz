@@ -1,13 +1,13 @@
 package gotgz
 
 import (
-	"compress/gzip"
 	"fmt"
 	"io"
 	"net/url"
 	"strconv"
 
 	"github.com/klauspost/compress/zstd"
+	gzip "github.com/klauspost/pgzip"
 	"github.com/pierrec/lz4/v4"
 )
 

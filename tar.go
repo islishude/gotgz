@@ -43,9 +43,9 @@ func Compress(ctx context.Context, dest io.WriteCloser, flags CompressFlags, sou
 	tw := tar.NewWriter(zr)
 	defer func() {
 		if err != nil {
-			zr.Close()
-			tw.Close()
-			dest.Close()
+			zr.Close()   //nolint:errcheck
+			tw.Close()   //nolint:errcheck
+			dest.Close() //nolint:errcheck
 		}
 	}()
 
@@ -177,7 +177,7 @@ type DecompressFlags struct {
 }
 
 func Decompress(ctx context.Context, src io.ReadCloser, dir string, flags DecompressFlags) (err error) {
-	defer src.Close()
+	defer src.Close() //nolint:errcheck
 
 	if flags.Archiver == nil {
 		return fmt.Errorf("archiver is nil")

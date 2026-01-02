@@ -25,7 +25,7 @@ func GetFileHash(path string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer file.Close()
+	defer file.Close() //nolint:errcheck
 
 	hash := sha256.New()
 	if _, err := io.Copy(hash, file); err != nil {
