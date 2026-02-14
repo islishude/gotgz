@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"maps"
 	"os"
 	"path"
 	"path/filepath"
@@ -522,12 +523,8 @@ func mergeMetadata(base, overlay map[string]string) map[string]string {
 		return nil
 	}
 	out := make(map[string]string, len(base)+len(overlay))
-	for k, v := range base {
-		out[k] = v
-	}
-	for k, v := range overlay {
-		out[k] = v
-	}
+	maps.Copy(out, base)
+	maps.Copy(out, overlay)
 	return out
 }
 
@@ -639,7 +636,7 @@ func stripPathComponents(name string, count int) (string, bool) {
 	}
 	clean := path.Clean(strings.TrimPrefix(name, "/"))
 	parts := make([]string, 0)
-	for _, p := range strings.Split(clean, "/") {
+	for p := range strings.SplitSeq(clean, "/") {
 		if p == "" || p == "." {
 			continue
 		}
