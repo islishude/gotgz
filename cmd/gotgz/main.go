@@ -18,15 +18,16 @@ func main() {
 		os.Exit(engine.ExitFatal)
 	}
 
-	runner, err := engine.New(context.Background(), os.Stdout, os.Stderr)
+	basectx, cancel := signal.NotifyContext(context.Background(),
+		syscall.SIGTERM, syscall.SIGINT)
+	defer cancel()
+
+	runner, err := engine.New(basectx, os.Stdout, os.Stderr)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "gotgz: %v\n", err)
 		os.Exit(engine.ExitFatal)
 	}
 
-	basectx, cancel := signal.NotifyContext(context.Background(),
-		syscall.SIGTERM, syscall.SIGINT)
-	defer cancel()
 	result := runner.Run(basectx, opts)
 	if result.Err != nil {
 		fmt.Fprintf(os.Stderr, "gotgz: %v\n", result.Err)
