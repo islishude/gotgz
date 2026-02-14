@@ -1,16 +1,17 @@
 module github.com/islishude/gotgz
 
-go 1.25.0
+go 1.26.0
 
 require (
 	github.com/aws/aws-sdk-go-v2 v1.41.1
 	github.com/aws/aws-sdk-go-v2/config v1.32.7
-	github.com/aws/aws-sdk-go-v2/feature/s3/manager v1.21.1
+	github.com/aws/aws-sdk-go-v2/feature/s3/transfermanager v0.1.2
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.96.0
-	github.com/bmatcuk/doublestar/v4 v4.10.0
-	github.com/klauspost/compress v1.18.3
+	github.com/dsnet/compress v0.0.1
+	github.com/klauspost/compress v1.18.4
 	github.com/klauspost/pgzip v1.2.6
-	github.com/pierrec/lz4/v4 v4.1.25
+	github.com/ulikunitz/xz v0.5.15
+	golang.org/x/sys v0.41.0
 )
 
 require (

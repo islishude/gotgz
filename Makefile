@@ -1,8 +1,8 @@
-install:
-	go install ./gotgz
+build:
+	go build -o gotgz ./cmd/gotgz
 
 test:
 	docker compose down
 	docker compose up -d --wait
-	IS_CI=true go test -v ./...
+	GOTGZ_TEST_S3_ENDPOINT=http://localhost:4566 go test -v ./...
 	docker compose down
