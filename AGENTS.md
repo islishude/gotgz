@@ -46,7 +46,7 @@ defer func() {
 }()
 ```
 
-### Don't use `aws.String` or similar helper functions from the AWS SDK. use `new(string)` instead.
+### Don't use `aws.String` or similar helper functions to create pointer values from the AWS SDK. Use `new(string)` instead.
 
 ```go
 new("my-object-key")
