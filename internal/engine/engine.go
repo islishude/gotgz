@@ -142,7 +142,7 @@ func (r *Runner) runCreate(ctx context.Context, opts cli.Options) (warnings int,
 	return warnings, nil
 }
 
-func (r *Runner) addS3Member(ctx context.Context, tw *tar.Writer, ref locator.Ref, verbose bool) error {
+func (r *Runner) addS3Member(ctx context.Context, tw *tar.Writer, ref locator.Ref, verbose bool) (err error) {
 	if strings.TrimSpace(ref.Key) == "" {
 		return fmt.Errorf("s3 member key cannot be empty: %q", ref.Raw)
 	}
@@ -150,6 +150,11 @@ func (r *Runner) addS3Member(ctx context.Context, tw *tar.Writer, ref locator.Re
 	if err != nil {
 		return err
 	}
+	defer func() {
+		if cerr := body.Close(); cerr != nil && err == nil {
+			err = cerr
+		}
+	}()
 
 	hdr := &tar.Header{
 		Name:     ref.Key,
@@ -163,9 +168,6 @@ func (r *Runner) addS3Member(ctx context.Context, tw *tar.Writer, ref locator.Re
 		return err
 	}
 	if _, err := io.Copy(tw, body); err != nil {
-		return err
-	}
-	if err := body.Close(); err != nil {
 		return err
 	}
 	if verbose {
@@ -319,7 +321,11 @@ func (r *Runner) extractToS3(ctx context.Context, target locator.Ref, hdr *tar.H
 	warnings := 0
 	name := strings.TrimPrefix(hdr.Name, "./")
 	if name == "" {
-		return warnings, nil
+		if hdr.Size > 0 {
+			if _, err := io.Copy(io.Discard, io.LimitReader(tr, hdr.Size)); err != nil {
+				return warnings, err
+			}
+		}
 	}
 	obj := locator.Ref{Kind: locator.KindS3, Bucket: target.Bucket, Key: locator.JoinS3Prefix(target.Key, name)}
 	meta, ok := archive.HeaderToS3Metadata(hdr)
@@ -334,8 +340,10 @@ func (r *Runner) extractToS3(ctx context.Context, target locator.Ref, hdr *tar.H
 			return warnings, err
 		}
 	case tar.TypeDir:
-		// S3 has no real directories.
-		return warnings, nil
+		// S3 has no real directories. Still need to consume any data associated with this entry.
+		if _, err := io.Copy(io.Discard, io.LimitReader(tr, hdr.Size)); err != nil {
+			return warnings, err
+		}
 	default:
 		empty := strings.NewReader("")
 		meta["gotgz-type"] = fmt.Sprintf("%d", hdr.Typeflag)
@@ -361,7 +369,7 @@ func (r *Runner) extractToLocal(base string, hdr *tar.Header, tr *tar.Reader, po
 		if err := os.MkdirAll(target, mode.Perm()); err != nil {
 			return 0, err
 		}
-	case tar.TypeReg, tar.TypeRegA:
+	case tar.TypeReg:
 		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 			return 0, err
 		}
