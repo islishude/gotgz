@@ -434,13 +434,13 @@ func (r *Runner) scanArchive(ctx context.Context, opts cli.Options, fn func(hdr 
 	if err != nil {
 		return 0, err
 	}
-	defer ar.Close()
+	defer ar.Close() //nolint:errcheck
 
 	cr, _, err := compress.NewReader(ar, compress.FromString(string(opts.Compression)), opts.Archive)
 	if err != nil {
 		return 0, err
 	}
-	defer cr.Close()
+	defer cr.Close() //nolint:errcheck
 
 	tr := tar.NewReader(cr)
 	warnings := 0
@@ -543,6 +543,9 @@ func loadExcludePatterns(inline []string, files []string) ([]string, error) {
 func matchExclude(patterns []string, name string) bool {
 	for _, p := range patterns {
 		if ok, _ := path.Match(p, name); ok {
+			return true
+		}
+		if strings.Contains(name, p) {
 			return true
 		}
 	}
