@@ -4,7 +4,9 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"mime"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -76,7 +78,7 @@ func (s *Store) OpenReader(ctx context.Context, ref locator.Ref) (io.ReadCloser,
 	if ref.Kind != locator.KindS3 {
 		return nil, Metadata{}, fmt.Errorf("ref %q is not s3", ref.Raw)
 	}
-	out, err := s.client.GetObject(ctx, &awss3.GetObjectInput{Bucket: aws.String(ref.Bucket), Key: aws.String(ref.Key)})
+	out, err := s.client.GetObject(ctx, &awss3.GetObjectInput{Bucket: new(ref.Bucket), Key: new(ref.Key)})
 	if err != nil {
 		return nil, Metadata{}, err
 	}
@@ -91,10 +93,13 @@ func (s *Store) OpenWriter(ctx context.Context, ref locator.Ref, metadata map[st
 	pr, pw := io.Pipe()
 	errCh := make(chan error, 1)
 	in := &transfermanager.UploadObjectInput{
-		Bucket:   aws.String(ref.Bucket),
-		Key:      aws.String(ref.Key),
+		Bucket:   new(ref.Bucket),
+		Key:      new(ref.Key),
 		Body:     pr,
 		Metadata: metadata,
+	}
+	if contentType := contentTypeForKey(ref.Key); contentType != "" {
+		in.ContentType = new(contentType)
 	}
 	s.applyEncryption(in)
 	go func() {
@@ -111,10 +116,13 @@ func (s *Store) UploadStream(ctx context.Context, ref locator.Ref, body io.Reade
 		return fmt.Errorf("ref %q is not s3", ref.Raw)
 	}
 	in := &transfermanager.UploadObjectInput{
-		Bucket:   aws.String(ref.Bucket),
-		Key:      aws.String(ref.Key),
+		Bucket:   new(ref.Bucket),
+		Key:      new(ref.Key),
 		Body:     body,
 		Metadata: metadata,
+	}
+	if contentType := contentTypeForKey(ref.Key); contentType != "" {
+		in.ContentType = new(contentType)
 	}
 	s.applyEncryption(in)
 	_, err := s.tm.UploadObject(ctx, in)
@@ -128,7 +136,7 @@ func (s *Store) applyEncryption(in *transfermanager.UploadObjectInput) {
 	case "aws:kms", "sse-kms":
 		in.ServerSideEncryption = tmtypes.ServerSideEncryptionAwsKms
 		if s.settings.SSEKMSKeyID != "" {
-			in.SSEKMSKeyID = aws.String(s.settings.SSEKMSKeyID)
+			in.SSEKMSKeyID = new(s.settings.SSEKMSKeyID)
 		}
 	case "none":
 		return
@@ -185,4 +193,27 @@ func defaultString(v, def string) string {
 		return def
 	}
 	return v
+}
+
+func contentTypeForKey(key string) string {
+	v := strings.ToLower(strings.TrimSpace(key))
+	switch {
+	case strings.HasSuffix(v, ".tar.gz"), strings.HasSuffix(v, ".tgz"), strings.HasSuffix(v, ".gz"):
+		return "application/gzip"
+	case strings.HasSuffix(v, ".tar.bz2"), strings.HasSuffix(v, ".tbz2"), strings.HasSuffix(v, ".tbz"), strings.HasSuffix(v, ".bz2"):
+		return "application/x-bzip2"
+	case strings.HasSuffix(v, ".tar.xz"), strings.HasSuffix(v, ".txz"), strings.HasSuffix(v, ".xz"):
+		return "application/x-xz"
+	case strings.HasSuffix(v, ".tar.zst"), strings.HasSuffix(v, ".tzst"), strings.HasSuffix(v, ".zstd"), strings.HasSuffix(v, ".zst"):
+		return "application/zstd"
+	case strings.HasSuffix(v, ".tar.lz4"), strings.HasSuffix(v, ".tlz4"), strings.HasSuffix(v, ".lz4"):
+		return "application/x-lz4"
+	case strings.HasSuffix(v, ".tar"), strings.HasSuffix(v, ".tape"):
+		return "application/x-tar"
+	}
+	ext := filepath.Ext(v)
+	if ext == "" {
+		return "application/octet-stream"
+	}
+	return mime.TypeByExtension(ext)
 }

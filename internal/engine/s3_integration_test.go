@@ -42,25 +42,25 @@ func setupS3Bucket(t *testing.T, ctx context.Context, endpoint string) (*awss3.C
 	}
 
 	client := awss3.NewFromConfig(cfg, func(o *awss3.Options) {
-		o.BaseEndpoint = aws.String(endpoint)
+		o.BaseEndpoint = new(endpoint)
 		o.UsePathStyle = true
 	})
 
 	bucket := fmt.Sprintf("gotgz-test-%d", os.Getpid())
-	_, err = client.CreateBucket(ctx, &awss3.CreateBucketInput{Bucket: aws.String(bucket)})
+	_, err = client.CreateBucket(ctx, &awss3.CreateBucketInput{Bucket: new(bucket)})
 	if err != nil {
 		t.Fatalf("create bucket %s: %v", bucket, err)
 	}
 
 	t.Cleanup(func() {
 		// Delete all objects then the bucket.
-		list, _ := client.ListObjectsV2(ctx, &awss3.ListObjectsV2Input{Bucket: aws.String(bucket)})
+		list, _ := client.ListObjectsV2(ctx, &awss3.ListObjectsV2Input{Bucket: new(bucket)})
 		if list != nil {
 			for _, obj := range list.Contents {
-				_, _ = client.DeleteObject(ctx, &awss3.DeleteObjectInput{Bucket: aws.String(bucket), Key: obj.Key})
+				_, _ = client.DeleteObject(ctx, &awss3.DeleteObjectInput{Bucket: new(bucket), Key: obj.Key})
 			}
 		}
-		_, _ = client.DeleteBucket(ctx, &awss3.DeleteBucketInput{Bucket: aws.String(bucket)})
+		_, _ = client.DeleteBucket(ctx, &awss3.DeleteBucketInput{Bucket: new(bucket)})
 	})
 	return client, bucket
 }
@@ -69,8 +69,8 @@ func setupS3Bucket(t *testing.T, ctx context.Context, endpoint string) (*awss3.C
 func putObject(t *testing.T, ctx context.Context, client *awss3.Client, bucket, key, body string) {
 	t.Helper()
 	_, err := client.PutObject(ctx, &awss3.PutObjectInput{
-		Bucket: aws.String(bucket),
-		Key:    aws.String(key),
+		Bucket: new(bucket),
+		Key:    new(key),
 		Body:   strings.NewReader(body),
 	})
 	if err != nil {
@@ -82,8 +82,8 @@ func putObject(t *testing.T, ctx context.Context, client *awss3.Client, bucket, 
 func getObject(t *testing.T, ctx context.Context, client *awss3.Client, bucket, key string) string {
 	t.Helper()
 	out, err := client.GetObject(ctx, &awss3.GetObjectInput{
-		Bucket: aws.String(bucket),
-		Key:    aws.String(key),
+		Bucket: new(bucket),
+		Key:    new(key),
 	})
 	if err != nil {
 		t.Fatalf("get s3://%s/%s: %v", bucket, key, err)
@@ -304,6 +304,51 @@ func TestS3CompressedRoundTrip(t *testing.T) {
 				t.Fatalf("content = %q", string(b))
 			}
 		})
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Test: archive uploads to S3 set an explicit Content-Type
+// ---------------------------------------------------------------------------
+func TestS3ArchiveUploadSetsContentType(t *testing.T) {
+	ctx := context.Background()
+	ep := s3Endpoint(t)
+	client, bucket := setupS3Bucket(t, ctx, ep)
+
+	root := t.TempDir()
+	srcDir := filepath.Join(root, "data")
+	if err := os.MkdirAll(srcDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(srcDir, "msg.txt"), []byte("content-type"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	archiveURI := fmt.Sprintf("s3://%s/archives/content-type.tar.gz", bucket)
+	r := newRunnerWithEndpoint(t, ep, io.Discard, io.Discard)
+	create := cli.Options{
+		Mode:        cli.ModeCreate,
+		Archive:     archiveURI,
+		Compression: cli.CompressionGzip,
+		Chdir:       root,
+		Members:     []string{"data"},
+	}
+	res := r.Run(ctx, create)
+	if res.ExitCode != ExitSuccess {
+		t.Fatalf("create exit=%d err=%v", res.ExitCode, res.Err)
+	}
+
+	out, err := client.GetObject(ctx, &awss3.GetObjectInput{
+		Bucket: new(bucket),
+		Key:    new("archives/content-type.tar.gz"),
+	})
+	if err != nil {
+		t.Fatalf("get uploaded archive: %v", err)
+	}
+	defer out.Body.Close() // nolint: errcheck
+
+	if aws.ToString(out.ContentType) != "application/gzip" {
+		t.Fatalf("content-type=%q, want %q", aws.ToString(out.ContentType), "application/gzip")
 	}
 }
 

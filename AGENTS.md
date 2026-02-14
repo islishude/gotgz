@@ -24,3 +24,9 @@ defer func() {
     }
 }()
 ```
+
+### Don't use `aws.String` or similar helper functions from the AWS SDK. use `new(string)` instead.
+
+```go
+new("my-object-key")
+```
