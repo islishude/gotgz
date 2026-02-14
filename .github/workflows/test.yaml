@@ -30,6 +30,7 @@ jobs:
         with:
           version: latest
       - run: go build ./...
+      - run: gofmt -d .
       - run: go test -v ./...
         env:
           GOTGZ_TEST_S3_ENDPOINT: "http://localhost:4566"
