@@ -40,7 +40,7 @@ func TestParseModeConflict(t *testing.T) {
 
 func TestParseLongOptions(t *testing.T) {
 	opts, err := Parse([]string{
-		"-x", "-f", "in.tar", "--exclude=*.tmp", "--exclude-from", "ex.txt", "--wildcards", "--numeric-owner", "--no-same-owner", "--same-permissions", "--lz4",
+		"-x", "-f", "in.tar", "--exclude=*.tmp", "--exclude-from", "ex.txt", "--wildcards", "--numeric-owner", "--no-same-owner", "--same-permissions", "--lz4", "--strip-components=1",
 	})
 	if err != nil {
 		t.Fatalf("Parse() error = %v", err)
@@ -59,6 +59,9 @@ func TestParseLongOptions(t *testing.T) {
 	}
 	if opts.Compression != CompressionLz4 {
 		t.Fatalf("compression = %q, want %q", opts.Compression, CompressionLz4)
+	}
+	if opts.StripComponents != 1 {
+		t.Fatalf("strip-components = %d, want 1", opts.StripComponents)
 	}
 }
 
@@ -79,5 +82,12 @@ func TestParseHelpLong(t *testing.T) {
 	}
 	if !opts.Help {
 		t.Fatalf("expected Help=true")
+	}
+}
+
+func TestParseStripComponentsInvalid(t *testing.T) {
+	_, err := Parse([]string{"-x", "-f", "in.tar", "--strip-components=-1"})
+	if err == nil {
+		t.Fatalf("expected parse error")
 	}
 }

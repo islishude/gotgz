@@ -10,6 +10,7 @@ A Linux `tar`-compatible CLI tool written in Go, with native AWS S3 support as b
 - **PAX format** — preserves extended attributes (xattr) and ACLs via PAX records
 - **Permission control** — `--same-owner`, `--same-permissions`, `--numeric-owner`
 - **Exclude patterns** — `--exclude` and `--exclude-from` with optional `--wildcards`
+- **Path stripping on extract** — `--strip-components <count>` removes leading path segments
 - **S3 encryption** — configurable server-side encryption (AES256, SSE-KMS)
 
 ## Installation
@@ -110,6 +111,9 @@ gotgz -cvf archive.tar --exclude='*.log' --exclude-from=excludes.txt dir/
 
 # Permission preservation
 gotgz -xvf archive.tar --same-owner --same-permissions
+
+# Strip leading path components while extracting
+gotgz -xvf archive.tar --strip-components=1 -C /tmp/output
 
 # Legacy (bundled) syntax
 gotgz cvf archive.tar dir/

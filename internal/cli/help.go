@@ -22,6 +22,8 @@ Modes:
 Main Options:
   -f <archive>      Archive path: local file, -, s3://bucket/key, or S3 ARN
   -C <dir|s3://...> Change directory before create/extract
+  --strip-components <count>
+                    Remove <count> leading path elements when extracting
   -v                Verbose output
   -O                Extract regular file data to stdout
   -h, --help        Show this help message

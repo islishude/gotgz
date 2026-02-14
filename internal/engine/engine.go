@@ -276,6 +276,12 @@ func (r *Runner) runExtract(ctx context.Context, opts cli.Options) (int, error) 
 				}
 				return 0, nil
 			}
+			if _, ok := stripPathComponents(hdr.Name, opts.StripComponents); !ok {
+				if _, err := io.Copy(io.Discard, io.LimitReader(tr, hdr.Size)); err != nil {
+					return 0, err
+				}
+				return 0, nil
+			}
 			if hdr.Typeflag != tar.TypeReg {
 				if _, err := io.Copy(io.Discard, tr); err != nil {
 					return 0, err
@@ -303,14 +309,23 @@ func (r *Runner) runExtract(ctx context.Context, opts cli.Options) (int, error) 
 			}
 			return 0, nil
 		}
+		extractName, ok := stripPathComponents(hdr.Name, opts.StripComponents)
+		if !ok {
+			if _, err := io.Copy(io.Discard, io.LimitReader(tr, hdr.Size)); err != nil {
+				return 0, err
+			}
+			return 0, nil
+		}
+		effectiveHdr := *hdr
+		effectiveHdr.Name = extractName
 		if opts.Verbose {
-			_, _ = fmt.Fprintln(r.stdout, hdr.Name)
+			_, _ = fmt.Fprintln(r.stdout, effectiveHdr.Name)
 		}
 		switch parsedTarget.Kind {
 		case locator.KindS3:
-			return r.extractToS3(ctx, parsedTarget, hdr, tr)
+			return r.extractToS3(ctx, parsedTarget, &effectiveHdr, tr)
 		case locator.KindLocal, locator.KindStdio:
-			return r.extractToLocal(parsedTarget.Path, hdr, tr, policy)
+			return r.extractToLocal(parsedTarget.Path, &effectiveHdr, tr, policy)
 		default:
 			return 0, fmt.Errorf("unsupported extract target %q", target)
 		}
@@ -616,4 +631,22 @@ func safeJoin(base, member string) (string, error) {
 		return "", fmt.Errorf("refusing to write outside target directory: %s", member)
 	}
 	return candidate, nil
+}
+
+func stripPathComponents(name string, count int) (string, bool) {
+	if count <= 0 {
+		return name, true
+	}
+	clean := path.Clean(strings.TrimPrefix(name, "/"))
+	parts := make([]string, 0)
+	for _, p := range strings.Split(clean, "/") {
+		if p == "" || p == "." {
+			continue
+		}
+		parts = append(parts, p)
+	}
+	if len(parts) <= count {
+		return "", false
+	}
+	return strings.Join(parts[count:], "/"), true
 }

@@ -53,6 +53,49 @@ func TestCreateExtractLocalRoundTrip(t *testing.T) {
 	}
 }
 
+func TestExtractStripComponents(t *testing.T) {
+	root := t.TempDir()
+	srcRoot := filepath.Join(root, "src")
+	archive := filepath.Join(root, "a.tar")
+	out := filepath.Join(root, "out")
+
+	if err := os.MkdirAll(filepath.Join(srcRoot, "dir"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(srcRoot, "dir", "file.txt"), []byte("strip-me"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	r, err := New(context.Background(), io.Discard, io.Discard)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	create := cli.Options{Mode: cli.ModeCreate, Archive: archive, Chdir: root, Members: []string{"src"}}
+	if got := r.Run(context.Background(), create); got.ExitCode != ExitSuccess {
+		t.Fatalf("create exit=%d err=%v", got.ExitCode, got.Err)
+	}
+
+	if err := os.MkdirAll(out, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	extract := cli.Options{Mode: cli.ModeExtract, Archive: archive, Chdir: out, StripComponents: 1}
+	if got := r.Run(context.Background(), extract); got.ExitCode != ExitSuccess {
+		t.Fatalf("extract exit=%d err=%v", got.ExitCode, got.Err)
+	}
+
+	data, err := os.ReadFile(filepath.Join(out, "dir", "file.txt"))
+	if err != nil {
+		t.Fatalf("read stripped file: %v", err)
+	}
+	if string(data) != "strip-me" {
+		t.Fatalf("content mismatch = %q", string(data))
+	}
+	if _, err := os.Stat(filepath.Join(out, "src")); !os.IsNotExist(err) {
+		t.Fatalf("src directory should not exist after strip, err=%v", err)
+	}
+}
+
 // testdataDir returns the absolute path to the top-level testdata directory.
 func testdataDir(t *testing.T) string {
 	t.Helper()

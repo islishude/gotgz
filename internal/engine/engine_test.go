@@ -39,3 +39,20 @@ func TestSafeJoinNormal(t *testing.T) {
 		t.Fatalf("path = %q, want %q", p, want)
 	}
 }
+
+func TestStripPathComponents(t *testing.T) {
+	got, ok := stripPathComponents("parent/dir/file.txt", 1)
+	if !ok {
+		t.Fatalf("expected keep")
+	}
+	if got != "dir/file.txt" {
+		t.Fatalf("got %q, want %q", got, "dir/file.txt")
+	}
+}
+
+func TestStripPathComponentsDrop(t *testing.T) {
+	_, ok := stripPathComponents("parent/file.txt", 2)
+	if ok {
+		t.Fatalf("expected drop")
+	}
+}

@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 )
 
@@ -31,6 +32,7 @@ type Options struct {
 	Archive         string
 	Verbose         bool
 	Help            bool
+	StripComponents int
 	Chdir           string
 	ToStdout        bool
 	Compression     CompressionHint
@@ -80,6 +82,17 @@ func Parse(args []string) (Options, error) {
 				}
 				i = nextI
 				opts.ExcludeFrom = append(opts.ExcludeFrom, v)
+			case "strip-components":
+				v, nextI, err := resolveValue(name, value, hasValue, args, i)
+				if err != nil {
+					return opts, err
+				}
+				i = nextI
+				n, err := strconv.Atoi(v)
+				if err != nil || n < 0 {
+					return opts, fmt.Errorf("option --strip-components requires a non-negative integer")
+				}
+				opts.StripComponents = n
 			case "wildcards":
 				opts.Wildcards = true
 			case "numeric-owner":
