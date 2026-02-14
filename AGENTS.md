@@ -7,7 +7,7 @@ A file for [guiding coding agents](https://agents.md/).
 - **Build:** `make build`
 - **Test:** `make test`
 - **Lint:** `make lint`
-- **Format:** `make fmt`
+- **Format:** `make format`
 
 ## Install missing tools
 
