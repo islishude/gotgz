@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/islishude/gotgz/internal/cli"
 	"github.com/islishude/gotgz/internal/engine"
@@ -22,7 +24,10 @@ func main() {
 		os.Exit(engine.ExitFatal)
 	}
 
-	result := runner.Run(context.Background(), opts)
+	basectx, cancel := signal.NotifyContext(context.Background(),
+		syscall.SIGTERM, syscall.SIGINT)
+	defer cancel()
+	result := runner.Run(basectx, opts)
 	if result.Err != nil {
 		fmt.Fprintf(os.Stderr, "gotgz: %v\n", result.Err)
 	}
