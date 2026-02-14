@@ -25,6 +25,7 @@ jobs:
         with:
           go-version: "1.26"
           check-latest: true
+      - run: go fix -diff ./...
       - run: go build -o gotgz ./cmd/gotgz
       - run: go test -v ./...
         env:
