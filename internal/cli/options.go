@@ -30,6 +30,7 @@ type Options struct {
 	Mode            Mode
 	Archive         string
 	Verbose         bool
+	Help            bool
 	Chdir           string
 	ToStdout        bool
 	Compression     CompressionHint
@@ -99,6 +100,8 @@ func Parse(args []string) (Options, error) {
 				opts.Compression = CompressionZstd
 			case "lz4":
 				opts.Compression = CompressionLz4
+			case "help":
+				opts.Help = true
 			default:
 				return opts, fmt.Errorf("unsupported option --%s", name)
 			}
@@ -123,6 +126,8 @@ func Parse(args []string) (Options, error) {
 				}
 			case 'v':
 				opts.Verbose = true
+			case 'h':
+				opts.Help = true
 			case 'O':
 				opts.ToStdout = true
 			case 'z':
@@ -154,6 +159,9 @@ func Parse(args []string) (Options, error) {
 		}
 	}
 
+	if opts.Help {
+		return opts, nil
+	}
 	if opts.Mode == ModeNone {
 		return opts, fmt.Errorf("no operation mode specified")
 	}

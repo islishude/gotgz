@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 
 	"github.com/islishude/gotgz/internal/cli"
@@ -16,6 +17,10 @@ func main() {
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "gotgz: %v\n", err)
 		os.Exit(engine.ExitFatal)
+	}
+	if opts.Help {
+		fmt.Fprint(os.Stdout, cli.HelpText(filepath.Base(os.Args[0])))
+		os.Exit(0)
 	}
 
 	basectx, cancel := signal.NotifyContext(context.Background(),

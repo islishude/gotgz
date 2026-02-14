@@ -61,3 +61,23 @@ func TestParseLongOptions(t *testing.T) {
 		t.Fatalf("compression = %q, want %q", opts.Compression, CompressionLz4)
 	}
 }
+
+func TestParseHelpShort(t *testing.T) {
+	opts, err := Parse([]string{"-h"})
+	if err != nil {
+		t.Fatalf("Parse() error = %v", err)
+	}
+	if !opts.Help {
+		t.Fatalf("expected Help=true")
+	}
+}
+
+func TestParseHelpLong(t *testing.T) {
+	opts, err := Parse([]string{"--help"})
+	if err != nil {
+		t.Fatalf("Parse() error = %v", err)
+	}
+	if !opts.Help {
+		t.Fatalf("expected Help=true")
+	}
+}

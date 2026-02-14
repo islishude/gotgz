@@ -1,0 +1,49 @@
+package cli
+
+import "fmt"
+
+func HelpText(program string) string {
+	if program == "" {
+		program = "gotgz"
+	}
+	return fmt.Sprintf(`%s - tar-compatible archiver with S3 support
+
+Usage:
+  %s -c -f <archive> [members...]
+  %s -x -f <archive> [members...]
+  %s -t -f <archive> [members...]
+  %s [bundled flags] <archive> [members...]   (example: %s -cvf out.tar dir)
+
+Modes:
+  -c                Create archive
+  -x                Extract archive
+  -t                List archive contents
+
+Main Options:
+  -f <archive>      Archive path: local file, -, s3://bucket/key, or S3 ARN
+  -C <dir|s3://...> Change directory before create/extract
+  -v                Verbose output
+  -O                Extract regular file data to stdout
+  -h, --help        Show this help message
+
+Compression:
+  -z                gzip
+  -j                bzip2
+  -J                xz
+  --zstd            zstd
+  --lz4             lz4
+  (extract/list auto-detects by magic bytes, then file extension)
+
+Ownership & Permissions:
+  --same-owner
+  --no-same-owner
+  --same-permissions
+  --no-same-permissions
+  --numeric-owner
+
+Exclude:
+  --exclude <pattern>
+  --exclude-from <file>
+  --wildcards
+`, program, program, program, program, program, program)
+}
