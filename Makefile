@@ -7,7 +7,7 @@ install:
 lint:
 	golangci-lint run --timeout 10m
 
-format:
+fmt:
 	gofmt -w -s .
 	go fix ./...
 
