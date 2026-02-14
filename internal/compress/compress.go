@@ -11,6 +11,7 @@ import (
 	"github.com/dsnet/compress/bzip2"
 	"github.com/klauspost/compress/zstd"
 	gzip "github.com/klauspost/pgzip"
+	"github.com/pierrec/lz4/v4"
 	"github.com/ulikunitz/xz"
 )
 
@@ -23,6 +24,7 @@ const (
 	Bzip2 Type = "bzip2"
 	Xz    Type = "xz"
 	Zstd  Type = "zstd"
+	Lz4   Type = "lz4"
 )
 
 func FromString(v string) Type {
@@ -37,6 +39,8 @@ func FromString(v string) Type {
 		return Xz
 	case "zstd":
 		return Zstd
+	case "lz4":
+		return Lz4
 	default:
 		return Auto
 	}
@@ -66,6 +70,9 @@ func NewWriter(dst io.WriteCloser, t Type) (io.WriteCloser, error) {
 		if err != nil {
 			return nil, err
 		}
+		return &stackedWriteCloser{writer: zw, dst: dst, closeWriterFirst: true}, nil
+	case Lz4:
+		zw := lz4.NewWriter(dst)
 		return &stackedWriteCloser{writer: zw, dst: dst, closeWriterFirst: true}, nil
 	default:
 		return nil, fmt.Errorf("unsupported compression type %q", t)
@@ -126,6 +133,9 @@ func wrapReader(reader io.Reader, src io.Closer, t Type) (io.ReadCloser, error) 
 			return nil, err
 		}
 		return &multiReadCloser{reader: zr, closers: []io.Closer{zr.IOReadCloser(), src}}, nil
+	case Lz4:
+		zr := lz4.NewReader(reader)
+		return &readCloser{reader: zr, closer: src}, nil
 	default:
 		return nil, fmt.Errorf("unsupported compression type %q", t)
 	}
@@ -141,6 +151,8 @@ func detectByMagic(magic []byte) Type {
 		return Xz
 	case len(magic) >= 4 && bytes.Equal(magic[:4], []byte{0x28, 0xb5, 0x2f, 0xfd}):
 		return Zstd
+	case len(magic) >= 4 && bytes.Equal(magic[:4], []byte{0x04, 0x22, 0x4d, 0x18}):
+		return Lz4
 	default:
 		return Auto
 	}
@@ -157,6 +169,8 @@ func detectByExt(name string) Type {
 		return Xz
 	case ".zst", ".tzst", ".zstd":
 		return Zstd
+	case ".lz4", ".tlz4":
+		return Lz4
 	default:
 		return Auto
 	}

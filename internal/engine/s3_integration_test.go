@@ -268,6 +268,7 @@ func TestS3CompressedRoundTrip(t *testing.T) {
 		{cli.CompressionBzip2, ".tar.bz2"},
 		{cli.CompressionXz, ".tar.xz"},
 		{cli.CompressionZstd, ".tar.zst"},
+		{cli.CompressionLz4, ".tar.lz4"},
 	}
 
 	for _, cc := range compressions {

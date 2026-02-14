@@ -10,6 +10,7 @@ require (
 	github.com/dsnet/compress v0.0.1
 	github.com/klauspost/compress v1.18.4
 	github.com/klauspost/pgzip v1.2.6
+	github.com/pierrec/lz4/v4 v4.1.25
 	github.com/ulikunitz/xz v0.5.15
 	golang.org/x/sys v0.41.0
 )

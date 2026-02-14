@@ -23,6 +23,7 @@ const (
 	CompressionBzip2 CompressionHint = "bzip2"
 	CompressionXz    CompressionHint = "xz"
 	CompressionZstd  CompressionHint = "zstd"
+	CompressionLz4   CompressionHint = "lz4"
 )
 
 type Options struct {
@@ -96,6 +97,8 @@ func Parse(args []string) (Options, error) {
 				opts.SamePermissions = &b
 			case "zstd":
 				opts.Compression = CompressionZstd
+			case "lz4":
+				opts.Compression = CompressionLz4
 			default:
 				return opts, fmt.Errorf("unsupported option --%s", name)
 			}

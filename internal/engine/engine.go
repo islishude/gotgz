@@ -545,9 +545,6 @@ func matchExclude(patterns []string, name string) bool {
 		if ok, _ := path.Match(p, name); ok {
 			return true
 		}
-		if strings.Contains(name, p) {
-			return true
-		}
 	}
 	return false
 }

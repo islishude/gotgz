@@ -40,7 +40,7 @@ func TestParseModeConflict(t *testing.T) {
 
 func TestParseLongOptions(t *testing.T) {
 	opts, err := Parse([]string{
-		"-x", "-f", "in.tar", "--exclude=*.tmp", "--exclude-from", "ex.txt", "--wildcards", "--numeric-owner", "--no-same-owner", "--same-permissions",
+		"-x", "-f", "in.tar", "--exclude=*.tmp", "--exclude-from", "ex.txt", "--wildcards", "--numeric-owner", "--no-same-owner", "--same-permissions", "--lz4",
 	})
 	if err != nil {
 		t.Fatalf("Parse() error = %v", err)
@@ -56,5 +56,8 @@ func TestParseLongOptions(t *testing.T) {
 	}
 	if len(opts.Exclude) != 1 || len(opts.ExcludeFrom) != 1 {
 		t.Fatalf("exclude flags not parsed")
+	}
+	if opts.Compression != CompressionLz4 {
+		t.Fatalf("compression = %q, want %q", opts.Compression, CompressionLz4)
 	}
 }

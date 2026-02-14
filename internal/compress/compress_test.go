@@ -11,7 +11,7 @@ import (
 
 func TestRoundTrip(t *testing.T) {
 	payload := []byte(strings.Repeat("hello-gotgz-", 128))
-	cases := []Type{None, Gzip, Bzip2, Xz, Zstd}
+	cases := []Type{None, Gzip, Bzip2, Xz, Zstd, Lz4}
 	for _, c := range cases {
 		t.Run(string(c), func(t *testing.T) {
 			var buf bytes.Buffer
