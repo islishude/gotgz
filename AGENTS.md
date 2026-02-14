@@ -9,7 +9,7 @@ A file for [guiding coding agents](https://agents.md/).
 - **Lint:** `make lint`
 - **Format:** `make fmt` (Formatting is done with `goimports`, which is included in the Go toolchain)
 
-## Install linting tools
+## Install missing tools
 
 Linting is done with [golangci-lint](https://golangci-lint.run/).
 
@@ -17,6 +17,15 @@ You can install it with the following command:
 
 ```bash
 go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest
+```
+
+Testing requires Docker Compose. You can install it with the following command:
+
+```
+# For Linux
+sudo apt-get install docker-compose-plugin
+# For macOS with Homebrew
+brew install docker docker-compose
 ```
 
 ## Code Style
