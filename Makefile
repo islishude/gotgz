@@ -1,6 +1,9 @@
 build:
 	go build -o gotgz ./cmd/gotgz
 
+install:
+	go install ./cmd/gotgz
+
 lint:
 	golangci-lint run --timeout 10m
 
