@@ -264,7 +264,7 @@ func TestTestdataRoundTripCompressors(t *testing.T) {
 				Compression:     comp,
 				SamePermissions: &samePerms,
 			}
-			if got := r.Run(context.Background(), extract); got.ExitCode == ExitFatal {
+			if got := r.Run(context.Background(), extract); got.ExitCode != ExitSuccess {
 				t.Fatalf("extract exit=%d err=%v", got.ExitCode, got.Err)
 			}
 
