@@ -1,6 +1,9 @@
 build:
 	go build -o gotgz ./cmd/gotgz
 
+lint:
+	golangci-lint run --timeout 10m
+
 test:
 	docker compose down
 	docker compose up -d --wait
