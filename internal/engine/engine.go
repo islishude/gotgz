@@ -88,19 +88,16 @@ func (r *Runner) runCreate(ctx context.Context, opts cli.Options) (warnings int,
 	if err != nil {
 		return 0, err
 	}
-	defer func() {
-		if cerr := aw.Close(); cerr != nil && retErr == nil {
-			retErr = fmt.Errorf("closing archive writer: %w", cerr)
-		}
-	}()
 
 	cw, err := compress.NewWriter(aw, compress.FromString(string(opts.Compression)))
 	if err != nil {
+		_ = aw.Close()
 		return 0, err
 	}
 	defer func() {
+		// cw.Close() also closes the underlying archive writer.
 		if cerr := cw.Close(); cerr != nil && retErr == nil {
-			retErr = fmt.Errorf("closing compression writer: %w", cerr)
+			retErr = fmt.Errorf("closing archive: %w", cerr)
 		}
 	}()
 
@@ -381,10 +378,15 @@ func (r *Runner) extractToLocal(base string, hdr *tar.Header, tr *tar.Reader, po
 			return 0, cerr
 		}
 	case tar.TypeSymlink:
+		if err := safeSymlinkTarget(base, target, hdr.Linkname); err != nil {
+			return 0, err
+		}
 		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 			return 0, err
 		}
-		_ = os.Remove(target)
+		if err := os.Remove(target); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return 0, err
+		}
 		if err := os.Symlink(hdr.Linkname, target); err != nil {
 			return 0, err
 		}
@@ -543,11 +545,37 @@ func matchExclude(patterns []string, name string) bool {
 		if ok, _ := path.Match(p, name); ok {
 			return true
 		}
-		if strings.Contains(name, p) {
-			return true
-		}
 	}
 	return false
+}
+
+// safeSymlinkTarget validates that a symlink's target does not escape the
+// extraction base directory. linkname is the raw target from the archive;
+// symlinkPath is the absolute path where the symlink will be created.
+func safeSymlinkTarget(base, symlinkPath, linkname string) error {
+	if linkname == "" {
+		return fmt.Errorf("symlink target is empty")
+	}
+	base = filepath.Clean(base)
+
+	var resolved string
+	if filepath.IsAbs(linkname) {
+		// Absolute symlink targets are resolved within the base directory.
+		resolved = filepath.Join(base, filepath.FromSlash(linkname))
+	} else {
+		// Relative symlink targets are resolved from the symlink's parent.
+		resolved = filepath.Join(filepath.Dir(symlinkPath), filepath.FromSlash(linkname))
+	}
+	resolved = filepath.Clean(resolved)
+
+	rel, err := filepath.Rel(base, resolved)
+	if err != nil {
+		return fmt.Errorf("refusing symlink: cannot compute relative path: %w", err)
+	}
+	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return fmt.Errorf("refusing symlink %q -> %q: target escapes extraction directory", symlinkPath, linkname)
+	}
+	return nil
 }
 
 func safeJoin(base, member string) (string, error) {
