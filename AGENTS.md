@@ -19,14 +19,6 @@ You can install it with the following command:
 go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest
 ```
 
-Formatting is done with `goimports`, which is included in the Go toolchain.
-
-You can install it with the following command:
-
-```bash
-go install golang.org/x/tools/cmd/goimports@latest
-```
-
 Testing requires Docker Compose. You can install it with the following command:
 
 ```

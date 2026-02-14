@@ -8,7 +8,8 @@ lint:
 	golangci-lint run --timeout 10m
 
 format:
-	goimports -w .
+	gofmt -w -s .
+	go fix ./...
 
 test:
 	docker compose down
