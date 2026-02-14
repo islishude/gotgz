@@ -40,7 +40,7 @@ func TestParseModeConflict(t *testing.T) {
 
 func TestParseLongOptions(t *testing.T) {
 	opts, err := Parse([]string{
-		"-x", "-f", "in.tar", "--exclude=*.tmp", "--exclude-from", "ex.txt", "--wildcards", "--numeric-owner", "--no-same-owner", "--same-permissions", "--lz4", "--strip-components=1", "--compression-level=9",
+		"-x", "-f", "in.tar", "--exclude=*.tmp", "--exclude-from", "ex.txt", "--wildcards", "--numeric-owner", "--no-same-owner", "--same-permissions", "--lz4", "--strip-components=1", "--compression-level=9", "--suffix=custom",
 	})
 	if err != nil {
 		t.Fatalf("Parse() error = %v", err)
@@ -65,6 +65,9 @@ func TestParseLongOptions(t *testing.T) {
 	}
 	if opts.CompressionLevel == nil || *opts.CompressionLevel != 9 {
 		t.Fatalf("compression-level = %v, want 9", opts.CompressionLevel)
+	}
+	if opts.Suffix != "custom" {
+		t.Fatalf("suffix = %q, want %q", opts.Suffix, "custom")
 	}
 }
 
@@ -109,5 +112,15 @@ func TestParseCompressionLevelInvalid(t *testing.T) {
 	_, err := Parse([]string{"-x", "-f", "in.tar", "--compression-level=10"})
 	if err == nil {
 		t.Fatalf("expected parse error")
+	}
+}
+
+func TestParseSuffixSingleDash(t *testing.T) {
+	opts, err := Parse([]string{"-x", "-f", "in.tar", "-suffix=date"})
+	if err != nil {
+		t.Fatalf("Parse() error = %v", err)
+	}
+	if opts.Suffix != "date" {
+		t.Fatalf("suffix = %q, want %q", opts.Suffix, "date")
 	}
 }

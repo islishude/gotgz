@@ -96,6 +96,61 @@ func TestExtractStripComponents(t *testing.T) {
 	}
 }
 
+func TestCreateArchiveWithSuffix(t *testing.T) {
+	root := t.TempDir()
+	src := filepath.Join(root, "src")
+	out := filepath.Join(root, "out")
+	archiveBase := filepath.Join(root, "backup.tar.gz")
+	archiveWithSuffix := AddTarSuffix(archiveBase, "custom")
+
+	if err := os.MkdirAll(src, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(src, "hello.txt"), []byte("world"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	r, err := New(context.Background(), io.Discard, io.Discard)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	create := cli.Options{
+		Mode:        cli.ModeCreate,
+		Archive:     archiveBase,
+		Suffix:      "custom",
+		Compression: cli.CompressionGzip,
+		Chdir:       root,
+		Members:     []string{"src"},
+	}
+	if got := r.Run(context.Background(), create); got.ExitCode != ExitSuccess {
+		t.Fatalf("create exit=%d err=%v", got.ExitCode, got.Err)
+	}
+
+	if _, err := os.Stat(archiveWithSuffix); err != nil {
+		t.Fatalf("expected suffixed archive %s: %v", archiveWithSuffix, err)
+	}
+	if _, err := os.Stat(archiveBase); !os.IsNotExist(err) {
+		t.Fatalf("base archive should not exist when suffix is set, err=%v", err)
+	}
+
+	if err := os.MkdirAll(out, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	extract := cli.Options{Mode: cli.ModeExtract, Archive: archiveWithSuffix, Chdir: out}
+	if got := r.Run(context.Background(), extract); got.ExitCode != ExitSuccess {
+		t.Fatalf("extract exit=%d err=%v", got.ExitCode, got.Err)
+	}
+
+	b, err := os.ReadFile(filepath.Join(out, "src", "hello.txt"))
+	if err != nil {
+		t.Fatalf("read extracted file: %v", err)
+	}
+	if string(b) != "world" {
+		t.Fatalf("content mismatch = %q", string(b))
+	}
+}
+
 // testdataDir returns the absolute path to the top-level testdata directory.
 func testdataDir(t *testing.T) string {
 	t.Helper()

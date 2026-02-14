@@ -85,6 +85,17 @@ func (r *Runner) runCreate(ctx context.Context, opts cli.Options) (warnings int,
 	if err != nil {
 		return 0, err
 	}
+	if opts.Suffix != "" {
+		switch archiveRef.Kind {
+		case locator.KindLocal:
+			archiveRef.Path = AddTarSuffix(archiveRef.Path, opts.Suffix)
+			archiveRef.Raw = archiveRef.Path
+		case locator.KindS3:
+			archiveRef.Key = AddTarSuffix(archiveRef.Key, opts.Suffix)
+		case locator.KindStdio:
+			return 0, fmt.Errorf("cannot use -suffix with -f -")
+		}
+	}
 	aw, err := r.openArchiveWriter(ctx, archiveRef)
 	if err != nil {
 		return 0, err

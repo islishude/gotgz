@@ -30,6 +30,7 @@ const (
 type Options struct {
 	Mode             Mode
 	Archive          string
+	Suffix           string
 	Verbose          bool
 	Help             bool
 	CompressionLevel *int
@@ -79,6 +80,19 @@ func Parse(args []string) (Options, error) {
 			opts.CompressionLevel = &level
 			continue
 		}
+		if strings.HasPrefix(a, "-suffix") {
+			name, value, hasValue := strings.Cut(strings.TrimPrefix(a, "-"), "=")
+			if name != "suffix" {
+				return opts, fmt.Errorf("unsupported option %s", a)
+			}
+			v, nextI, err := resolveValue(name, value, hasValue, args, i)
+			if err != nil {
+				return opts, err
+			}
+			i = nextI
+			opts.Suffix = v
+			continue
+		}
 		if !strings.HasPrefix(a, "-") || a == "-" {
 			opts.Members = append(opts.Members, args[i:]...)
 			break
@@ -122,6 +136,13 @@ func Parse(args []string) (Options, error) {
 					return opts, fmt.Errorf("option --compression-level requires an integer between 1 and 9")
 				}
 				opts.CompressionLevel = &level
+			case "suffix":
+				v, nextI, err := resolveValue(name, value, hasValue, args, i)
+				if err != nil {
+					return opts, err
+				}
+				i = nextI
+				opts.Suffix = v
 			case "wildcards":
 				opts.Wildcards = true
 			case "numeric-owner":

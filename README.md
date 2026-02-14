@@ -40,6 +40,10 @@ gotgz -cvf archive.tar dir1 file1.txt
 # Local files → compressed archive
 gotgz -cvzf archive.tar.gz dir1 file1.txt
 
+# Add suffix to generated archive filename, date format is built-in and it uses `20060102` as the layout
+# You can also specify a custom suffix with `-suffix` flag, for example `-suffix backup` will generate `archive-backup.tar.gz`
+gotgz -cvzf -f archive.tar.gz -suffix date dir1 file1.txt
+
 # Local files → S3
 gotgz -cvzf s3://my-bucket/backups/archive.tar.gz dir1 file1.txt
 

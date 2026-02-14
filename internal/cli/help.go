@@ -21,6 +21,8 @@ Modes:
 
 Main Options:
   -f <archive>      Archive path: local file, -, s3://bucket/key, or S3 ARN
+  -suffix <value>, --suffix <value>
+                    Add suffix to archive filename in create mode (built-in date format uses 20060102 layout)
   -C <dir|s3://...> Change directory before create/extract
   --strip-components <count>
                     Remove <count> leading path elements when extracting
