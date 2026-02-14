@@ -326,6 +326,8 @@ func (r *Runner) extractToS3(ctx context.Context, target locator.Ref, hdr *tar.H
 				return warnings, err
 			}
 		}
+		// Do not create an S3 object when the entry name is empty.
+		return warnings, nil
 	}
 	obj := locator.Ref{Kind: locator.KindS3, Bucket: target.Bucket, Key: locator.JoinS3Prefix(target.Key, name)}
 	meta, ok := archive.HeaderToS3Metadata(hdr)
