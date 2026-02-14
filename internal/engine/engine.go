@@ -171,7 +171,7 @@ func (r *Runner) addS3Member(ctx context.Context, tw *tar.Writer, ref locator.Re
 		return err
 	}
 	if verbose {
-		fmt.Fprintln(r.stdout, hdr.Name) // nolint: errcheck
+		_, _ = fmt.Fprintln(r.stdout, hdr.Name)
 	}
 	return nil
 }
@@ -244,7 +244,7 @@ func (r *Runner) addLocalPath(ctx context.Context, tw *tar.Writer, member, chdir
 			}
 		}
 		if verbose {
-			fmt.Fprintln(r.stdout, hdr.Name) // nolint: errcheck
+			_, _ = fmt.Fprintln(r.stdout, hdr.Name)
 		}
 		return nil
 	})
@@ -258,7 +258,7 @@ func (r *Runner) runList(ctx context.Context, opts cli.Options) (int, error) {
 			}
 			return 0, nil
 		}
-		fmt.Fprintln(r.stdout, hdr.Name) // nolint: errcheck
+		_, _ = fmt.Fprintln(r.stdout, hdr.Name)
 		if _, err := io.Copy(io.Discard, tr); err != nil {
 			return 0, err
 		}
@@ -304,7 +304,7 @@ func (r *Runner) runExtract(ctx context.Context, opts cli.Options) (int, error) 
 			return 0, nil
 		}
 		if opts.Verbose {
-			fmt.Fprintln(r.stdout, hdr.Name) // nolint: errcheck
+			_, _ = fmt.Fprintln(r.stdout, hdr.Name)
 		}
 		switch parsedTarget.Kind {
 		case locator.KindS3:
@@ -333,7 +333,7 @@ func (r *Runner) extractToS3(ctx context.Context, target locator.Ref, hdr *tar.H
 	meta, ok := archive.HeaderToS3Metadata(hdr)
 	if !ok {
 		warnings++
-		fmt.Fprintf(r.stderr, "gotgz: warning: metadata exceeds S3 metadata limit for %s\n", hdr.Name) // nolint: errcheck
+		_, _ = fmt.Fprintf(r.stderr, "gotgz: warning: metadata exceeds S3 metadata limit for %s\n", hdr.Name)
 	}
 
 	switch hdr.Typeflag {

@@ -15,11 +15,11 @@ import (
 func main() {
 	opts, err := cli.Parse(os.Args[1:])
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "gotgz: %v\n", err)
+		_, _ = fmt.Fprintf(os.Stderr, "gotgz: %v\n", err)
 		os.Exit(engine.ExitFatal)
 	}
 	if opts.Help {
-		fmt.Fprint(os.Stdout, cli.HelpText(filepath.Base(os.Args[0])))
+		_, _ = fmt.Fprint(os.Stdout, cli.HelpText(filepath.Base(os.Args[0])))
 		os.Exit(0)
 	}
 
@@ -29,13 +29,13 @@ func main() {
 
 	runner, err := engine.New(basectx, os.Stdout, os.Stderr)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "gotgz: %v\n", err)
+		_, _ = fmt.Fprintf(os.Stderr, "gotgz: %v\n", err)
 		os.Exit(engine.ExitFatal)
 	}
 
 	result := runner.Run(basectx, opts)
 	if result.Err != nil {
-		fmt.Fprintf(os.Stderr, "gotgz: %v\n", result.Err)
+		_, _ = fmt.Fprintf(os.Stderr, "gotgz: %v\n", result.Err)
 	}
 	os.Exit(result.ExitCode)
 }
