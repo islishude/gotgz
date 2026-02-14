@@ -331,6 +331,7 @@ func (r *Runner) extractToS3(ctx context.Context, target locator.Ref, hdr *tar.H
 	}
 	obj := locator.Ref{Kind: locator.KindS3, Bucket: target.Bucket, Key: locator.JoinS3Prefix(target.Key, name)}
 	meta, ok := archive.HeaderToS3Metadata(hdr)
+	meta = mergeMetadata(target.Metadata, meta)
 	if !ok {
 		warnings++
 		_, _ = fmt.Fprintf(r.stderr, "gotgz: warning: metadata exceeds S3 metadata limit for %s\n", hdr.Name)
@@ -495,10 +496,24 @@ func (r *Runner) openArchiveWriter(ctx context.Context, ref locator.Ref) (io.Wri
 		if strings.TrimSpace(ref.Key) == "" {
 			return nil, fmt.Errorf("archive object key cannot be empty for -f")
 		}
-		return r.s3.OpenWriter(ctx, ref, nil)
+		return r.s3.OpenWriter(ctx, ref, ref.Metadata)
 	default:
 		return nil, fmt.Errorf("unsupported archive target %q", ref.Raw)
 	}
+}
+
+func mergeMetadata(base, overlay map[string]string) map[string]string {
+	if len(base) == 0 && len(overlay) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(base)+len(overlay))
+	for k, v := range base {
+		out[k] = v
+	}
+	for k, v := range overlay {
+		out[k] = v
+	}
+	return out
 }
 
 func resolvePolicy(opts cli.Options) PermissionPolicy {

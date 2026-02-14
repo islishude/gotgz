@@ -353,6 +353,54 @@ func TestS3ArchiveUploadSetsContentType(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
+// Test: archive upload parses URI query string into S3 object metadata
+// ---------------------------------------------------------------------------
+func TestS3ArchiveUploadMetadataFromQuery(t *testing.T) {
+	ctx := context.Background()
+	ep := s3Endpoint(t)
+	client, bucket := setupS3Bucket(t, ctx, ep)
+
+	root := t.TempDir()
+	srcDir := filepath.Join(root, "data")
+	if err := os.MkdirAll(srcDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(srcDir, "msg.txt"), []byte("metadata-query"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	archiveURI := fmt.Sprintf("s3://%s/archives/with-meta.tgz?key=value&team=platform", bucket)
+	r := newRunnerWithEndpoint(t, ep, io.Discard, io.Discard)
+	create := cli.Options{
+		Mode:        cli.ModeCreate,
+		Archive:     archiveURI,
+		Compression: cli.CompressionGzip,
+		Chdir:       root,
+		Members:     []string{"data"},
+	}
+	res := r.Run(ctx, create)
+	if res.ExitCode != ExitSuccess {
+		t.Fatalf("create exit=%d err=%v", res.ExitCode, res.Err)
+	}
+
+	out, err := client.GetObject(ctx, &awss3.GetObjectInput{
+		Bucket: new(bucket),
+		Key:    new("archives/with-meta.tgz"),
+	})
+	if err != nil {
+		t.Fatalf("get uploaded archive: %v", err)
+	}
+	defer out.Body.Close() // nolint: errcheck
+
+	if got := out.Metadata["key"]; got != "value" {
+		t.Fatalf("metadata[key]=%q, want %q", got, "value")
+	}
+	if got := out.Metadata["team"]; got != "platform" {
+		t.Fatalf("metadata[team]=%q, want %q", got, "platform")
+	}
+}
+
+// ---------------------------------------------------------------------------
 // Test: extract a local archive to S3
 // ---------------------------------------------------------------------------
 func TestS3ExtractToS3(t *testing.T) {

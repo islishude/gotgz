@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"maps"
 	"mime"
 	"os"
 	"path/filepath"
@@ -96,7 +97,7 @@ func (s *Store) OpenWriter(ctx context.Context, ref locator.Ref, metadata map[st
 		Bucket:   new(ref.Bucket),
 		Key:      new(ref.Key),
 		Body:     pr,
-		Metadata: metadata,
+		Metadata: mergeMetadata(ref.Metadata, metadata),
 	}
 	if contentType := contentTypeForKey(ref.Key); contentType != "" {
 		in.ContentType = new(contentType)
@@ -119,7 +120,7 @@ func (s *Store) UploadStream(ctx context.Context, ref locator.Ref, body io.Reade
 		Bucket:   new(ref.Bucket),
 		Key:      new(ref.Key),
 		Body:     body,
-		Metadata: metadata,
+		Metadata: mergeMetadata(ref.Metadata, metadata),
 	}
 	if contentType := contentTypeForKey(ref.Key); contentType != "" {
 		in.ContentType = new(contentType)
@@ -193,6 +194,16 @@ func defaultString(v, def string) string {
 		return def
 	}
 	return v
+}
+
+func mergeMetadata(base, overlay map[string]string) map[string]string {
+	if len(base) == 0 && len(overlay) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(base)+len(overlay))
+	maps.Copy(out, base)
+	maps.Copy(out, overlay)
+	return out
 }
 
 func contentTypeForKey(key string) string {

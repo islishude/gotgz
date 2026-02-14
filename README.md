@@ -94,6 +94,9 @@ gotgz -tf arn:aws:s3:::my-bucket/path/to/archive.tar
 
 # S3 Access Point ARN
 gotgz -tf arn:aws:s3:us-west-2:123456789012:accesspoint/myap/object/path/to/archive.tar
+
+# Add custom S3 object metadata via query string when uploading archives
+gotgz -cvzf "s3://my-bucket/backups/archive.tgz?env=prod&owner=platform" dir/
 ```
 
 ### Additional options
