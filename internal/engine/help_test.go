@@ -1,67 +1,10 @@
-package gotgz
+package engine
 
 import (
 	"fmt"
-	"reflect"
 	"testing"
 	"time"
 )
-
-func TestParseMetadata(t *testing.T) {
-	type args struct {
-		raw string
-	}
-	tests := []struct {
-		name    string
-		args    args
-		want    map[string]string
-		wantErr bool
-	}{
-		{
-			name:    "empty metadata",
-			args:    args{raw: ""},
-			want:    nil,
-			wantErr: false,
-		},
-		{
-			name:    "single key-value pair",
-			args:    args{raw: "key=value"},
-			want:    map[string]string{"key": "value"},
-			wantErr: false,
-		},
-		{
-			name:    "multiple key-value pairs",
-			args:    args{raw: "key1=value1&key2=value2"},
-			want:    map[string]string{"key1": "value1", "key2": "value2"},
-			wantErr: false,
-		},
-		{
-			name:    "key with multiple values",
-			args:    args{raw: "key=value1&key=value2"},
-			want:    nil,
-			wantErr: true,
-		},
-		{
-			name:    "invalid query string",
-			args:    args{raw: "key=value1&key2"},
-			want:    nil,
-			wantErr: true,
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got, err := ParseMetadata(tt.args.raw)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("ParseMetadata() error = %v, wantErr %v", err, tt.wantErr)
-				return
-			}
-			if !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("ParseMetadata() = %v, want %v", got, tt.want)
-			}
-		})
-	}
-}
-
 
 func TestAddFileSuffix(t *testing.T) {
 	type args struct {
