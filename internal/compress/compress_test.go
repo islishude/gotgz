@@ -15,7 +15,7 @@ func TestRoundTrip(t *testing.T) {
 	for _, c := range cases {
 		t.Run(string(c), func(t *testing.T) {
 			var buf bytes.Buffer
-			w, err := NewWriter(nopWriteCloser{Writer: &buf}, c)
+			w, err := NewWriter(nopWriteCloser{Writer: &buf}, c, WriterOptions{})
 			if err != nil {
 				t.Fatalf("NewWriter() error = %v", err)
 			}
@@ -40,6 +40,40 @@ func TestRoundTrip(t *testing.T) {
 			}
 			if c == None && detected != None {
 				t.Fatalf("detected = %q, want none", detected)
+			}
+		})
+	}
+}
+
+func TestRoundTripWithCompressionLevel(t *testing.T) {
+	payload := []byte(strings.Repeat("hello-gotgz-level-", 128))
+	level := 9
+	cases := []Type{Gzip, Bzip2, Xz, Zstd, Lz4}
+	for _, c := range cases {
+		t.Run(string(c), func(t *testing.T) {
+			var buf bytes.Buffer
+			w, err := NewWriter(nopWriteCloser{Writer: &buf}, c, WriterOptions{Level: &level})
+			if err != nil {
+				t.Fatalf("NewWriter() error = %v", err)
+			}
+			if _, err := w.Write(payload); err != nil {
+				t.Fatalf("Write() error = %v", err)
+			}
+			if err := w.Close(); err != nil {
+				t.Fatalf("Close() error = %v", err)
+			}
+
+			r, _, err := NewReader(io.NopCloser(bytes.NewReader(buf.Bytes())), c, "archive.tar")
+			if err != nil {
+				t.Fatalf("NewReader() error = %v", err)
+			}
+			got, err := io.ReadAll(r)
+			if err != nil {
+				t.Fatalf("ReadAll() error = %v", err)
+			}
+			_ = r.Close()
+			if !bytes.Equal(got, payload) {
+				t.Fatalf("payload mismatch")
 			}
 		})
 	}

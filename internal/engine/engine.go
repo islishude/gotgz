@@ -90,7 +90,7 @@ func (r *Runner) runCreate(ctx context.Context, opts cli.Options) (warnings int,
 		return 0, err
 	}
 
-	cw, err := compress.NewWriter(aw, compress.FromString(string(opts.Compression)))
+	cw, err := compress.NewWriter(aw, compress.FromString(string(opts.Compression)), compress.WriterOptions{Level: opts.CompressionLevel})
 	if err != nil {
 		_ = aw.Close()
 		return 0, err

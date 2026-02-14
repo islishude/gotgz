@@ -27,6 +27,10 @@ const (
 	Lz4   Type = "lz4"
 )
 
+type WriterOptions struct {
+	Level *int
+}
+
 func FromString(v string) Type {
 	switch strings.ToLower(v) {
 	case "none":
@@ -46,26 +50,55 @@ func FromString(v string) Type {
 	}
 }
 
-func NewWriter(dst io.WriteCloser, t Type) (io.WriteCloser, error) {
+func NewWriter(dst io.WriteCloser, t Type, opts WriterOptions) (io.WriteCloser, error) {
+	level, hasLevel, err := normalizeLevel(opts.Level)
+	if err != nil {
+		return nil, err
+	}
 	switch t {
 	case Auto, None:
 		return dst, nil
 	case Gzip:
-		zw := gzip.NewWriter(dst)
+		var zw *gzip.Writer
+		if hasLevel {
+			zw, err = gzip.NewWriterLevel(dst, level)
+			if err != nil {
+				return nil, err
+			}
+		} else {
+			zw = gzip.NewWriter(dst)
+		}
 		return &stackedWriteCloser{writer: zw, dst: dst, closeWriterFirst: true}, nil
 	case Bzip2:
-		zw, err := bzip2.NewWriter(dst, &bzip2.WriterConfig{Level: bzip2.BestSpeed})
+		cfg := &bzip2.WriterConfig{Level: bzip2.DefaultCompression}
+		if hasLevel {
+			cfg.Level = level
+		}
+		zw, err := bzip2.NewWriter(dst, cfg)
 		if err != nil {
 			return nil, err
 		}
 		return &stackedWriteCloser{writer: zw, dst: dst, closeWriterFirst: true}, nil
 	case Xz:
-		zw, err := xz.NewWriter(dst)
+		var zw *xz.Writer
+		if hasLevel {
+			cfg := xz.WriterConfig{DictCap: xzDictCapForLevel(level)}
+			zw, err = cfg.NewWriter(dst)
+		} else {
+			zw, err = xz.NewWriter(dst)
+		}
 		if err != nil {
 			return nil, err
 		}
 		return &stackedWriteCloser{writer: zw, dst: dst, closeWriterFirst: true}, nil
 	case Zstd:
+		if hasLevel {
+			zw, err := zstd.NewWriter(dst, zstd.WithEncoderLevel(zstd.EncoderLevelFromZstd(level)))
+			if err != nil {
+				return nil, err
+			}
+			return &stackedWriteCloser{writer: zw, dst: dst, closeWriterFirst: true}, nil
+		}
 		zw, err := zstd.NewWriter(dst)
 		if err != nil {
 			return nil, err
@@ -73,6 +106,11 @@ func NewWriter(dst io.WriteCloser, t Type) (io.WriteCloser, error) {
 		return &stackedWriteCloser{writer: zw, dst: dst, closeWriterFirst: true}, nil
 	case Lz4:
 		zw := lz4.NewWriter(dst)
+		if hasLevel {
+			if err := zw.Apply(lz4.CompressionLevelOption(lz4Level(level))); err != nil {
+				return nil, err
+			}
+		}
 		return &stackedWriteCloser{writer: zw, dst: dst, closeWriterFirst: true}, nil
 	default:
 		return nil, fmt.Errorf("unsupported compression type %q", t)
@@ -227,4 +265,61 @@ func (w *stackedWriteCloser) Close() error {
 		first = err
 	}
 	return first
+}
+
+func normalizeLevel(level *int) (int, bool, error) {
+	if level == nil {
+		return 0, false, nil
+	}
+	if *level < 1 || *level > 9 {
+		return 0, false, fmt.Errorf("compression level must be between 1 and 9")
+	}
+	return *level, true, nil
+}
+
+func xzDictCapForLevel(level int) int {
+	// Roughly aligned with common xz presets 1..9.
+	switch level {
+	case 1:
+		return 256 << 10
+	case 2:
+		return 1 << 20
+	case 3:
+		return 2 << 20
+	case 4:
+		return 4 << 20
+	case 5:
+		return 4 << 20
+	case 6:
+		return 8 << 20
+	case 7:
+		return 8 << 20
+	case 8:
+		return 16 << 20
+	default:
+		return 32 << 20
+	}
+}
+
+func lz4Level(level int) lz4.CompressionLevel {
+	switch level {
+	case 1:
+		return lz4.Level1
+	case 2:
+		return lz4.Level2
+	case 3:
+		return lz4.Level3
+	case 4:
+		return lz4.Level4
+	case 5:
+		return lz4.Level5
+	case 6:
+		return lz4.Level6
+	case 7:
+		return lz4.Level7
+	case 8:
+		return lz4.Level8
+	default:
+		return lz4.Level9
+	}
 }

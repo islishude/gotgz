@@ -40,7 +40,7 @@ func TestParseModeConflict(t *testing.T) {
 
 func TestParseLongOptions(t *testing.T) {
 	opts, err := Parse([]string{
-		"-x", "-f", "in.tar", "--exclude=*.tmp", "--exclude-from", "ex.txt", "--wildcards", "--numeric-owner", "--no-same-owner", "--same-permissions", "--lz4", "--strip-components=1",
+		"-x", "-f", "in.tar", "--exclude=*.tmp", "--exclude-from", "ex.txt", "--wildcards", "--numeric-owner", "--no-same-owner", "--same-permissions", "--lz4", "--strip-components=1", "--compression-level=9",
 	})
 	if err != nil {
 		t.Fatalf("Parse() error = %v", err)
@@ -62,6 +62,9 @@ func TestParseLongOptions(t *testing.T) {
 	}
 	if opts.StripComponents != 1 {
 		t.Fatalf("strip-components = %d, want 1", opts.StripComponents)
+	}
+	if opts.CompressionLevel == nil || *opts.CompressionLevel != 9 {
+		t.Fatalf("compression-level = %v, want 9", opts.CompressionLevel)
 	}
 }
 
@@ -87,6 +90,23 @@ func TestParseHelpLong(t *testing.T) {
 
 func TestParseStripComponentsInvalid(t *testing.T) {
 	_, err := Parse([]string{"-x", "-f", "in.tar", "--strip-components=-1"})
+	if err == nil {
+		t.Fatalf("expected parse error")
+	}
+}
+
+func TestParseCompressionLevelSingleDash(t *testing.T) {
+	opts, err := Parse([]string{"-x", "-f", "in.tar", "-compression-level=7"})
+	if err != nil {
+		t.Fatalf("Parse() error = %v", err)
+	}
+	if opts.CompressionLevel == nil || *opts.CompressionLevel != 7 {
+		t.Fatalf("compression-level = %v, want 7", opts.CompressionLevel)
+	}
+}
+
+func TestParseCompressionLevelInvalid(t *testing.T) {
+	_, err := Parse([]string{"-x", "-f", "in.tar", "--compression-level=10"})
 	if err == nil {
 		t.Fatalf("expected parse error")
 	}

@@ -28,21 +28,22 @@ const (
 )
 
 type Options struct {
-	Mode            Mode
-	Archive         string
-	Verbose         bool
-	Help            bool
-	StripComponents int
-	Chdir           string
-	ToStdout        bool
-	Compression     CompressionHint
-	Exclude         []string
-	ExcludeFrom     []string
-	Wildcards       bool
-	NumericOwner    bool
-	SameOwner       *bool
-	SamePermissions *bool
-	Members         []string
+	Mode             Mode
+	Archive          string
+	Verbose          bool
+	Help             bool
+	CompressionLevel *int
+	StripComponents  int
+	Chdir            string
+	ToStdout         bool
+	Compression      CompressionHint
+	Exclude          []string
+	ExcludeFrom      []string
+	Wildcards        bool
+	NumericOwner     bool
+	SameOwner        *bool
+	SamePermissions  *bool
+	Members          []string
 }
 
 func Parse(args []string) (Options, error) {
@@ -60,6 +61,23 @@ func Parse(args []string) (Options, error) {
 		if a == "--" {
 			opts.Members = append(opts.Members, args[i+1:]...)
 			break
+		}
+		if strings.HasPrefix(a, "-compression-level") {
+			name, value, hasValue := strings.Cut(strings.TrimPrefix(a, "-"), "=")
+			if name != "compression-level" {
+				return opts, fmt.Errorf("unsupported option %s", a)
+			}
+			v, nextI, err := resolveValue(name, value, hasValue, args, i)
+			if err != nil {
+				return opts, err
+			}
+			i = nextI
+			level, err := strconv.Atoi(v)
+			if err != nil || level < 1 || level > 9 {
+				return opts, fmt.Errorf("option --compression-level requires an integer between 1 and 9")
+			}
+			opts.CompressionLevel = &level
+			continue
 		}
 		if !strings.HasPrefix(a, "-") || a == "-" {
 			opts.Members = append(opts.Members, args[i:]...)
@@ -93,6 +111,17 @@ func Parse(args []string) (Options, error) {
 					return opts, fmt.Errorf("option --strip-components requires a non-negative integer")
 				}
 				opts.StripComponents = n
+			case "compression-level":
+				v, nextI, err := resolveValue(name, value, hasValue, args, i)
+				if err != nil {
+					return opts, err
+				}
+				i = nextI
+				level, err := strconv.Atoi(v)
+				if err != nil || level < 1 || level > 9 {
+					return opts, fmt.Errorf("option --compression-level requires an integer between 1 and 9")
+				}
+				opts.CompressionLevel = &level
 			case "wildcards":
 				opts.Wildcards = true
 			case "numeric-owner":

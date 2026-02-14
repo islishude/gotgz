@@ -34,6 +34,8 @@ Compression:
   -J                xz
   --zstd            zstd
   --lz4             lz4
+  -compression-level <1-9>, --compression-level <1-9>
+                    Compression level for create mode; omitted uses algorithm defaults
   (extract/list auto-detects by magic bytes, then file extension)
 
 Ownership & Permissions:

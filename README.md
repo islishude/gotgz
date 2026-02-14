@@ -80,6 +80,9 @@ gotgz -tf s3://my-bucket/backups/archive.tar.gz
 | `--zstd` | zstd   |
 | `--lz4`  | lz4    |
 
+You can control compression strength for create mode with `-compression-level=<1-9>` (or `--compression-level=<1-9>`).  
+If not provided, each algorithm uses its own default level.
+
 When extracting or listing, compression is auto-detected from file magic bytes or extension.
 
 ### S3 addressing
