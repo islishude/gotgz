@@ -79,11 +79,11 @@ func parseS3ARN(v string) (Ref, error) {
 	}
 
 	resource := a.Resource
-	if strings.HasPrefix(resource, ":::") {
-		resource = strings.TrimPrefix(resource, ":::")
+	if after, ok :=strings.CutPrefix(resource, ":::"); ok  {
+		resource = after
 	}
-	if strings.HasPrefix(resource, "bucket/") {
-		resource = strings.TrimPrefix(resource, "bucket/")
+	if after, ok :=strings.CutPrefix(resource, "bucket/"); ok  {
+		resource = after
 	}
 	parts := strings.SplitN(resource, "/", 2)
 	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
