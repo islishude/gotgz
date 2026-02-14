@@ -135,7 +135,6 @@ func Parse(args []string) (Options, error) {
 				var val string
 				if j+1 < len(shorts) {
 					val = shorts[j+1:]
-					j = len(shorts)
 				} else {
 					i++
 					if i >= len(args) {

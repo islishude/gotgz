@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/islishude/gotgz/internal/cli"
@@ -132,7 +133,7 @@ func TestTestdataRoundTrip(t *testing.T) {
 		}
 
 		// Skip .exclude subtree – it was excluded from the archive.
-		if rel == ".exclude" || filepath.HasPrefix(rel, ".exclude"+string(filepath.Separator)) {
+		if rel == ".exclude" || strings.HasPrefix(rel, ".exclude"+string(filepath.Separator)) {
 			if d.IsDir() {
 				return filepath.SkipDir
 			}
