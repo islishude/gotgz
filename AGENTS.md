@@ -6,6 +6,18 @@ A file for [guiding coding agents](https://agents.md/).
 
 - **Build:** `make build`
 - **Test:** `make test`
+- **Lint:** `make lint`
+- **Format:** `make fmt` (Formatting is done with `goimports`, which is included in the Go toolchain)
+
+## Install linting tools
+
+Linting is done with [golangci-lint](https://golangci-lint.run/).
+
+You can install it with the following command:
+
+```bash
+go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest
+```
 
 ## Code Style
 

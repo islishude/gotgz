@@ -7,6 +7,9 @@ install:
 lint:
 	golangci-lint run --timeout 10m
 
+format:
+	goimports -w .
+
 test:
 	docker compose down
 	docker compose up -d --wait
