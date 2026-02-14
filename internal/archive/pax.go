@@ -89,7 +89,9 @@ func HeaderToS3Metadata(hdr *tar.Header) (map[string]string, bool) {
 	for k, v := range meta {
 		total += len(k) + len(v)
 	}
-	return meta, total <= 1800
+	// AWS S3 has a limit of 2KB for user-defined metadata
+	// The S3 metadata size limit check is approximate and may not account for AWS metadata encoding overhead.
+	return meta, total <= 1500
 }
 
 func ParseMTime(v string) time.Time {

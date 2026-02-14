@@ -431,7 +431,10 @@ func (r *Runner) extractToLocal(base string, hdr *tar.Header, tr *tar.Reader, po
 
 	xattrs, _ := archive.DecodeXattrFromPAX(hdr)
 	acls, _ := archive.DecodeACLFromPAX(hdr)
-	_ = archive.WritePathMetadata(target, xattrs, acls)
+	if err := archive.WritePathMetadata(target, xattrs, acls); err != nil {
+		fmt.Fprintf(r.stderr, "gotgz: warning: %s: %v\n", hdr.Name, err) // nolint: errcheck
+		return 0, nil
+	}
 	return 0, nil
 }
 

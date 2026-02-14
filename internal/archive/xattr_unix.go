@@ -4,6 +4,8 @@ package archive
 
 import (
 	"bytes"
+	"errors"
+	"fmt"
 	"strings"
 
 	"golang.org/x/sys/unix"
@@ -30,17 +32,18 @@ func ReadPathMetadata(path string) (map[string][]byte, map[string][]byte, error)
 }
 
 func WritePathMetadata(path string, xattrs map[string][]byte, acls map[string][]byte) error {
+	var errs []error
 	for k, v := range xattrs {
 		if err := unix.Setxattr(path, k, v, 0); err != nil {
-			continue
+			errs = append(errs, fmt.Errorf("setxattr %s: %w", k, err))
 		}
 	}
 	for k, v := range acls {
 		if err := unix.Setxattr(path, k, v, 0); err != nil {
-			continue
+			errs = append(errs, fmt.Errorf("setxattr acl %s: %w", k, err))
 		}
 	}
-	return nil
+	return errors.Join(errs...)
 }
 
 func listXattr(path string) ([]string, error) {
