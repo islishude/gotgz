@@ -88,7 +88,7 @@ func getObject(t *testing.T, ctx context.Context, client *awss3.Client, bucket, 
 	if err != nil {
 		t.Fatalf("get s3://%s/%s: %v", bucket, key, err)
 	}
-	defer out.Body.Close()
+	defer out.Body.Close() // nolint: errcheck
 	b, err := io.ReadAll(out.Body)
 	if err != nil {
 		t.Fatalf("read s3://%s/%s: %v", bucket, key, err)

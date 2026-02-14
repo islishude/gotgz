@@ -79,7 +79,7 @@ func classifyResult(err error, warnings int) RunResult {
 	return RunResult{ExitCode: ExitSuccess}
 }
 
-func (r *Runner) runCreate(ctx context.Context, opts cli.Options) (int, error) {
+func (r *Runner) runCreate(ctx context.Context, opts cli.Options) (warnings int, retErr error) {
 	archiveRef, err := locator.ParseArchive(opts.Archive)
 	if err != nil {
 		return 0, err
@@ -88,24 +88,40 @@ func (r *Runner) runCreate(ctx context.Context, opts cli.Options) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	defer aw.Close()
+	defer func() {
+		if cerr := aw.Close(); cerr != nil && retErr == nil {
+			retErr = fmt.Errorf("closing archive writer: %w", cerr)
+		}
+	}()
 
 	cw, err := compress.NewWriter(aw, compress.FromString(string(opts.Compression)))
 	if err != nil {
 		return 0, err
 	}
-	defer cw.Close()
+	defer func() {
+		if cerr := cw.Close(); cerr != nil && retErr == nil {
+			retErr = fmt.Errorf("closing compression writer: %w", cerr)
+		}
+	}()
 
 	tw := tar.NewWriter(cw)
-	defer tw.Close()
+	defer func() {
+		if cerr := tw.Close(); cerr != nil && retErr == nil {
+			retErr = fmt.Errorf("closing tar writer: %w", cerr)
+		}
+	}()
 
 	excludes, err := loadExcludePatterns(opts.Exclude, opts.ExcludeFrom)
 	if err != nil {
 		return 0, err
 	}
 
-	warnings := 0
 	for _, m := range opts.Members {
+		select {
+		case <-ctx.Done():
+			return warnings, ctx.Err()
+		default:
+		}
 		ref, err := locator.ParseMember(m)
 		if err != nil {
 			return warnings, err
@@ -137,7 +153,6 @@ func (r *Runner) addS3Member(ctx context.Context, tw *tar.Writer, ref locator.Re
 	if err != nil {
 		return err
 	}
-	defer body.Close()
 
 	hdr := &tar.Header{
 		Name:     ref.Key,
@@ -153,14 +168,16 @@ func (r *Runner) addS3Member(ctx context.Context, tw *tar.Writer, ref locator.Re
 	if _, err := io.Copy(tw, body); err != nil {
 		return err
 	}
+	if err := body.Close(); err != nil {
+		return err
+	}
 	if verbose {
-		fmt.Fprintln(r.stdout, hdr.Name)
+		fmt.Fprintln(r.stdout, hdr.Name) // nolint: errcheck
 	}
 	return nil
 }
 
 func (r *Runner) addLocalPath(ctx context.Context, tw *tar.Writer, member, chdir string, excludes []string, verbose bool) error {
-	_ = ctx
 	basePath := member
 	if chdir != "" {
 		basePath = filepath.Join(chdir, member)
@@ -169,6 +186,11 @@ func (r *Runner) addLocalPath(ctx context.Context, tw *tar.Writer, member, chdir
 	return filepath.WalkDir(basePath, func(current string, d fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
 		}
 		rel, err := filepath.Rel(basePath, current)
 		if err != nil {
@@ -223,7 +245,7 @@ func (r *Runner) addLocalPath(ctx context.Context, tw *tar.Writer, member, chdir
 			}
 		}
 		if verbose {
-			fmt.Fprintln(r.stdout, hdr.Name)
+			fmt.Fprintln(r.stdout, hdr.Name) // nolint: errcheck
 		}
 		return nil
 	})
@@ -237,7 +259,7 @@ func (r *Runner) runList(ctx context.Context, opts cli.Options) (int, error) {
 			}
 			return 0, nil
 		}
-		fmt.Fprintln(r.stdout, hdr.Name)
+		fmt.Fprintln(r.stdout, hdr.Name) // nolint: errcheck
 		if _, err := io.Copy(io.Discard, tr); err != nil {
 			return 0, err
 		}
@@ -255,7 +277,7 @@ func (r *Runner) runExtract(ctx context.Context, opts cli.Options) (int, error) 
 				}
 				return 0, nil
 			}
-			if hdr.Typeflag != tar.TypeReg && hdr.Typeflag != tar.TypeRegA {
+			if hdr.Typeflag != tar.TypeReg {
 				if _, err := io.Copy(io.Discard, tr); err != nil {
 					return 0, err
 				}
@@ -283,7 +305,7 @@ func (r *Runner) runExtract(ctx context.Context, opts cli.Options) (int, error) 
 			return 0, nil
 		}
 		if opts.Verbose {
-			fmt.Fprintln(r.stdout, hdr.Name)
+			fmt.Fprintln(r.stdout, hdr.Name) // nolint: errcheck
 		}
 		switch parsedTarget.Kind {
 		case locator.KindS3:
@@ -306,11 +328,11 @@ func (r *Runner) extractToS3(ctx context.Context, target locator.Ref, hdr *tar.H
 	meta, ok := archive.HeaderToS3Metadata(hdr)
 	if !ok {
 		warnings++
-		fmt.Fprintf(r.stderr, "gotgz: warning: metadata exceeds S3 metadata limit for %s\n", hdr.Name)
+		fmt.Fprintf(r.stderr, "gotgz: warning: metadata exceeds S3 metadata limit for %s\n", hdr.Name) // nolint: errcheck
 	}
 
 	switch hdr.Typeflag {
-	case tar.TypeReg, tar.TypeRegA:
+	case tar.TypeReg:
 		if err := r.s3.UploadStream(ctx, obj, io.LimitReader(tr, hdr.Size), meta); err != nil {
 			return warnings, err
 		}
