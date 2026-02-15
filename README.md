@@ -5,7 +5,7 @@ A Linux `tar`-compatible CLI tool written in Go, with native AWS S3 support as b
 ## Features
 
 - **Drop-in tar replacement** — supports common `tar` flags (`-c`, `-x`, `-t`, `-v`, `-f`, `-C`, `-O`)
-- **AWS S3 integration** — use `s3://bucket/key` URIs in `-f` and member arguments
+- **AWS S3 integration** — use `s3://bucket/key` URIs or S3 ARNs directly in `-f` and member arguments
 - **Multiple compression formats** — gzip (`-z`), bzip2 (`-j`), xz (`-J`), zstd (`--zstd`), lz4 (`--lz4`), with auto-detection on extract
 - **PAX format** — preserves extended attributes (xattr) and ACLs via PAX records
 - **Permission control** — `--same-owner`, `--same-permissions` (`--numeric-owner` accepted for tar compatibility)
