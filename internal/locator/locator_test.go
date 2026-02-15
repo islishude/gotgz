@@ -13,12 +13,15 @@ func TestParseArchiveS3URI(t *testing.T) {
 }
 
 func TestParseArchiveS3URIWithMetadataQuery(t *testing.T) {
-	ref, err := ParseArchive("s3://bucket/path.tgz?key=value&team=platform")
+	ref, err := ParseArchive("s3://bucket/to/path.tgz?key=value&team=platform")
 	if err != nil {
 		t.Fatalf("ParseArchive() error = %v", err)
 	}
-	if ref.Kind != KindS3 || ref.Bucket != "bucket" || ref.Key != "path.tgz" {
+	if ref.Kind != KindS3 || ref.Bucket != "bucket" || ref.Key != "to/path.tgz" {
 		t.Fatalf("unexpected ref: %+v", ref)
+	}
+	if len(ref.Metadata) != 2 {
+		t.Fatalf("unexpected metadata length: %d", len(ref.Metadata))
 	}
 	if ref.Metadata["key"] != "value" || ref.Metadata["team"] != "platform" {
 		t.Fatalf("unexpected metadata: %#v", ref.Metadata)

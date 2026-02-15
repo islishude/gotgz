@@ -43,6 +43,9 @@ func ParseMember(v string) (Ref, error) {
 	if strings.HasPrefix(v, "s3://") {
 		return parseS3URI(v)
 	}
+	if strings.HasPrefix(v, "arn:") {
+		return parseS3ARN(v)
+	}
 	return Ref{Kind: KindLocal, Raw: v, Path: v}, nil
 }
 

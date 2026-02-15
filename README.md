@@ -5,11 +5,12 @@ A Linux `tar`-compatible CLI tool written in Go, with native AWS S3 support as b
 ## Features
 
 - **Drop-in tar replacement** — supports common `tar` flags (`-c`, `-x`, `-t`, `-v`, `-f`, `-C`, `-O`)
-- **AWS S3 integration** — use `s3://bucket/key` URIs or S3 ARNs directly in `-f` and member arguments
+- **AWS S3 integration** — use `s3://bucket/key` URIs in `-f` and member arguments
 - **Multiple compression formats** — gzip (`-z`), bzip2 (`-j`), xz (`-J`), zstd (`--zstd`), lz4 (`--lz4`), with auto-detection on extract
 - **PAX format** — preserves extended attributes (xattr) and ACLs via PAX records
-- **Permission control** — `--same-owner`, `--same-permissions`, `--numeric-owner`
-- **Exclude patterns** — `--exclude` and `--exclude-from` with optional `--wildcards`
+- **Permission control** — `--same-owner`, `--same-permissions` (`--numeric-owner` accepted for tar compatibility)
+- **Exclude patterns** — `--exclude` and `--exclude-from` (glob matching)
+- **Member filtering on extract/list** — explicit member names, optionally with `--wildcards`
 - **Path stripping on extract** — `--strip-components <count>` removes leading path segments
 - **S3 encryption** — configurable server-side encryption (AES256, SSE-KMS)
 
@@ -42,7 +43,7 @@ gotgz -cvzf archive.tar.gz dir1 file1.txt
 
 # Add suffix to generated archive filename, date format is built-in and it uses `20060102` as the layout
 # You can also specify a custom suffix with `-suffix` flag, for example `-suffix backup` will generate `archive-backup.tar.gz`
-gotgz -cvzf -f archive.tar.gz -suffix date dir1 file1.txt
+gotgz -cvzf archive.tar.gz -suffix date dir1 file1.txt
 
 # Local files → S3
 gotgz -cvzf s3://my-bucket/backups/archive.tar.gz dir1 file1.txt
@@ -103,6 +104,9 @@ gotgz -tf arn:aws:s3:::my-bucket/path/to/archive.tar
 # S3 Access Point ARN
 gotgz -tf arn:aws:s3:us-west-2:123456789012:accesspoint/myap/object/path/to/archive.tar
 
+# S3 object as member argument
+gotgz -cvf archive.tar s3://my-bucket/path/to/file.txt
+
 # Add custom S3 object metadata via query string when uploading archives
 gotgz -cvzf "s3://my-bucket/backups/archive.tgz?env=prod&owner=platform" dir/
 ```
@@ -116,8 +120,14 @@ gotgz -xOf archive.tar path/to/file.txt
 # Exclude patterns
 gotgz -cvf archive.tar --exclude='*.log' --exclude-from=excludes.txt dir/
 
+# Wildcard member filtering for list/extract
+gotgz -tf archive.tar --wildcards 'src/*.go'
+
 # Permission preservation
 gotgz -xvf archive.tar --same-owner --same-permissions
+
+# Parsed for tar compatibility (currently no behavior change)
+gotgz -xvf archive.tar --numeric-owner
 
 # Strip leading path components while extracting
 gotgz -xvf archive.tar --strip-components=1 -C /tmp/output
