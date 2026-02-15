@@ -47,9 +47,11 @@ func DecodeXattrFromPAX(hdr *tar.Header) (map[string][]byte, error) {
 	return out, nil
 }
 
-func EncodeACLToPAX(hdr *tar.Header, name string, content []byte) {
+func EncodeACLToPAX(hdr *tar.Header, acls map[string][]byte) {
 	EnsurePAX(hdr)
-	hdr.PAXRecords[aclPrefix+name] = base64.StdEncoding.EncodeToString(content)
+	for k, v := range acls {
+		hdr.PAXRecords[aclPrefix+k] = base64.StdEncoding.EncodeToString(v)
+	}
 }
 
 func DecodeACLFromPAX(hdr *tar.Header) (map[string][]byte, error) {

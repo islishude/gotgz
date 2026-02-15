@@ -34,6 +34,11 @@ type PermissionPolicy struct {
 	NumericOwner bool
 }
 
+type MetadataPolicy struct {
+	Xattrs bool
+	ACL    bool
+}
+
 type Runner struct {
 	local  *localstore.ArchiveStore
 	s3     *s3store.Store
@@ -81,6 +86,7 @@ func classifyResult(err error, warnings int) RunResult {
 }
 
 func (r *Runner) runCreate(ctx context.Context, opts cli.Options) (warnings int, retErr error) {
+	metadataPolicy := resolveMetadataPolicy(opts)
 	archiveRef, err := locator.ParseArchive(opts.Archive)
 	if err != nil {
 		return 0, err
@@ -144,7 +150,7 @@ func (r *Runner) runCreate(ctx context.Context, opts cli.Options) (warnings int,
 				return warnings, err
 			}
 		case locator.KindLocal:
-			if err := r.addLocalPath(ctx, tw, m, opts.Chdir, excludes, opts.Verbose); err != nil {
+			if err := r.addLocalPath(ctx, tw, m, opts.Chdir, excludes, opts.Verbose, metadataPolicy); err != nil {
 				return warnings, err
 			}
 		default:
@@ -188,7 +194,7 @@ func (r *Runner) addS3Member(ctx context.Context, tw *tar.Writer, ref locator.Re
 	return nil
 }
 
-func (r *Runner) addLocalPath(ctx context.Context, tw *tar.Writer, member, chdir string, excludes []string, verbose bool) error {
+func (r *Runner) addLocalPath(ctx context.Context, tw *tar.Writer, member, chdir string, excludes []string, verbose bool, metadataPolicy MetadataPolicy) error {
 	basePath := member
 	if chdir != "" {
 		basePath = filepath.Join(chdir, member)
@@ -232,10 +238,11 @@ func (r *Runner) addLocalPath(ctx context.Context, tw *tar.Writer, member, chdir
 		hdr.Name = filepath.ToSlash(archiveName)
 		hdr.Format = tar.FormatPAX
 
-		xattrs, acls, _ := archive.ReadPathMetadata(current)
-		archive.EncodeXattrToPAX(hdr, xattrs)
-		for k, v := range acls {
-			archive.EncodeACLToPAX(hdr, k, v)
+		if metadataPolicy.Xattrs || metadataPolicy.ACL {
+			xattrs, acls, _ := archive.ReadPathMetadata(current)
+			xattrs, acls = prepareMetadataForArchive(xattrs, acls, metadataPolicy)
+			archive.EncodeXattrToPAX(hdr, xattrs)
+			archive.EncodeACLToPAX(hdr, acls)
 		}
 
 		if err := tw.WriteHeader(hdr); err != nil {
@@ -280,6 +287,7 @@ func (r *Runner) runList(ctx context.Context, opts cli.Options) (int, error) {
 
 func (r *Runner) runExtract(ctx context.Context, opts cli.Options) (int, error) {
 	policy := resolvePolicy(opts)
+	metadataPolicy := resolveMetadataPolicy(opts)
 	if opts.ToStdout {
 		return r.scanArchive(ctx, opts, func(hdr *tar.Header, tr *tar.Reader) (int, error) {
 			if shouldSkipMember(opts, hdr.Name) {
@@ -337,7 +345,7 @@ func (r *Runner) runExtract(ctx context.Context, opts cli.Options) (int, error) 
 		case locator.KindS3:
 			return r.extractToS3(ctx, parsedTarget, &effectiveHdr, tr)
 		case locator.KindLocal, locator.KindStdio:
-			return r.extractToLocal(parsedTarget.Path, &effectiveHdr, tr, policy)
+			return r.extractToLocal(parsedTarget.Path, &effectiveHdr, tr, policy, metadataPolicy)
 		default:
 			return 0, fmt.Errorf("unsupported extract target %q", target)
 		}
@@ -384,7 +392,7 @@ func (r *Runner) extractToS3(ctx context.Context, target locator.Ref, hdr *tar.H
 	return warnings, nil
 }
 
-func (r *Runner) extractToLocal(base string, hdr *tar.Header, tr *tar.Reader, policy PermissionPolicy) (int, error) {
+func (r *Runner) extractToLocal(base string, hdr *tar.Header, tr *tar.Reader, policy PermissionPolicy, metadataPolicy MetadataPolicy) (int, error) {
 	target, err := safeJoin(base, hdr.Name)
 	if err != nil {
 		return 0, err
@@ -457,8 +465,7 @@ func (r *Runner) extractToLocal(base string, hdr *tar.Header, tr *tar.Reader, po
 		_ = os.Chtimes(target, hdr.ModTime, hdr.ModTime)
 	}
 
-	xattrs, _ := archive.DecodeXattrFromPAX(hdr)
-	acls, _ := archive.DecodeACLFromPAX(hdr)
+	xattrs, acls := decodeMetadataForExtract(hdr, metadataPolicy)
 	_ = archive.WritePathMetadata(target, xattrs, acls)
 	return 0, nil
 }
@@ -549,6 +556,13 @@ func resolvePolicy(opts cli.Options) PermissionPolicy {
 		policy.SamePerms = *opts.SamePermissions
 	}
 	return policy
+}
+
+func resolveMetadataPolicy(opts cli.Options) MetadataPolicy {
+	return MetadataPolicy{
+		Xattrs: opts.Xattrs,
+		ACL:    opts.ACL,
+	}
 }
 
 func shouldSkipMember(opts cli.Options, name string) bool {
@@ -657,4 +671,46 @@ func stripPathComponents(name string, count int) (string, bool) {
 		return "", false
 	}
 	return strings.Join(parts[count:], "/"), true
+}
+
+func filterACLLikeXattrs(attrs map[string][]byte) map[string][]byte {
+	if len(attrs) == 0 {
+		return attrs
+	}
+	out := make(map[string][]byte, len(attrs))
+	for k, v := range attrs {
+		if strings.Contains(strings.ToLower(k), "acl") {
+			continue
+		}
+		out[k] = v
+	}
+	return out
+}
+
+func prepareMetadataForArchive(xattrs map[string][]byte, acls map[string][]byte, policy MetadataPolicy) (map[string][]byte, map[string][]byte) {
+	if !policy.Xattrs {
+		xattrs = nil
+	} else if !policy.ACL {
+		xattrs = filterACLLikeXattrs(xattrs)
+	}
+	if !policy.ACL {
+		acls = nil
+	}
+	return xattrs, acls
+}
+
+func decodeMetadataForExtract(hdr *tar.Header, policy MetadataPolicy) (map[string][]byte, map[string][]byte) {
+	var xattrs map[string][]byte
+	if policy.Xattrs {
+		xattrs, _ = archive.DecodeXattrFromPAX(hdr)
+		if !policy.ACL {
+			xattrs = filterACLLikeXattrs(xattrs)
+		}
+	}
+
+	var acls map[string][]byte
+	if policy.ACL {
+		acls, _ = archive.DecodeACLFromPAX(hdr)
+	}
+	return xattrs, acls
 }

@@ -7,7 +7,7 @@ A Linux `tar`-compatible CLI tool written in Go, with native AWS S3 support as b
 - **Drop-in tar replacement** — supports common `tar` flags (`-c`, `-x`, `-t`, `-v`, `-f`, `-C`, `-O`)
 - **AWS S3 integration** — use `s3://bucket/key` URIs or S3 ARNs directly in `-f` and member arguments
 - **Multiple compression formats** — gzip (`-z`), bzip2 (`-j`), xz (`-J`), zstd (`--zstd`), lz4 (`--lz4`), with auto-detection on extract
-- **PAX format** — preserves extended attributes (xattr) and ACLs via PAX records
+- **PAX format** — preserves metadata on demand: `--xattrs` for extended attributes, `--acl` for ACLs
 - **Permission control** — `--same-owner`, `--same-permissions` (`--numeric-owner` accepted for tar compatibility)
 - **Exclude patterns** — `--exclude` and `--exclude-from` (glob matching)
 - **Member filtering on extract/list** — explicit member names, optionally with `--wildcards`
@@ -125,6 +125,14 @@ gotgz -tf archive.tar --wildcards 'src/*.go'
 
 # Permission preservation
 gotgz -xvf archive.tar --same-owner --same-permissions
+
+# Explicitly enable ACL archive/extract
+gotgz -cvf archive.tar --acl dir/
+gotgz -xvf archive.tar --acl -C /tmp/output
+
+# Explicitly enable xattrs archive/extract
+gotgz -cvf archive.tar --xattrs dir/
+gotgz -xvf archive.tar --xattrs -C /tmp/output
 
 # Parsed for tar compatibility (currently no behavior change)
 gotgz -xvf archive.tar --numeric-owner

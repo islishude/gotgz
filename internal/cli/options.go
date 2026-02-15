@@ -31,6 +31,8 @@ type Options struct {
 	Mode             Mode
 	Archive          string
 	Suffix           string
+	ACL              bool
+	Xattrs           bool
 	Verbose          bool
 	Help             bool
 	CompressionLevel *int
@@ -136,6 +138,10 @@ func Parse(args []string) (Options, error) {
 					return opts, fmt.Errorf("option --compression-level requires an integer between 1 and 9")
 				}
 				opts.CompressionLevel = &level
+			case "acl":
+				opts.ACL = true
+			case "xattrs":
+				opts.Xattrs = true
 			case "suffix":
 				v, nextI, err := resolveValue(name, value, hasValue, args, i)
 				if err != nil {

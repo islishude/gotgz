@@ -40,7 +40,7 @@ func TestParseModeConflict(t *testing.T) {
 
 func TestParseLongOptions(t *testing.T) {
 	opts, err := Parse([]string{
-		"-x", "-f", "in.tar", "--exclude=*.tmp", "--exclude-from", "ex.txt", "--wildcards", "--numeric-owner", "--no-same-owner", "--same-permissions", "--lz4", "--strip-components=1", "--compression-level=9", "--suffix=custom",
+		"-x", "-f", "in.tar", "--exclude=*.tmp", "--exclude-from", "ex.txt", "--wildcards", "--numeric-owner", "--no-same-owner", "--same-permissions", "--lz4", "--strip-components=1", "--compression-level=9", "--suffix=custom", "--acl", "--xattrs",
 	})
 	if err != nil {
 		t.Fatalf("Parse() error = %v", err)
@@ -68,6 +68,12 @@ func TestParseLongOptions(t *testing.T) {
 	}
 	if opts.Suffix != "custom" {
 		t.Fatalf("suffix = %q, want %q", opts.Suffix, "custom")
+	}
+	if !opts.ACL {
+		t.Fatalf("acl expected true")
+	}
+	if !opts.Xattrs {
+		t.Fatalf("xattrs expected true")
 	}
 }
 
@@ -122,5 +128,18 @@ func TestParseSuffixSingleDash(t *testing.T) {
 	}
 	if opts.Suffix != "date" {
 		t.Fatalf("suffix = %q, want %q", opts.Suffix, "date")
+	}
+}
+
+func TestParseACLDefaultDisabled(t *testing.T) {
+	opts, err := Parse([]string{"-x", "-f", "in.tar"})
+	if err != nil {
+		t.Fatalf("Parse() error = %v", err)
+	}
+	if opts.ACL {
+		t.Fatalf("acl should be disabled by default")
+	}
+	if opts.Xattrs {
+		t.Fatalf("xattrs should be disabled by default")
 	}
 }

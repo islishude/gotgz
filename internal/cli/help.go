@@ -46,6 +46,8 @@ Ownership & Permissions:
   --same-permissions
   --no-same-permissions
   --numeric-owner
+  --xattrs           Archive or extract extended attributes (default: disabled)
+  --acl              Archive or extract POSIX.1e/NFSv4 ACLs (default: disabled)
 
 Exclude:
   --exclude <pattern>
