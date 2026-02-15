@@ -1,96 +1,172 @@
 # gotgz
 
-Similar to `tar + gzip`, but supports S3
+A Linux `tar`-compatible CLI tool written in Go, with native AWS S3 support as both archive source and destination.
 
-**differences from tar**
+## Features
 
-1. gzip is enabled by default, but you can also use zstd or lz4
-2. `-xvf` short form is not supported, you should use `-x -v -f`
-3. Only regular files, directories and symbol links are supported
+- **Drop-in tar replacement** — supports common `tar` flags (`-c`, `-x`, `-t`, `-v`, `-f`, `-C`, `-O`)
+- **AWS S3 integration** — use `s3://bucket/key` URIs or S3 ARNs directly in `-f` and member arguments
+- **Multiple compression formats** — gzip (`-z`), bzip2 (`-j`), xz (`-J`), zstd (`--zstd`), lz4 (`--lz4`), with auto-detection on extract
+- **PAX format** — preserves extended attributes (xattr) and ACLs via PAX records
+- **Permission control** — `--same-owner`, `--same-permissions`, `--numeric-owner`
+- **Exclude patterns** — `--exclude` and `--exclude-from` with optional `--wildcards`
+- **Path stripping on extract** — `--strip-components <count>` removes leading path segments
+- **S3 encryption** — configurable server-side encryption (AES256, SSE-KMS)
 
-## Compress
+## Installation
 
-```console
-$ gotgz -c -f s3://test/testdata.tar.gz -e 'parent/.exclude/**' -relative -suffix date testdata
-2025/01/30 19:19:36 INFO append target=testdata
-2025/01/30 19:19:36 INFO append target=testdata/parent
-2025/01/30 19:19:36 INFO append target=testdata/parent/README
-2025/01/30 19:19:36 INFO append target=testdata/parent/README.md
-2025/01/30 19:19:36 INFO append target=testdata/parent/css
-2025/01/30 19:19:36 INFO append target=testdata/parent/css/index.css
-2025/01/30 19:19:36 INFO append target=testdata/parent/favicon-32x32.png
-2025/01/30 19:19:36 INFO append target=testdata/parent/index.html
-2025/01/30 19:19:36 INFO append target=testdata/parent/index.json
-2025/01/30 19:19:36 INFO append target=testdata/parent/javascript
-2025/01/30 19:19:36 INFO append target=testdata/parent/js
-2025/01/30 19:19:36 INFO append target=testdata/parent/js/index.js
-2025/01/30 19:19:36 INFO Time cost: period=15.129041ms
-$ aws s3 ls s3://test
-2025-01-30 11:19:36       2332 testdata-20250130.tar.gz
+```bash
+go install github.com/islishude/gotgz/cmd/gotgz@latest
 ```
 
-`-c` is used to compress files.
+Or build from source:
 
-`-f` is used to specify the target file, it supports local path and S3 path.
-
-`-e` is used to exclude files or directories, it's a shell glob pattern.
-
-`-relative` is used to keep the relative path in tar ball, if the source directory is `/data` and the file path is `/data/file.txt`, the relative path in tar ball is `file.txt`.
-
-`-suffix` option is used to add a suffix to the file name, date is a built-in suffix.
-
-the last argument is the source directory, it supports multiple directories.
-
-You can use `s3://your-s3-bucket/path.tgz?key=value` to add metadata to the object.
-
-The default compression method is gzip.
-
-To use zstd or lz4, you need use `--algo` with options:
-
-```
-gotgz -c -algo 'zstd?level=1' -f s3://your-s3-bucket/path.tgz /data
-gotgz -c -algo 'lz4?level=1' -f s3://your-s3-bucket/path.tgz /data
+```bash
+git clone https://github.com/islishude/gotgz.git
+cd gotgz
+go build -o gotgz ./cmd/gotgz
 ```
 
-## Decompress
+## Usage
 
-```console
-$ gotgz -x -f s3://test/testdata.tar.gz -suffix=date -strip-components=1 tmp
-2025/01/30 19:21:09 INFO extract target=.
-2025/01/30 19:21:09 INFO extract target=parent
-2025/01/30 19:21:09 INFO extract target=parent/README
-2025/01/30 19:21:09 INFO extract target=parent/README.md
-2025/01/30 19:21:09 INFO extract target=parent/css
-2025/01/30 19:21:09 INFO extract target=parent/css/index.css
-2025/01/30 19:21:09 INFO extract target=parent/favicon-32x32.png
-2025/01/30 19:21:09 INFO extract target=parent/index.html
-2025/01/30 19:21:09 INFO extract target=parent/index.json
-2025/01/30 19:21:09 INFO extract target=parent/javascript
-2025/01/30 19:21:09 INFO extract target=parent/js
-2025/01/30 19:21:09 INFO extract target=parent/js/index.js
-2025/01/30 19:21:09 INFO Time cost: period=4.628542ms
-$ tree tmp
-tmp
-├── README -> README.md
-├── README.md
-├── css
-│   └── index.css
-├── favicon-32x32.png
-├── index.html
-├── index.json
-├── javascript -> js
-└── js
-    └── index.js
+`gotgz` follows the same CLI conventions as GNU `tar`:
 
-4 directories, 7 files
+### Create an archive
+
+```bash
+# Local files → local archive
+gotgz -cvf archive.tar dir1 file1.txt
+
+# Local files → compressed archive
+gotgz -cvzf archive.tar.gz dir1 file1.txt
+
+# Add suffix to generated archive filename, date format is built-in and it uses `20060102` as the layout
+# You can also specify a custom suffix with `-suffix` flag, for example `-suffix backup` will generate `archive-backup.tar.gz`
+gotgz -cvzf -f archive.tar.gz -suffix date dir1 file1.txt
+
+# Local files → S3
+gotgz -cvzf s3://my-bucket/backups/archive.tar.gz dir1 file1.txt
+
+# S3 objects → local archive
+gotgz -cvf archive.tar s3://my-bucket/data/file1.txt s3://my-bucket/data/file2.txt
+
+# S3 objects → S3 archive
+gotgz -cvf s3://my-bucket/out.tar s3://my-bucket/data/file1.txt
 ```
 
-`-f` also supports a local path.
+### Extract an archive
 
-The `-strip-components=N` to remove the leading N directories from the file names.
+```bash
+# Local archive → local directory
+gotgz -xvf archive.tar.gz -C /tmp/output
 
-By default, the gotgz will overwrite the existing files, you can use `-no-overwrite=true` to prevent it.
+# S3 archive → local directory
+gotgz -xvf s3://my-bucket/backups/archive.tar.gz -C /tmp/output
 
-If you want to keep the file permission and user infomation, you can use `-no-same-permissions=false -no-same-owner=false`.
+# Local archive → S3
+gotgz -xvf archive.tar -C s3://my-bucket/restored/
+```
 
-Don't forget to add `-algo` if the file is compressed by zstd or lz4.
+### List contents
+
+```bash
+gotgz -tf archive.tar.gz
+gotgz -tf s3://my-bucket/backups/archive.tar.gz
+```
+
+### Compression options
+
+| Flag     | Format |
+| -------- | ------ |
+| `-z`     | gzip   |
+| `-j`     | bzip2  |
+| `-J`     | xz     |
+| `--zstd` | zstd   |
+| `--lz4`  | lz4    |
+
+You can control compression strength for create mode with `-compression-level=<1-9>` (or `--compression-level=<1-9>`).  
+If not provided, each algorithm uses its own default level.
+
+When extracting or listing, compression is auto-detected from file magic bytes or extension.
+
+### S3 addressing
+
+Both S3 URI and ARN forms are supported:
+
+```bash
+# S3 URI
+gotgz -tf s3://my-bucket/path/to/archive.tar
+
+# S3 object ARN
+gotgz -tf arn:aws:s3:::my-bucket/path/to/archive.tar
+
+# S3 Access Point ARN
+gotgz -tf arn:aws:s3:us-west-2:123456789012:accesspoint/myap/object/path/to/archive.tar
+
+# Add custom S3 object metadata via query string when uploading archives
+gotgz -cvzf "s3://my-bucket/backups/archive.tgz?env=prod&owner=platform" dir/
+```
+
+### Additional options
+
+```bash
+# Extract to stdout
+gotgz -xOf archive.tar path/to/file.txt
+
+# Exclude patterns
+gotgz -cvf archive.tar --exclude='*.log' --exclude-from=excludes.txt dir/
+
+# Permission preservation
+gotgz -xvf archive.tar --same-owner --same-permissions
+
+# Strip leading path components while extracting
+gotgz -xvf archive.tar --strip-components=1 -C /tmp/output
+
+# Legacy (bundled) syntax
+gotgz cvf archive.tar dir/
+```
+
+## Environment Variables
+
+| Variable                  | Description                                               | Default  |
+| ------------------------- | --------------------------------------------------------- | -------- |
+| `GOTGZ_S3_SSE`            | Server-side encryption type (`AES256`, `aws:kms`, `none`) | `AES256` |
+| `GOTGZ_S3_SSE_KMS_KEY_ID` | KMS key ID for SSE-KMS encryption                         |          |
+| `GOTGZ_S3_PART_SIZE_MB`   | Multipart upload part size in MB                          | `16`     |
+| `GOTGZ_S3_CONCURRENCY`    | Multipart upload concurrency                              | `4`      |
+| `GOTGZ_S3_MAX_RETRIES`    | Maximum retry attempts for S3 operations                  |          |
+| `GOTGZ_S3_USE_PATH_STYLE` | Use path-style S3 addressing (for LocalStack/MinIO)       | `false`  |
+
+Standard AWS SDK environment variables (`AWS_REGION`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_ENDPOINT_URL`, etc.) are also respected.
+
+## Development
+
+### Prerequisites
+
+- Go 1.26+
+- Docker & Docker Compose (for integration tests)
+
+### Run unit tests
+
+```bash
+go test ./...
+```
+
+### Run integration tests (with LocalStack)
+
+The integration tests require a running LocalStack instance to test S3 operations:
+
+```bash
+# Start LocalStack
+docker compose up -d --wait
+
+# Run integration tests
+GOTGZ_TEST_S3_ENDPOINT=http://localhost:4566 go test -v -run TestS3 ./internal/engine/ -count=1
+
+# Tear down
+docker compose down
+```
+
+## License
+
+See [LICENSE](LICENSE) for details.
