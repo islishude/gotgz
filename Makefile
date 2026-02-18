@@ -5,13 +5,14 @@ install:
 	go install ./cmd/gotgz
 
 lint:
+	go vet ./...
 	golangci-lint run --timeout 10m
 
 fmt:
 	gofmt -w -s .
 	go fix ./...
 
-test:
+test: build lint fmt
 	docker compose down
 	docker compose up -d --wait
 	GOTGZ_TEST_S3_ENDPOINT=http://localhost:4566 go test -v ./...
