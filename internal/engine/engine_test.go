@@ -2,7 +2,9 @@ package engine
 
 import (
 	"archive/tar"
+	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/islishude/gotgz/internal/archive"
@@ -172,4 +174,30 @@ func TestDecodeMetadataForExtract(t *testing.T) {
 			t.Fatalf("expected acl record")
 		}
 	})
+}
+
+func TestLoadExcludePatternsRejectsInvalidInlinePattern(t *testing.T) {
+	_, err := loadExcludePatterns([]string{"["}, nil)
+	if err == nil {
+		t.Fatalf("expected invalid pattern error")
+	}
+	if !strings.Contains(err.Error(), "invalid exclude pattern") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestLoadExcludePatternsRejectsInvalidPatternInFile(t *testing.T) {
+	tmpDir := t.TempDir()
+	patternsFile := filepath.Join(tmpDir, "exclude.txt")
+	if err := os.WriteFile(patternsFile, []byte("*.tmp\n[\n"), 0o600); err != nil {
+		t.Fatalf("write patterns file: %v", err)
+	}
+
+	_, err := loadExcludePatterns(nil, []string{patternsFile})
+	if err == nil {
+		t.Fatalf("expected invalid pattern error")
+	}
+	if !strings.Contains(err.Error(), "exclude.txt:2") {
+		t.Fatalf("error should include file and line: %v", err)
+	}
 }

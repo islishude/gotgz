@@ -585,16 +585,27 @@ func shouldSkipMember(opts cli.Options, name string) bool {
 }
 
 func loadExcludePatterns(inline []string, files []string) ([]string, error) {
-	out := append([]string(nil), inline...)
+	out := make([]string, 0, len(inline))
+	for _, pattern := range inline {
+		if _, err := path.Match(pattern, ""); err != nil {
+			return nil, fmt.Errorf("invalid exclude pattern %q: %w", pattern, err)
+		}
+		out = append(out, pattern)
+	}
 	for _, f := range files {
 		b, err := os.ReadFile(f)
 		if err != nil {
 			return nil, err
 		}
+		lineNo := 0
 		for line := range strings.SplitSeq(string(b), "\n") {
+			lineNo++
 			line = strings.TrimSpace(line)
 			if line == "" || strings.HasPrefix(line, "#") {
 				continue
+			}
+			if _, err := path.Match(line, ""); err != nil {
+				return nil, fmt.Errorf("invalid exclude pattern %q in %s:%d: %w", line, f, lineNo, err)
 			}
 			out = append(out, line)
 		}
