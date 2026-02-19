@@ -14,7 +14,7 @@ jobs:
     runs-on: ubuntu-latest
     services:
       localstack:
-        image: localstack/localstack
+        image: localstack/localstack:4.13.1
         ports: ["4566:4566"]
         options: >-
           --health-cmd "awslocal s3 ls" --health-interval 1s --health-timeout 5s

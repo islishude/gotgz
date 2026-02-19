@@ -2,7 +2,7 @@ name: "test"
 
 services:
   localstack:
-    image: localstack/localstack
+    image: localstack/localstack:4.13.1
     ports:
       - 4566:4566
     healthcheck:
