@@ -64,6 +64,7 @@ func New(ctx context.Context) (*Store, error) {
 	}
 
 	client := awss3.NewFromConfig(cfg, func(o *awss3.Options) {
+		o.DisableLogOutputChecksumValidationSkipped = true
 		if strings.EqualFold(strings.TrimSpace(os.Getenv("GOTGZ_S3_USE_PATH_STYLE")), "true") {
 			o.UsePathStyle = true
 		}
