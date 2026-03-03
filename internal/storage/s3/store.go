@@ -33,8 +33,9 @@ type Settings struct {
 }
 
 type Metadata struct {
-	Size int64
-	ETag string
+	Size        int64
+	ETag        string
+	ContentType string
 }
 
 func New(ctx context.Context) (*Store, error) {
@@ -84,7 +85,11 @@ func (s *Store) OpenReader(ctx context.Context, ref locator.Ref) (io.ReadCloser,
 	if err != nil {
 		return nil, Metadata{}, err
 	}
-	meta := Metadata{Size: aws.ToInt64(out.ContentLength), ETag: aws.ToString(out.ETag)}
+	meta := Metadata{
+		Size:        aws.ToInt64(out.ContentLength),
+		ETag:        aws.ToString(out.ETag),
+		ContentType: aws.ToString(out.ContentType),
+	}
 	return out.Body, meta, nil
 }
 
@@ -96,7 +101,11 @@ func (s *Store) Stat(ctx context.Context, ref locator.Ref) (Metadata, error) {
 	if err != nil {
 		return Metadata{}, err
 	}
-	return Metadata{Size: aws.ToInt64(out.ContentLength), ETag: aws.ToString(out.ETag)}, nil
+	return Metadata{
+		Size:        aws.ToInt64(out.ContentLength),
+		ETag:        aws.ToString(out.ETag),
+		ContentType: aws.ToString(out.ContentType),
+	}, nil
 }
 
 func (s *Store) OpenWriter(ctx context.Context, ref locator.Ref, metadata map[string]string) (io.WriteCloser, error) {

@@ -1,10 +1,13 @@
 package engine
 
 import (
+	"archive/tar"
 	"bytes"
 	"context"
 	"io"
 	"io/fs"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -405,5 +408,126 @@ func TestTestdataRoundTripCompressors(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// tarArchiveBytes builds an in-memory tar archive from name->content pairs.
+func tarArchiveBytes(t *testing.T, files map[string]string) []byte {
+	t.Helper()
+
+	var buf bytes.Buffer
+	tw := tar.NewWriter(&buf)
+	for name, content := range files {
+		hdr := &tar.Header{
+			Name:     name,
+			Mode:     0o644,
+			Size:     int64(len(content)),
+			Typeflag: tar.TypeReg,
+			Format:   tar.FormatPAX,
+		}
+		if err := tw.WriteHeader(hdr); err != nil {
+			t.Fatalf("WriteHeader(%q): %v", name, err)
+		}
+		if _, err := io.WriteString(tw, content); err != nil {
+			t.Fatalf("Write(%q): %v", name, err)
+		}
+	}
+	if err := tw.Close(); err != nil {
+		t.Fatalf("close tar writer: %v", err)
+	}
+	return buf.Bytes()
+}
+
+func TestListHTTPArchive(t *testing.T) {
+	archiveBytes := tarArchiveBytes(t, map[string]string{
+		"files/one.txt": "one",
+		"files/two.txt": "two",
+	})
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write(archiveBytes)
+	}))
+	defer server.Close()
+
+	var stdout bytes.Buffer
+	r, err := New(context.Background(), &stdout, io.Discard)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	list := cli.Options{Mode: cli.ModeList, Archive: server.URL + "/archive.tar"}
+	if got := r.Run(context.Background(), list); got.ExitCode != ExitSuccess {
+		t.Fatalf("list exit=%d err=%v", got.ExitCode, got.Err)
+	}
+
+	output := stdout.String()
+	for _, item := range []string{"files/one.txt", "files/two.txt"} {
+		if !strings.Contains(output, item) {
+			t.Fatalf("list output missing %q:\n%s", item, output)
+		}
+	}
+}
+
+func TestExtractHTTPArchive(t *testing.T) {
+	archiveBytes := tarArchiveBytes(t, map[string]string{
+		"dir/hello.txt": "hello-http",
+	})
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write(archiveBytes)
+	}))
+	defer server.Close()
+
+	outDir := t.TempDir()
+	r, err := New(context.Background(), io.Discard, io.Discard)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	extract := cli.Options{
+		Mode:    cli.ModeExtract,
+		Archive: server.URL + "/archive.tar",
+		Chdir:   outDir,
+	}
+	if got := r.Run(context.Background(), extract); got.ExitCode != ExitSuccess {
+		t.Fatalf("extract exit=%d err=%v", got.ExitCode, got.Err)
+	}
+
+	b, err := os.ReadFile(filepath.Join(outDir, "dir", "hello.txt"))
+	if err != nil {
+		t.Fatalf("read extracted file: %v", err)
+	}
+	if string(b) != "hello-http" {
+		t.Fatalf("content mismatch = %q", string(b))
+	}
+}
+
+func TestCreateToHTTPArchiveTargetFails(t *testing.T) {
+	root := t.TempDir()
+	src := filepath.Join(root, "src")
+	if err := os.MkdirAll(src, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(src, "a.txt"), []byte("a"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	r, err := New(context.Background(), io.Discard, io.Discard)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	create := cli.Options{
+		Mode:    cli.ModeCreate,
+		Archive: "https://example.com/archive.tar",
+		Chdir:   root,
+		Members: []string{"src"},
+	}
+	got := r.Run(context.Background(), create)
+	if got.ExitCode != ExitFatal {
+		t.Fatalf("exit=%d, want %d", got.ExitCode, ExitFatal)
+	}
+	if got.Err == nil || !strings.Contains(got.Err.Error(), "unsupported archive target") {
+		t.Fatalf("err = %v", got.Err)
 	}
 }

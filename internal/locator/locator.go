@@ -15,11 +15,13 @@ const (
 	KindLocal Kind = "local"
 	KindStdio Kind = "stdio"
 	KindS3    Kind = "s3"
+	KindHTTP  Kind = "http"
 )
 
 type Ref struct {
 	Kind     Kind
 	Raw      string
+	URL      string
 	Path     string
 	Bucket   string
 	Key      string
@@ -35,6 +37,9 @@ func ParseArchive(v string) (Ref, error) {
 	}
 	if strings.HasPrefix(v, "arn:") {
 		return parseS3ARN(v)
+	}
+	if strings.HasPrefix(v, "http://") || strings.HasPrefix(v, "https://") {
+		return parseHTTPURI(v)
 	}
 	return Ref{Kind: KindLocal, Raw: v, Path: v}, nil
 }
@@ -95,6 +100,21 @@ func parseS3ARN(v string) (Ref, error) {
 		return Ref{}, fmt.Errorf("unsupported s3 arn, expected object arn with bucket and key")
 	}
 	return Ref{Kind: KindS3, Raw: v, Bucket: parts[0], Key: parts[1]}, nil
+}
+
+// parseHTTPURI parses an HTTP(S) archive URI and validates its basic shape.
+func parseHTTPURI(v string) (Ref, error) {
+	u, err := url.Parse(v)
+	if err != nil {
+		return Ref{}, fmt.Errorf("invalid http uri %q: %w", v, err)
+	}
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return Ref{}, fmt.Errorf("unsupported uri scheme %q", u.Scheme)
+	}
+	if strings.TrimSpace(u.Host) == "" {
+		return Ref{}, fmt.Errorf("http uri must include host")
+	}
+	return Ref{Kind: KindHTTP, Raw: v, URL: v}, nil
 }
 
 func JoinS3Prefix(prefix, name string) string {
