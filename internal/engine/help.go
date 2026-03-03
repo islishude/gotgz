@@ -7,7 +7,8 @@ import (
 	"time"
 )
 
-func AddTarSuffix(fileName, suffix string) string {
+// AddArchiveSuffix appends a custom/date suffix before the archive extension.
+func AddArchiveSuffix(fileName, suffix string) string {
 	if suffix == "" {
 		return fileName
 	}

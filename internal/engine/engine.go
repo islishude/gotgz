@@ -123,10 +123,10 @@ func (r *Runner) runCreateTar(ctx context.Context, opts cli.Options, archiveRef 
 	if opts.Suffix != "" {
 		switch archiveRef.Kind {
 		case locator.KindLocal:
-			archiveRef.Path = AddTarSuffix(archiveRef.Path, opts.Suffix)
+			archiveRef.Path = AddArchiveSuffix(archiveRef.Path, opts.Suffix)
 			archiveRef.Raw = archiveRef.Path
 		case locator.KindS3:
-			archiveRef.Key = AddTarSuffix(archiveRef.Key, opts.Suffix)
+			archiveRef.Key = AddArchiveSuffix(archiveRef.Key, opts.Suffix)
 		case locator.KindStdio:
 			return 0, fmt.Errorf("cannot use -suffix with -f -")
 		}

@@ -107,7 +107,7 @@ func TestCreateArchiveWithSuffix(t *testing.T) {
 	src := filepath.Join(root, "src")
 	out := filepath.Join(root, "out")
 	archiveBase := filepath.Join(root, "backup.tar.gz")
-	archiveWithSuffix := AddTarSuffix(archiveBase, "custom")
+	archiveWithSuffix := AddArchiveSuffix(archiveBase, "custom")
 
 	if err := os.MkdirAll(src, 0o755); err != nil {
 		t.Fatal(err)
