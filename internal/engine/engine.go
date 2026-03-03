@@ -429,12 +429,7 @@ func (r *Runner) runExtract(ctx context.Context, opts cli.Options) (int, error) 
 
 // runListTar lists archive members from a tar input stream.
 func (r *Runner) runListTar(ctx context.Context, opts cli.Options, reporter *progressReporter, ar io.ReadCloser, info archiveReaderInfo) (int, error) {
-	return r.scanTarArchiveFromReader(opts, reporter, info, ar, func(hdr *tar.Header, tr *tar.Reader) (int, error) {
-		select {
-		case <-ctx.Done():
-			return 0, ctx.Err()
-		default:
-		}
+	return r.scanTarArchiveFromReader(ctx, opts, reporter, info, ar, func(hdr *tar.Header, tr *tar.Reader) (int, error) {
 		if shouldSkipMember(opts, hdr.Name) {
 			if _, err := io.Copy(io.Discard, tr); err != nil {
 				return 0, err
@@ -457,7 +452,7 @@ func (r *Runner) runExtractTar(ctx context.Context, opts cli.Options, reporter *
 	metadataPolicy := resolveMetadataPolicy(opts)
 
 	if opts.ToStdout {
-		return r.scanTarArchiveFromReader(opts, reporter, info, ar, func(hdr *tar.Header, tr *tar.Reader) (int, error) {
+		return r.scanTarArchiveFromReader(ctx, opts, reporter, info, ar, func(hdr *tar.Header, tr *tar.Reader) (int, error) {
 			if shouldSkipMember(opts, hdr.Name) {
 				if _, err := io.Copy(io.Discard, tr); err != nil {
 					return 0, err
@@ -490,7 +485,7 @@ func (r *Runner) runExtractTar(ctx context.Context, opts cli.Options, reporter *
 		return 0, err
 	}
 
-	return r.scanTarArchiveFromReader(opts, reporter, info, ar, func(hdr *tar.Header, tr *tar.Reader) (int, error) {
+	return r.scanTarArchiveFromReader(ctx, opts, reporter, info, ar, func(hdr *tar.Header, tr *tar.Reader) (int, error) {
 		if shouldSkipMember(opts, hdr.Name) {
 			if _, err := io.Copy(io.Discard, tr); err != nil {
 				return 0, err
@@ -643,7 +638,7 @@ func (r *Runner) extractToLocal(base string, hdr *tar.Header, tr *tar.Reader, po
 }
 
 // scanTarArchiveFromReader scans a tar stream with optional compression.
-func (r *Runner) scanTarArchiveFromReader(opts cli.Options, reporter *progressReporter, info archiveReaderInfo, ar io.ReadCloser, fn func(hdr *tar.Header, tr *tar.Reader) (int, error)) (int, error) {
+func (r *Runner) scanTarArchiveFromReader(ctx context.Context, opts cli.Options, reporter *progressReporter, info archiveReaderInfo, ar io.ReadCloser, fn func(hdr *tar.Header, tr *tar.Reader) (int, error)) (int, error) {
 	reporter.SetTotal(info.Size, info.SizeKnown)
 	ar = newCountingReadCloser(ar, reporter)
 
@@ -656,12 +651,22 @@ func (r *Runner) scanTarArchiveFromReader(opts cli.Options, reporter *progressRe
 	tr := tar.NewReader(cr)
 	warnings := 0
 	for {
+		select {
+		case <-ctx.Done():
+			return warnings, ctx.Err()
+		default:
+		}
 		hdr, err := tr.Next()
 		if err != nil {
 			if errors.Is(err, io.EOF) {
 				break
 			}
 			return warnings, err
+		}
+		select {
+		case <-ctx.Done():
+			return warnings, ctx.Err()
+		default:
 		}
 		w, err := fn(hdr, tr)
 		warnings += w

@@ -5,6 +5,8 @@ import (
 	"archive/zip"
 	"bytes"
 	"context"
+	"encoding/binary"
+	"errors"
 	"io"
 	"io/fs"
 	"net/http"
@@ -460,6 +462,75 @@ func zipArchiveBytes(t *testing.T, files map[string]string) []byte {
 	return buf.Bytes()
 }
 
+// zipArchiveBytesUnsupportedMethod builds a zip with one entry using an
+// unsupported compression method code.
+func zipArchiveBytesUnsupportedMethod(t *testing.T, name string, method uint16) []byte {
+	t.Helper()
+
+	var buf bytes.Buffer
+	write := func(v any) {
+		if err := binary.Write(&buf, binary.LittleEndian, v); err != nil {
+			t.Fatalf("binary write: %v", err)
+		}
+	}
+
+	fileName := []byte(name)
+
+	// Local file header.
+	write(uint32(0x04034b50))
+	write(uint16(20))
+	write(uint16(0))
+	write(method)
+	write(uint16(0))
+	write(uint16(0))
+	write(uint32(0))
+	write(uint32(0))
+	write(uint32(0))
+	write(uint16(len(fileName)))
+	write(uint16(0))
+	if _, err := buf.Write(fileName); err != nil {
+		t.Fatalf("write local filename: %v", err)
+	}
+
+	cdOffset := buf.Len()
+
+	// Central directory header.
+	write(uint32(0x02014b50))
+	write(uint16(20))
+	write(uint16(20))
+	write(uint16(0))
+	write(method)
+	write(uint16(0))
+	write(uint16(0))
+	write(uint32(0))
+	write(uint32(0))
+	write(uint32(0))
+	write(uint16(len(fileName)))
+	write(uint16(0))
+	write(uint16(0))
+	write(uint16(0))
+	write(uint16(0))
+	write(uint32(0))
+	write(uint32(0))
+	if _, err := buf.Write(fileName); err != nil {
+		t.Fatalf("write central filename: %v", err)
+	}
+
+	cdSize := buf.Len() - cdOffset
+
+	// End of central directory.
+	write(uint32(0x06054b50))
+	write(uint16(0))
+	write(uint16(0))
+	write(uint16(1))
+	write(uint16(1))
+	write(uint32(cdSize))
+	write(uint32(cdOffset))
+	write(uint16(0))
+
+	return buf.Bytes()
+}
+
 func TestListHTTPArchive(t *testing.T) {
 	archiveBytes := tarArchiveBytes(t, map[string]string{
 		"files/one.txt": "one",
@@ -551,6 +622,45 @@ func TestCreateToHTTPArchiveTargetFails(t *testing.T) {
 	}
 	if got.Err == nil || !strings.Contains(got.Err.Error(), "unsupported archive target") {
 		t.Fatalf("err = %v", got.Err)
+	}
+}
+
+func TestExtractTarRespectsContextCancellation(t *testing.T) {
+	root := t.TempDir()
+	src := filepath.Join(root, "src")
+	archive := filepath.Join(root, "a.tar")
+	out := filepath.Join(root, "out")
+
+	if err := os.MkdirAll(src, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(src, "hello.txt"), []byte("world"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(out, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	r, err := New(context.Background(), io.Discard, io.Discard)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	create := cli.Options{Mode: cli.ModeCreate, Archive: archive, Chdir: root, Members: []string{"src"}}
+	if got := r.Run(context.Background(), create); got.ExitCode != ExitSuccess {
+		t.Fatalf("create exit=%d err=%v", got.ExitCode, got.Err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	extract := cli.Options{Mode: cli.ModeExtract, Archive: archive, Chdir: out}
+	got := r.Run(ctx, extract)
+	if got.ExitCode != ExitFatal {
+		t.Fatalf("extract exit=%d err=%v, want fatal", got.ExitCode, got.Err)
+	}
+	if !errors.Is(got.Err, context.Canceled) {
+		t.Fatalf("extract err=%v, want context canceled", got.Err)
 	}
 }
 
@@ -821,5 +931,38 @@ func TestZipExtractIgnoredOptionsReturnWarning(t *testing.T) {
 	got := r.Run(context.Background(), extract)
 	if got.ExitCode != ExitWarning {
 		t.Fatalf("extract exit=%d err=%v, want warning", got.ExitCode, got.Err)
+	}
+}
+
+func TestExtractZipUnsupportedEntrySkipsWithoutEmptyFile(t *testing.T) {
+	root := t.TempDir()
+	archive := filepath.Join(root, "unsupported.zip")
+	out := filepath.Join(root, "out")
+
+	payload := zipArchiveBytesUnsupportedMethod(t, "dir/bad.txt", 99)
+	if err := os.WriteFile(archive, payload, 0o644); err != nil {
+		t.Fatalf("write unsupported zip: %v", err)
+	}
+	if err := os.MkdirAll(out, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	r, err := New(context.Background(), io.Discard, io.Discard)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	extract := cli.Options{
+		Mode:    cli.ModeExtract,
+		Archive: archive,
+		Chdir:   out,
+	}
+	got := r.Run(context.Background(), extract)
+	if got.ExitCode != ExitWarning {
+		t.Fatalf("extract exit=%d err=%v, want warning", got.ExitCode, got.Err)
+	}
+
+	if _, err := os.Stat(filepath.Join(out, "dir", "bad.txt")); !os.IsNotExist(err) {
+		t.Fatalf("unsupported zip entry should not create output file, stat err=%v", err)
 	}
 }

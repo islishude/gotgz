@@ -492,6 +492,15 @@ func (r *Runner) extractZipEntryToLocal(base string, zf *zip.File, extractName s
 			return warnings, err
 		}
 	case isZipRegular(zf):
+		rc, w, err := r.openZipEntry(zf, reporter)
+		warnings += w
+		if err != nil {
+			return warnings, err
+		}
+		if rc == nil {
+			return warnings, nil
+		}
+
 		perm := mode.Perm()
 		if perm == 0 {
 			perm = 0o644
@@ -500,21 +509,13 @@ func (r *Runner) extractZipEntryToLocal(base string, zf *zip.File, extractName s
 			perm = perm &^ currentUmask()
 		}
 		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+			_ = rc.Close()
 			return warnings, err
 		}
 		out, err := os.OpenFile(target, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, perm)
 		if err != nil {
+			_ = rc.Close()
 			return warnings, err
-		}
-		rc, w, err := r.openZipEntry(zf, reporter)
-		warnings += w
-		if err != nil {
-			_ = out.Close()
-			return warnings, err
-		}
-		if rc == nil {
-			_ = out.Close()
-			return warnings, nil
 		}
 		_, err = io.Copy(out, newCountingReader(rc, reporter))
 		rerr := rc.Close()
