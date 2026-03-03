@@ -11,7 +11,7 @@ import (
 
 func TestProgressReporterKnownTotalIncludesETA(t *testing.T) {
 	var buf bytes.Buffer
-	p := newProgressReporter(&buf, cli.ProgressAlways, 100, true, time.Now().Add(-2*time.Second))
+	p := newProgressReporter(&buf, cli.ProgressAlways, 100, true, time.Now().Add(-2*time.Second), false)
 	p.AddDone(50)
 	p.Finish()
 
@@ -32,7 +32,7 @@ func TestProgressReporterKnownTotalIncludesETA(t *testing.T) {
 
 func TestProgressReporterUnknownTotalOmitsETA(t *testing.T) {
 	var buf bytes.Buffer
-	p := newProgressReporter(&buf, cli.ProgressAlways, 0, false, time.Now().Add(-2*time.Second))
+	p := newProgressReporter(&buf, cli.ProgressAlways, 0, false, time.Now().Add(-2*time.Second), false)
 	p.AddDone(512)
 	p.Finish()
 
@@ -50,7 +50,7 @@ func TestProgressReporterUnknownTotalOmitsETA(t *testing.T) {
 
 func TestProgressReporterAutoDisablesOnNonTTY(t *testing.T) {
 	var buf bytes.Buffer
-	p := newProgressReporter(&buf, cli.ProgressAuto, 10, true, time.Now().Add(-time.Second))
+	p := newProgressReporter(&buf, cli.ProgressAuto, 10, true, time.Now().Add(-time.Second), false)
 	p.AddDone(10)
 	p.Finish()
 
@@ -61,7 +61,7 @@ func TestProgressReporterAutoDisablesOnNonTTY(t *testing.T) {
 
 func TestProgressReporterBeforeExternalLineOutput(t *testing.T) {
 	var buf bytes.Buffer
-	p := newProgressReporter(&buf, cli.ProgressAlways, 100, true, time.Now().Add(-time.Second))
+	p := newProgressReporter(&buf, cli.ProgressAlways, 100, true, time.Now().Add(-time.Second), false)
 	p.AddDone(10)
 	p.beforeExternalLineOutput()
 	out := buf.String()
@@ -140,7 +140,7 @@ func TestFormatClock(t *testing.T) {
 
 func TestProgressReporterFinishIdempotent(t *testing.T) {
 	var buf bytes.Buffer
-	p := newProgressReporter(&buf, cli.ProgressAlways, 100, true, time.Now().Add(-time.Second))
+	p := newProgressReporter(&buf, cli.ProgressAlways, 100, true, time.Now().Add(-time.Second), false)
 	p.AddDone(100)
 	p.Finish()
 	first := buf.String()

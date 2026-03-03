@@ -34,7 +34,9 @@ type progressReporter struct {
 }
 
 // newProgressReporter creates a progress reporter configured for the requested mode.
-func newProgressReporter(writer io.Writer, mode cli.ProgressMode, totalBytes int64, totalKnown bool, startTime time.Time) *progressReporter {
+// pinTop reserves the first terminal row for progress updates when interactive output
+// also prints additional lines (for example, verbose file names).
+func newProgressReporter(writer io.Writer, mode cli.ProgressMode, totalBytes int64, totalKnown bool, startTime time.Time, pinTop bool) *progressReporter {
 	if startTime.IsZero() {
 		startTime = time.Now()
 	}
@@ -46,7 +48,7 @@ func newProgressReporter(writer io.Writer, mode cli.ProgressMode, totalBytes int
 	return &progressReporter{
 		writer:     writer,
 		enabled:    enabled,
-		topPinned:  enabled && interactive,
+		topPinned:  enabled && interactive && pinTop,
 		total:      totalBytes,
 		totalKnown: totalKnown,
 		startTime:  startTime,

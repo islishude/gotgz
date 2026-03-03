@@ -87,7 +87,7 @@ func classifyResult(err error, warnings int) RunResult {
 
 func (r *Runner) runCreate(ctx context.Context, opts cli.Options) (warnings int, retErr error) {
 	metadataPolicy := resolveMetadataPolicy(opts)
-	reporter := newProgressReporter(r.stderr, opts.Progress, 0, false, time.Now())
+	reporter := newProgressReporter(r.stderr, opts.Progress, 0, false, time.Now(), opts.Verbose)
 	defer reporter.Finish()
 
 	archiveRef, err := locator.ParseArchive(opts.Archive)
@@ -368,7 +368,7 @@ func (r *Runner) addLocalPath(ctx context.Context, tw *tar.Writer, member, chdir
 }
 
 func (r *Runner) runList(ctx context.Context, opts cli.Options) (int, error) {
-	reporter := newProgressReporter(r.stderr, opts.Progress, 0, false, time.Now())
+	reporter := newProgressReporter(r.stderr, opts.Progress, 0, false, time.Now(), true)
 	defer reporter.Finish()
 
 	return r.scanArchive(ctx, opts, reporter, func(hdr *tar.Header, tr *tar.Reader) (int, error) {
@@ -391,7 +391,7 @@ func (r *Runner) runList(ctx context.Context, opts cli.Options) (int, error) {
 func (r *Runner) runExtract(ctx context.Context, opts cli.Options) (int, error) {
 	policy := resolvePolicy(opts)
 	metadataPolicy := resolveMetadataPolicy(opts)
-	reporter := newProgressReporter(r.stderr, opts.Progress, 0, false, time.Now())
+	reporter := newProgressReporter(r.stderr, opts.Progress, 0, false, time.Now(), opts.Verbose && !opts.ToStdout)
 	defer reporter.Finish()
 
 	if opts.ToStdout {
