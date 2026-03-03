@@ -28,6 +28,8 @@ Main Options:
                     Remove <count> leading path elements when extracting
   -v                Verbose output
   -O                Extract regular file data to stdout
+  --progress        Force progress output (writes to stderr)
+  --no-progress     Disable progress output
   -h, --help        Show this help message
 
 Compression:

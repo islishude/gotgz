@@ -1,6 +1,11 @@
 package s3
 
-import "testing"
+import (
+	"context"
+	"testing"
+
+	"github.com/islishude/gotgz/internal/locator"
+)
 
 func TestContentTypeForKey(t *testing.T) {
 	cases := []struct {
@@ -25,5 +30,13 @@ func TestContentTypeForKey(t *testing.T) {
 				t.Fatalf("contentTypeForKey(%q)=%q, want %q", tc.key, got, tc.want)
 			}
 		})
+	}
+}
+
+func TestStatRejectsNonS3Ref(t *testing.T) {
+	s := &Store{}
+	_, err := s.Stat(context.Background(), locator.Ref{Kind: locator.KindLocal, Raw: "local.tar"})
+	if err == nil {
+		t.Fatalf("expected error for non-s3 ref")
 	}
 }

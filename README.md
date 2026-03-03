@@ -12,6 +12,7 @@ A Linux `tar`-compatible CLI tool written in Go, with native AWS S3 support as b
 - **Exclude patterns** — `--exclude` and `--exclude-from` (glob matching)
 - **Member filtering on extract/list** — explicit member names, optionally with `--wildcards`
 - **Path stripping on extract** — `--strip-components <count>` removes leading path segments
+- **Progress + ETA** — byte-based progress and ETA on TTY (or force with `--progress`)
 - **S3 encryption** — configurable server-side encryption (AES256, SSE-KMS)
 
 ## Installation
@@ -142,6 +143,10 @@ gotgz -xvf archive.tar --strip-components=1 -C /tmp/output
 
 # Legacy (bundled) syntax
 gotgz cvf archive.tar dir/
+
+# Progress behavior
+gotgz -xvf archive.tar --progress
+gotgz -cvf out.tar dir/ --no-progress
 ```
 
 ## Environment Variables

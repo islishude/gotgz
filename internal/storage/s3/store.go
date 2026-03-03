@@ -87,6 +87,17 @@ func (s *Store) OpenReader(ctx context.Context, ref locator.Ref) (io.ReadCloser,
 	return out.Body, meta, nil
 }
 
+func (s *Store) Stat(ctx context.Context, ref locator.Ref) (Metadata, error) {
+	if ref.Kind != locator.KindS3 {
+		return Metadata{}, fmt.Errorf("ref %q is not s3", ref.Raw)
+	}
+	out, err := s.client.HeadObject(ctx, &awss3.HeadObjectInput{Bucket: new(ref.Bucket), Key: new(ref.Key)})
+	if err != nil {
+		return Metadata{}, err
+	}
+	return Metadata{Size: aws.ToInt64(out.ContentLength), ETag: aws.ToString(out.ETag)}, nil
+}
+
 func (s *Store) OpenWriter(ctx context.Context, ref locator.Ref, metadata map[string]string) (io.WriteCloser, error) {
 	if ref.Kind != locator.KindS3 {
 		return nil, fmt.Errorf("ref %q is not s3", ref.Raw)

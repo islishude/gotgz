@@ -40,7 +40,7 @@ func TestParseModeConflict(t *testing.T) {
 
 func TestParseLongOptions(t *testing.T) {
 	opts, err := Parse([]string{
-		"-x", "-f", "in.tar", "--exclude=*.tmp", "--exclude-from", "ex.txt", "--wildcards", "--numeric-owner", "--no-same-owner", "--same-permissions", "--lz4", "--strip-components=1", "--compression-level=9", "--suffix=custom", "--acl", "--xattrs",
+		"-x", "-f", "in.tar", "--exclude=*.tmp", "--exclude-from", "ex.txt", "--wildcards", "--numeric-owner", "--no-same-owner", "--same-permissions", "--lz4", "--strip-components=1", "--compression-level=9", "--suffix=custom", "--acl", "--xattrs", "--progress",
 	})
 	if err != nil {
 		t.Fatalf("Parse() error = %v", err)
@@ -74,6 +74,9 @@ func TestParseLongOptions(t *testing.T) {
 	}
 	if !opts.Xattrs {
 		t.Fatalf("xattrs expected true")
+	}
+	if opts.Progress != ProgressAlways {
+		t.Fatalf("progress = %q, want %q", opts.Progress, ProgressAlways)
 	}
 }
 
@@ -141,5 +144,28 @@ func TestParseACLDefaultDisabled(t *testing.T) {
 	}
 	if opts.Xattrs {
 		t.Fatalf("xattrs should be disabled by default")
+	}
+	if opts.Progress != ProgressAuto {
+		t.Fatalf("progress = %q, want %q", opts.Progress, ProgressAuto)
+	}
+}
+
+func TestParseNoProgress(t *testing.T) {
+	opts, err := Parse([]string{"-x", "-f", "in.tar", "--no-progress"})
+	if err != nil {
+		t.Fatalf("Parse() error = %v", err)
+	}
+	if opts.Progress != ProgressNever {
+		t.Fatalf("progress = %q, want %q", opts.Progress, ProgressNever)
+	}
+}
+
+func TestParseProgressLastFlagWins(t *testing.T) {
+	opts, err := Parse([]string{"-x", "-f", "in.tar", "--progress", "--no-progress", "--progress"})
+	if err != nil {
+		t.Fatalf("Parse() error = %v", err)
+	}
+	if opts.Progress != ProgressAlways {
+		t.Fatalf("progress = %q, want %q", opts.Progress, ProgressAlways)
 	}
 }
