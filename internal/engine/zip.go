@@ -2,6 +2,7 @@ package engine
 
 import (
 	"archive/zip"
+	"bytes"
 	"compress/flate"
 	"context"
 	"errors"
@@ -600,7 +601,7 @@ func (r *Runner) extractZipEntryToS3(ctx context.Context, target locator.Ref, zf
 			return w, cerr
 		}
 		w += r.warnf(reporter, "zip symlink %s extracted to S3 as regular object", zf.Name)
-		if err := r.s3.UploadStream(ctx, obj, strings.NewReader(string(linkBytes)), target.Metadata); err != nil {
+		if err := r.s3.UploadStream(ctx, obj, bytes.NewReader(linkBytes), target.Metadata); err != nil {
 			return w, err
 		}
 		return w, nil
