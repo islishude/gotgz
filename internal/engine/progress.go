@@ -19,18 +19,18 @@ const (
 
 // progressReporter tracks bytes processed and renders progress updates.
 type progressReporter struct {
-	mu          sync.Mutex
-	writer      io.Writer
-	enabled     bool
-	topPinned   bool
-	total       int64
-	totalKnown  bool
-	done        int64
-	startTime   time.Time
-	lastDraw    time.Time
-	cursorBelow int
-	rendered    bool
-	finished    bool
+	mu           sync.Mutex
+	writer       io.Writer
+	enabled      bool
+	topPinned    bool
+	scrollRegion bool
+	total        int64
+	totalKnown   bool
+	done         int64
+	startTime    time.Time
+	lastDraw     time.Time
+	rendered     bool
+	finished     bool
 }
 
 // newProgressReporter creates a progress reporter configured for the requested mode.
@@ -96,7 +96,9 @@ func (p *progressReporter) Finish() {
 		return
 	}
 	p.renderLocked(true)
-	if p.rendered && !p.topPinned {
+	if p.topPinned {
+		p.resetScrollRegionLocked()
+	} else if p.rendered {
 		_, _ = fmt.Fprint(p.writer, "\n")
 	}
 	p.finished = true
@@ -111,7 +113,14 @@ func (p *progressReporter) beforeExternalLineOutput() {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	if !p.enabled || p.finished || !p.rendered || p.topPinned {
+	if !p.enabled || p.finished {
+		return
+	}
+	if p.topPinned {
+		p.ensureScrollRegionLocked()
+		return
+	}
+	if !p.rendered {
 		return
 	}
 	_, _ = fmt.Fprint(p.writer, "\n")
@@ -131,7 +140,6 @@ func (p *progressReporter) afterExternalLineOutput() {
 	if !p.enabled || p.finished || !p.topPinned || !p.rendered {
 		return
 	}
-	p.cursorBelow++
 }
 
 // renderLocked prints one progress line if refresh throttling allows it.
@@ -146,15 +154,9 @@ func (p *progressReporter) renderLocked(force bool) {
 
 	line := p.formatLine(now)
 	if p.topPinned {
-		if !p.rendered {
-			// First render claims the top line and leaves cursor below it.
-			_, _ = fmt.Fprintf(p.writer, "\r%s\033[K\n", line)
-			p.cursorBelow = 1
-		} else {
-			up := max(p.cursorBelow, 1)
-			// Save cursor, jump back to progress line, update, then restore.
-			_, _ = fmt.Fprintf(p.writer, "\033[s\033[%dA\r%s\033[K\033[u", up, line)
-		}
+		p.ensureScrollRegionLocked()
+		// Save cursor, draw status on line 1, and restore the original cursor.
+		_, _ = fmt.Fprintf(p.writer, "\0337\033[1;1H%s\033[K\0338", line)
 		p.lastDraw = now
 		p.rendered = true
 		return
@@ -165,6 +167,26 @@ func (p *progressReporter) renderLocked(force bool) {
 	_, _ = fmt.Fprintf(p.writer, "\r%s\033[K", line)
 	p.lastDraw = now
 	p.rendered = true
+}
+
+// ensureScrollRegionLocked reserves the first terminal row for progress.
+func (p *progressReporter) ensureScrollRegionLocked() {
+	if p.scrollRegion {
+		return
+	}
+	// Keep row 1 fixed and let normal output scroll in rows [2..bottom].
+	// 999 is intentionally oversized; terminals clamp it to the actual size.
+	_, _ = fmt.Fprint(p.writer, "\033[2;999r\033[999;1H")
+	p.scrollRegion = true
+}
+
+// resetScrollRegionLocked restores default terminal scrolling.
+func (p *progressReporter) resetScrollRegionLocked() {
+	if !p.scrollRegion {
+		return
+	}
+	_, _ = fmt.Fprint(p.writer, "\033[r\033[999;1H")
+	p.scrollRegion = false
 }
 
 // formatLine renders one line with either known-total or unknown-total layout.

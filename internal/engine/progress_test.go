@@ -165,34 +165,37 @@ func TestProgressReporterNilSafe(t *testing.T) {
 // TTY. Since bytes.Buffer is not a real TTY, we construct the struct directly.
 func newTopPinnedReporter(buf *bytes.Buffer, total int64, totalKnown bool, start time.Time) *progressReporter {
 	return &progressReporter{
-		writer:     buf,
-		enabled:    true,
-		topPinned:  true,
-		total:      total,
-		totalKnown: totalKnown,
-		startTime:  start,
+		writer:       buf,
+		enabled:      true,
+		topPinned:    true,
+		total:        total,
+		totalKnown:   totalKnown,
+		startTime:    start,
+		scrollRegion: false,
 	}
 }
 
-func TestTopPinnedFirstRenderClaimsLine(t *testing.T) {
+func TestTopPinnedFirstRenderSetsScrollRegionAndUsesSaveRestore(t *testing.T) {
 	var buf bytes.Buffer
 	p := newTopPinnedReporter(&buf, 100, true, time.Now().Add(-time.Second))
 	p.AddDone(50)
 
 	out := buf.String()
-	// First render should write the line followed by clear-to-EOL and a newline.
-	if !strings.Contains(out, "\033[K\n") {
-		t.Fatalf("first topPinned render should end with ESC[K + newline, got %q", out)
+	if !strings.Contains(out, "\033[2;999r\033[999;1H") {
+		t.Fatalf("expected scroll region setup, got %q", out)
 	}
-	if !strings.HasPrefix(out, "\r") {
-		t.Fatalf("first topPinned render should start with CR, got %q", out)
+	if !strings.Contains(out, "\0337\033[1;1H") {
+		t.Fatalf("expected cursor save + move to row 1, got %q", out)
+	}
+	if !strings.Contains(out, "\033[K\0338") {
+		t.Fatalf("expected clear-to-eol + cursor restore, got %q", out)
 	}
 	if !strings.Contains(out, "gotgz:") {
 		t.Fatalf("expected progress prefix, got %q", out)
 	}
 }
 
-func TestTopPinnedSubsequentRenderUsesCursorSaveRestore(t *testing.T) {
+func TestTopPinnedSubsequentRenderDoesNotRecreateScrollRegion(t *testing.T) {
 	var buf bytes.Buffer
 	p := newTopPinnedReporter(&buf, 100, true, time.Now().Add(-time.Second))
 
@@ -207,86 +210,50 @@ func TestTopPinnedSubsequentRenderUsesCursorSaveRestore(t *testing.T) {
 	p.AddDone(10)
 
 	out := buf.String()
-	// Subsequent render should use save (\033[s), cursor-up (\033[<N>A),
-	// clear-to-EOL (\033[K), and restore (\033[u).
-	if !strings.Contains(out, "\033[s") {
-		t.Fatalf("expected cursor save ESC[s, got %q", out)
+	if strings.Contains(out, "\033[2;999r\033[999;1H") {
+		t.Fatalf("did not expect a second scroll-region setup, got %q", out)
 	}
-	if !strings.Contains(out, "A\r") {
-		t.Fatalf("expected cursor-up ESC[<N>A followed by CR, got %q", out)
+	if !strings.Contains(out, "\0337\033[1;1H") {
+		t.Fatalf("expected cursor save + move to row 1, got %q", out)
 	}
-	if !strings.Contains(out, "\033[K\033[u") {
+	if !strings.Contains(out, "\033[K\0338") {
 		t.Fatalf("expected clear-to-EOL + cursor restore, got %q", out)
 	}
 }
 
-func TestTopPinnedCursorBelowIncrementsWithExternalOutput(t *testing.T) {
+func TestAfterExternalLineOutputNoOpForTopPinned(t *testing.T) {
 	var buf bytes.Buffer
 	p := newTopPinnedReporter(&buf, 100, true, time.Now().Add(-time.Second))
-
-	// First render to initialise cursorBelow to 1.
 	p.AddDone(10)
+	before := buf.String()
 	p.afterExternalLineOutput()
 	p.afterExternalLineOutput()
-
-	p.mu.Lock()
-	got := p.cursorBelow
-	p.mu.Unlock()
-	// cursorBelow should be 1 (initial) + 2 (external lines) = 3.
-	if got != 3 {
-		t.Fatalf("cursorBelow = %d, want 3", got)
-	}
-
-	buf.Reset()
-	// Force next render and verify it jumps up 3 lines.
-	p.mu.Lock()
-	p.lastDraw = time.Time{}
-	p.mu.Unlock()
-	p.AddDone(10)
-
-	out := buf.String()
-	if !strings.Contains(out, "\033[3A") {
-		t.Fatalf("expected cursor-up 3, got %q", out)
+	after := buf.String()
+	if before != after {
+		t.Fatalf("afterExternalLineOutput should be no-op for topPinned, before=%q after=%q", before, after)
 	}
 }
 
-func TestTopPinnedFinishDoesNotAppendNewline(t *testing.T) {
+func TestTopPinnedFinishResetsScrollRegion(t *testing.T) {
 	var buf bytes.Buffer
 	p := newTopPinnedReporter(&buf, 100, true, time.Now().Add(-time.Second))
 	p.AddDone(100)
 	p.Finish()
 
 	out := buf.String()
-	// In topPinned mode, Finish should NOT append a trailing newline (the
-	// progress line stays pinned at the top).
+	if !strings.Contains(out, "\033[r\033[999;1H") {
+		t.Fatalf("expected scroll region reset, got %q", out)
+	}
 	if strings.HasSuffix(out, "\n\n") {
 		t.Fatalf("topPinned Finish should not double-newline, got %q", out)
 	}
 }
 
-func TestAfterExternalLineOutputIgnoredWhenNotRendered(t *testing.T) {
+func TestBeforeExternalLineOutputInitializesTopPinnedRegion(t *testing.T) {
 	var buf bytes.Buffer
 	p := newTopPinnedReporter(&buf, 100, true, time.Now().Add(-time.Second))
-	// Don't render anything yet.
-	p.afterExternalLineOutput()
-
-	p.mu.Lock()
-	got := p.cursorBelow
-	p.mu.Unlock()
-	if got != 0 {
-		t.Fatalf("cursorBelow should stay 0 when not yet rendered, got %d", got)
-	}
-}
-
-func TestBeforeExternalLineOutputNoOpForTopPinned(t *testing.T) {
-	var buf bytes.Buffer
-	p := newTopPinnedReporter(&buf, 100, true, time.Now().Add(-time.Second))
-	p.AddDone(10)
-	before := buf.String()
 	p.beforeExternalLineOutput()
-	after := buf.String()
-	// topPinned mode should not write extra newline on beforeExternalLineOutput.
-	if before != after {
-		t.Fatalf("beforeExternalLineOutput should be no-op for topPinned, before=%q after=%q", before, after)
+	if got := buf.String(); !strings.Contains(got, "\033[2;999r\033[999;1H") {
+		t.Fatalf("expected scroll region setup, got %q", got)
 	}
 }
