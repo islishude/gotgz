@@ -87,6 +87,9 @@ func classifyResult(err error, warnings int) RunResult {
 
 func (r *Runner) runCreate(ctx context.Context, opts cli.Options) (warnings int, retErr error) {
 	metadataPolicy := resolveMetadataPolicy(opts)
+	reporter := newProgressReporter(r.stderr, opts.Progress, 0, false, time.Now())
+	defer reporter.Finish()
+
 	archiveRef, err := locator.ParseArchive(opts.Archive)
 	if err != nil {
 		return 0, err
@@ -130,6 +133,11 @@ func (r *Runner) runCreate(ctx context.Context, opts cli.Options) (warnings int,
 	if err != nil {
 		return 0, err
 	}
+	totalBytes, known, err := r.estimateCreateInputBytes(ctx, opts, excludes)
+	if err != nil {
+		return 0, err
+	}
+	reporter.SetTotal(totalBytes, known)
 
 	for _, m := range opts.Members {
 		select {
@@ -146,11 +154,11 @@ func (r *Runner) runCreate(ctx context.Context, opts cli.Options) (warnings int,
 			if matchExclude(excludes, ref.Key) {
 				continue
 			}
-			if err := r.addS3Member(ctx, tw, ref, opts.Verbose); err != nil {
+			if err := r.addS3Member(ctx, tw, ref, opts.Verbose, reporter); err != nil {
 				return warnings, err
 			}
 		case locator.KindLocal:
-			if err := r.addLocalPath(ctx, tw, m, opts.Chdir, excludes, opts.Verbose, metadataPolicy); err != nil {
+			if err := r.addLocalPath(ctx, tw, m, opts.Chdir, excludes, opts.Verbose, metadataPolicy, reporter); err != nil {
 				return warnings, err
 			}
 		default:
@@ -160,7 +168,93 @@ func (r *Runner) runCreate(ctx context.Context, opts cli.Options) (warnings int,
 	return warnings, nil
 }
 
-func (r *Runner) addS3Member(ctx context.Context, tw *tar.Writer, ref locator.Ref, verbose bool) (err error) {
+// estimateCreateInputBytes pre-computes input bytes for create mode progress and ETA.
+func (r *Runner) estimateCreateInputBytes(ctx context.Context, opts cli.Options, excludes []string) (int64, bool, error) {
+	var total int64
+	for _, member := range opts.Members {
+		select {
+		case <-ctx.Done():
+			return 0, false, ctx.Err()
+		default:
+		}
+
+		ref, err := locator.ParseMember(member)
+		if err != nil {
+			return 0, false, err
+		}
+
+		switch ref.Kind {
+		case locator.KindS3:
+			if matchExclude(excludes, ref.Key) {
+				continue
+			}
+			meta, err := r.s3.Stat(ctx, ref)
+			if err != nil {
+				// Cannot determine size for this S3 object; fall back to
+				// unknown-total progress so the actual archive still proceeds.
+				return total, false, nil
+			}
+			total += meta.Size
+		case locator.KindLocal:
+			size, err := r.estimateLocalPathBytes(ctx, member, opts.Chdir, excludes)
+			if err != nil {
+				return 0, false, err
+			}
+			total += size
+		default:
+			return 0, false, fmt.Errorf("unsupported member reference %q", member)
+		}
+	}
+	return total, true, nil
+}
+
+// estimateLocalPathBytes sums regular file bytes for one local create member.
+func (r *Runner) estimateLocalPathBytes(ctx context.Context, member, chdir string, excludes []string) (int64, error) {
+	basePath := member
+	if chdir != "" {
+		basePath = filepath.Join(chdir, member)
+	}
+	cleanMember := path.Clean(filepath.ToSlash(member))
+	var total int64
+
+	err := filepath.WalkDir(basePath, func(current string, d fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
+
+		rel, err := filepath.Rel(basePath, current)
+		if err != nil {
+			return err
+		}
+		archiveName := cleanMember
+		if rel != "." {
+			archiveName = path.Join(cleanMember, filepath.ToSlash(rel))
+		}
+		if matchExclude(excludes, archiveName) {
+			if d.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+
+		st, err := os.Lstat(current)
+		if err != nil {
+			return err
+		}
+		if st.Mode().IsRegular() {
+			total += st.Size()
+		}
+		return nil
+	})
+	return total, err
+}
+
+func (r *Runner) addS3Member(ctx context.Context, tw *tar.Writer, ref locator.Ref, verbose bool, reporter *progressReporter) (err error) {
 	if strings.TrimSpace(ref.Key) == "" {
 		return fmt.Errorf("s3 member key cannot be empty: %q", ref.Raw)
 	}
@@ -185,7 +279,7 @@ func (r *Runner) addS3Member(ctx context.Context, tw *tar.Writer, ref locator.Re
 	if err := tw.WriteHeader(hdr); err != nil {
 		return err
 	}
-	if _, err := io.Copy(tw, body); err != nil {
+	if _, err := io.Copy(tw, newCountingReader(body, reporter)); err != nil {
 		return err
 	}
 	if verbose {
@@ -194,7 +288,7 @@ func (r *Runner) addS3Member(ctx context.Context, tw *tar.Writer, ref locator.Re
 	return nil
 }
 
-func (r *Runner) addLocalPath(ctx context.Context, tw *tar.Writer, member, chdir string, excludes []string, verbose bool, metadataPolicy MetadataPolicy) error {
+func (r *Runner) addLocalPath(ctx context.Context, tw *tar.Writer, member, chdir string, excludes []string, verbose bool, metadataPolicy MetadataPolicy, reporter *progressReporter) error {
 	basePath := member
 	if chdir != "" {
 		basePath = filepath.Join(chdir, member)
@@ -253,7 +347,7 @@ func (r *Runner) addLocalPath(ctx context.Context, tw *tar.Writer, member, chdir
 			if err != nil {
 				return err
 			}
-			_, err = io.Copy(tw, f)
+			_, err = io.Copy(tw, newCountingReader(f, reporter))
 			cerr := f.Close()
 			if err != nil {
 				return err
@@ -270,7 +364,10 @@ func (r *Runner) addLocalPath(ctx context.Context, tw *tar.Writer, member, chdir
 }
 
 func (r *Runner) runList(ctx context.Context, opts cli.Options) (int, error) {
-	return r.scanArchive(ctx, opts, func(hdr *tar.Header, tr *tar.Reader) (int, error) {
+	reporter := newProgressReporter(r.stderr, opts.Progress, 0, false, time.Now())
+	defer reporter.Finish()
+
+	return r.scanArchive(ctx, opts, reporter, func(hdr *tar.Header, tr *tar.Reader) (int, error) {
 		if shouldSkipMember(opts, hdr.Name) {
 			if _, err := io.Copy(io.Discard, tr); err != nil {
 				return 0, err
@@ -288,8 +385,11 @@ func (r *Runner) runList(ctx context.Context, opts cli.Options) (int, error) {
 func (r *Runner) runExtract(ctx context.Context, opts cli.Options) (int, error) {
 	policy := resolvePolicy(opts)
 	metadataPolicy := resolveMetadataPolicy(opts)
+	reporter := newProgressReporter(r.stderr, opts.Progress, 0, false, time.Now())
+	defer reporter.Finish()
+
 	if opts.ToStdout {
-		return r.scanArchive(ctx, opts, func(hdr *tar.Header, tr *tar.Reader) (int, error) {
+		return r.scanArchive(ctx, opts, reporter, func(hdr *tar.Header, tr *tar.Reader) (int, error) {
 			if shouldSkipMember(opts, hdr.Name) {
 				if _, err := io.Copy(io.Discard, tr); err != nil {
 					return 0, err
@@ -322,7 +422,7 @@ func (r *Runner) runExtract(ctx context.Context, opts cli.Options) (int, error) 
 		return 0, err
 	}
 
-	return r.scanArchive(ctx, opts, func(hdr *tar.Header, tr *tar.Reader) (int, error) {
+	return r.scanArchive(ctx, opts, reporter, func(hdr *tar.Header, tr *tar.Reader) (int, error) {
 		if shouldSkipMember(opts, hdr.Name) {
 			if _, err := io.Copy(io.Discard, tr); err != nil {
 				return 0, err
@@ -470,16 +570,18 @@ func (r *Runner) extractToLocal(base string, hdr *tar.Header, tr *tar.Reader, po
 	return 0, nil
 }
 
-func (r *Runner) scanArchive(ctx context.Context, opts cli.Options, fn func(hdr *tar.Header, tr *tar.Reader) (int, error)) (int, error) {
+func (r *Runner) scanArchive(ctx context.Context, opts cli.Options, reporter *progressReporter, fn func(hdr *tar.Header, tr *tar.Reader) (int, error)) (int, error) {
 	archiveRef, err := locator.ParseArchive(opts.Archive)
 	if err != nil {
 		return 0, err
 	}
-	ar, err := r.openArchiveReader(ctx, archiveRef)
+	ar, totalBytes, totalKnown, err := r.openArchiveReader(ctx, archiveRef)
 	if err != nil {
 		return 0, err
 	}
 	defer ar.Close() //nolint:errcheck
+	reporter.SetTotal(totalBytes, totalKnown)
+	ar = newCountingReadCloser(ar, reporter)
 
 	cr, _, err := compress.NewReader(ar, compress.FromString(string(opts.Compression)), opts.Archive)
 	if err != nil {
@@ -506,19 +608,25 @@ func (r *Runner) scanArchive(ctx context.Context, opts cli.Options, fn func(hdr 
 	return warnings, nil
 }
 
-func (r *Runner) openArchiveReader(ctx context.Context, ref locator.Ref) (io.ReadCloser, error) {
+func (r *Runner) openArchiveReader(ctx context.Context, ref locator.Ref) (io.ReadCloser, int64, bool, error) {
 	switch ref.Kind {
 	case locator.KindLocal, locator.KindStdio:
-		rc, _, err := r.local.OpenReader(ref)
-		return rc, err
+		rc, meta, err := r.local.OpenReader(ref)
+		if err != nil {
+			return nil, 0, false, err
+		}
+		return rc, meta.Size, ref.Kind == locator.KindLocal, nil
 	case locator.KindS3:
 		if strings.TrimSpace(ref.Key) == "" {
-			return nil, fmt.Errorf("archive object key cannot be empty for -f")
+			return nil, 0, false, fmt.Errorf("archive object key cannot be empty for -f")
 		}
-		rc, _, err := r.s3.OpenReader(ctx, ref)
-		return rc, err
+		rc, meta, err := r.s3.OpenReader(ctx, ref)
+		if err != nil {
+			return nil, 0, false, err
+		}
+		return rc, meta.Size, true, nil
 	default:
-		return nil, fmt.Errorf("unsupported archive source %q", ref.Raw)
+		return nil, 0, false, fmt.Errorf("unsupported archive source %q", ref.Raw)
 	}
 }
 

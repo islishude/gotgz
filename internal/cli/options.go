@@ -27,6 +27,14 @@ const (
 	CompressionLz4   CompressionHint = "lz4"
 )
 
+type ProgressMode string
+
+const (
+	ProgressAuto   ProgressMode = "auto"
+	ProgressAlways ProgressMode = "always"
+	ProgressNever  ProgressMode = "never"
+)
+
 type Options struct {
 	Mode             Mode
 	Archive          string
@@ -46,11 +54,12 @@ type Options struct {
 	NumericOwner     bool
 	SameOwner        *bool
 	SamePermissions  *bool
+	Progress         ProgressMode
 	Members          []string
 }
 
 func Parse(args []string) (Options, error) {
-	opts := Options{Compression: CompressionAuto}
+	opts := Options{Compression: CompressionAuto, Progress: ProgressAuto}
 	if len(args) == 0 {
 		return opts, fmt.Errorf("no operation mode specified")
 	}
@@ -171,6 +180,10 @@ func Parse(args []string) (Options, error) {
 				opts.Compression = CompressionLz4
 			case "help":
 				opts.Help = true
+			case "progress":
+				opts.Progress = ProgressAlways
+			case "no-progress":
+				opts.Progress = ProgressNever
 			default:
 				return opts, fmt.Errorf("unsupported option --%s", name)
 			}
