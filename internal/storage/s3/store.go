@@ -240,6 +240,8 @@ func contentTypeForKey(key string) string {
 		return "application/zstd"
 	case strings.HasSuffix(v, ".tar.lz4"), strings.HasSuffix(v, ".tlz4"), strings.HasSuffix(v, ".lz4"):
 		return "application/x-lz4"
+	case strings.HasSuffix(v, ".zip"):
+		return "application/zip"
 	case strings.HasSuffix(v, ".tar"), strings.HasSuffix(v, ".tape"):
 		return "application/x-tar"
 	}

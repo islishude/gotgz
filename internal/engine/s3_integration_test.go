@@ -309,6 +309,53 @@ func TestS3CompressedRoundTrip(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
+// Test: create a zip archive to S3 and extract it back
+// ---------------------------------------------------------------------------
+func TestS3ZipRoundTrip(t *testing.T) {
+	ctx := context.Background()
+	ep := s3Endpoint(t)
+	_, bucket := setupS3Bucket(t, ctx, ep)
+
+	root := t.TempDir()
+	srcDir := filepath.Join(root, "data")
+	if err := os.MkdirAll(srcDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(srcDir, "msg.txt"), []byte("zip-payload"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	archiveURI := fmt.Sprintf("s3://%s/archives/test.zip", bucket)
+	r := newRunnerWithEndpoint(t, ep, io.Discard, io.Discard)
+	create := cli.Options{
+		Mode:    cli.ModeCreate,
+		Archive: archiveURI,
+		Chdir:   root,
+		Members: []string{"data"},
+	}
+	res := r.Run(ctx, create)
+	if res.ExitCode != ExitSuccess {
+		t.Fatalf("create exit=%d err=%v", res.ExitCode, res.Err)
+	}
+
+	outDir := t.TempDir()
+	r2 := newRunnerWithEndpoint(t, ep, io.Discard, io.Discard)
+	extract := cli.Options{Mode: cli.ModeExtract, Archive: archiveURI, Chdir: outDir}
+	res = r2.Run(ctx, extract)
+	if res.ExitCode != ExitSuccess {
+		t.Fatalf("extract exit=%d err=%v", res.ExitCode, res.Err)
+	}
+
+	b, err := os.ReadFile(filepath.Join(outDir, "data", "msg.txt"))
+	if err != nil {
+		t.Fatalf("read extracted file: %v", err)
+	}
+	if string(b) != "zip-payload" {
+		t.Fatalf("content = %q", string(b))
+	}
+}
+
+// ---------------------------------------------------------------------------
 // Test: archive uploads to S3 set an explicit Content-Type
 // ---------------------------------------------------------------------------
 func TestS3ArchiveUploadSetsContentType(t *testing.T) {

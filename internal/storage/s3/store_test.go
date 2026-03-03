@@ -19,6 +19,7 @@ func TestContentTypeForKey(t *testing.T) {
 		{key: "archives/out.tar.xz", want: "application/x-xz"},
 		{key: "archives/out.tar.zst", want: "application/zstd"},
 		{key: "archives/out.tar.lz4", want: "application/x-lz4"},
+		{key: "archives/out.zip", want: "application/zip"},
 		{key: "notes/readme.txt", want: "text/plain; charset=utf-8"},
 		{key: "noext", want: "application/octet-stream"},
 	}

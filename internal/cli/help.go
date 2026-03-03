@@ -39,8 +39,9 @@ Compression:
   --zstd            zstd
   --lz4             lz4
   -compression-level <1-9>, --compression-level <1-9>
-                    Compression level for create mode; omitted uses algorithm defaults
-  (extract/list auto-detects by magic bytes, then file extension)
+                    Compression level for create mode; for .zip output it maps to Deflate level
+  (extract/list auto-detect archive type by magic bytes, then file extension, then content-type)
+  (.zip archives ignore tar-only compression flags and metadata owner/xattr/acl options with warnings)
 
 Ownership & Permissions:
   --same-owner
