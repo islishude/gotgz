@@ -26,7 +26,7 @@ func TestRoundTrip(t *testing.T) {
 				t.Fatalf("Close() error = %v", err)
 			}
 
-			r, detected, err := NewReader(io.NopCloser(bytes.NewReader(buf.Bytes())), Auto, "archive.tar")
+			r, detected, err := NewReader(io.NopCloser(bytes.NewReader(buf.Bytes())), Auto, "archive.tar", "")
 			if err != nil {
 				t.Fatalf("NewReader() error = %v", err)
 			}
@@ -63,7 +63,7 @@ func TestRoundTripWithCompressionLevel(t *testing.T) {
 				t.Fatalf("Close() error = %v", err)
 			}
 
-			r, _, err := NewReader(io.NopCloser(bytes.NewReader(buf.Bytes())), c, "archive.tar")
+			r, _, err := NewReader(io.NopCloser(bytes.NewReader(buf.Bytes())), c, "archive.tar", "")
 			if err != nil {
 				t.Fatalf("NewReader() error = %v", err)
 			}
@@ -88,12 +88,53 @@ func TestDetectByExtension(t *testing.T) {
 	if err := gw.Close(); err != nil {
 		t.Fatalf("gzip close error = %v", err)
 	}
-	_, d, err := NewReader(io.NopCloser(bytes.NewReader(buf.Bytes())), Auto, "a.tar.gz")
+	_, d, err := NewReader(io.NopCloser(bytes.NewReader(buf.Bytes())), Auto, "a.tar.gz", "")
 	if err != nil {
 		t.Fatalf("NewReader() error = %v", err)
 	}
 	if d != Gzip {
 		t.Fatalf("detected = %q, want gzip", d)
+	}
+}
+
+func TestDetectByContentType(t *testing.T) {
+	cases := []struct {
+		contentType string
+		want        Type
+	}{
+		{contentType: "application/gzip", want: Gzip},
+		{contentType: "application/x-bzip2", want: Bzip2},
+		{contentType: "application/x-xz", want: Xz},
+		{contentType: "application/zstd", want: Zstd},
+		{contentType: "application/x-lz4", want: Lz4},
+		{contentType: "application/x-tar", want: None},
+		{contentType: "text/plain", want: Auto},
+	}
+	for _, tc := range cases {
+		t.Run(tc.contentType, func(t *testing.T) {
+			got := detectByContentType(tc.contentType)
+			if got != tc.want {
+				t.Fatalf("detectByContentType(%q)=%q, want %q", tc.contentType, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestExplicitCompressionMismatch(t *testing.T) {
+	var buf bytes.Buffer
+	gw := gzip.NewWriter(&buf)
+	if _, err := gw.Write([]byte("plain")); err != nil {
+		t.Fatalf("gzip write error = %v", err)
+	}
+	if err := gw.Close(); err != nil {
+		t.Fatalf("gzip close error = %v", err)
+	}
+	_, _, err := NewReader(io.NopCloser(bytes.NewReader(buf.Bytes())), Zstd, "a.tar.gz", "application/gzip")
+	if err == nil {
+		t.Fatalf("expected mismatch error")
+	}
+	if !strings.Contains(err.Error(), "does not match archive data") {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
 

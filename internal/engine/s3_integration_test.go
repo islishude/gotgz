@@ -14,6 +14,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/config"
 	awss3 "github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/islishude/gotgz/internal/cli"
+	"github.com/islishude/gotgz/internal/locator"
 )
 
 // s3Endpoint returns the LocalStack endpoint if configured, or skips the test.
@@ -349,6 +350,45 @@ func TestS3ArchiveUploadSetsContentType(t *testing.T) {
 
 	if aws.ToString(out.ContentType) != "application/gzip" {
 		t.Fatalf("content-type=%q, want %q", aws.ToString(out.ContentType), "application/gzip")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Test: S3 archive reader propagates object Content-Type metadata
+// ---------------------------------------------------------------------------
+func TestS3ArchiveReaderReturnsContentType(t *testing.T) {
+	ctx := context.Background()
+	ep := s3Endpoint(t)
+	client, bucket := setupS3Bucket(t, ctx, ep)
+
+	key := "archives/noext"
+	contentType := "application/gzip"
+	_, err := client.PutObject(ctx, &awss3.PutObjectInput{
+		Bucket:      new(bucket),
+		Key:         new(key),
+		Body:        strings.NewReader("payload"),
+		ContentType: new(contentType),
+	})
+	if err != nil {
+		t.Fatalf("put object: %v", err)
+	}
+
+	r := newRunnerWithEndpoint(t, ep, io.Discard, io.Discard)
+	ref, err := locator.ParseArchive(fmt.Sprintf("s3://%s/%s", bucket, key))
+	if err != nil {
+		t.Fatalf("ParseArchive() error = %v", err)
+	}
+	rc, info, err := r.openArchiveReader(ctx, ref)
+	if err != nil {
+		t.Fatalf("openArchiveReader() error = %v", err)
+	}
+	defer rc.Close() //nolint:errcheck
+
+	if _, err := io.Copy(io.Discard, rc); err != nil {
+		t.Fatalf("read body: %v", err)
+	}
+	if info.ContentType != contentType {
+		t.Fatalf("content-type=%q, want %q", info.ContentType, contentType)
 	}
 }
 

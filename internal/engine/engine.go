@@ -53,6 +53,13 @@ type RunResult struct {
 	Err      error
 }
 
+// archiveReaderInfo holds metadata returned alongside an opened archive reader.
+type archiveReaderInfo struct {
+	Size        int64
+	SizeKnown   bool
+	ContentType string
+}
+
 func New(ctx context.Context, stdout io.Writer, stderr io.Writer) (*Runner, error) {
 	s3s, err := s3store.New(ctx)
 	if err != nil {
@@ -593,15 +600,15 @@ func (r *Runner) scanArchive(ctx context.Context, opts cli.Options, reporter *pr
 	if err != nil {
 		return 0, err
 	}
-	ar, totalBytes, totalKnown, err := r.openArchiveReader(ctx, archiveRef)
+	ar, info, err := r.openArchiveReader(ctx, archiveRef)
 	if err != nil {
 		return 0, err
 	}
 	defer ar.Close() //nolint:errcheck
-	reporter.SetTotal(totalBytes, totalKnown)
+	reporter.SetTotal(info.Size, info.SizeKnown)
 	ar = newCountingReadCloser(ar, reporter)
 
-	cr, _, err := compress.NewReader(ar, compress.FromString(string(opts.Compression)), opts.Archive)
+	cr, _, err := compress.NewReader(ar, compress.FromString(string(opts.Compression)), opts.Archive, info.ContentType)
 	if err != nil {
 		return 0, err
 	}
@@ -626,34 +633,37 @@ func (r *Runner) scanArchive(ctx context.Context, opts cli.Options, reporter *pr
 	return warnings, nil
 }
 
-func (r *Runner) openArchiveReader(ctx context.Context, ref locator.Ref) (io.ReadCloser, int64, bool, error) {
+// openArchiveReader opens the archive for reading and returns the reader along
+// with metadata about the archive (size, whether the size is known, and the
+// content type).
+func (r *Runner) openArchiveReader(ctx context.Context, ref locator.Ref) (io.ReadCloser, archiveReaderInfo, error) {
 	switch ref.Kind {
 	case locator.KindLocal, locator.KindStdio:
 		rc, meta, err := r.local.OpenReader(ref)
 		if err != nil {
-			return nil, 0, false, err
+			return nil, archiveReaderInfo{}, err
 		}
-		return rc, meta.Size, ref.Kind == locator.KindLocal, nil
+		return rc, archiveReaderInfo{Size: meta.Size, SizeKnown: ref.Kind == locator.KindLocal}, nil
 	case locator.KindS3:
 		if strings.TrimSpace(ref.Key) == "" {
-			return nil, 0, false, fmt.Errorf("archive object key cannot be empty for -f")
+			return nil, archiveReaderInfo{}, fmt.Errorf("archive object key cannot be empty for -f")
 		}
 		rc, meta, err := r.s3.OpenReader(ctx, ref)
 		if err != nil {
-			return nil, 0, false, err
+			return nil, archiveReaderInfo{}, err
 		}
-		return rc, meta.Size, true, nil
+		return rc, archiveReaderInfo{Size: meta.Size, SizeKnown: true, ContentType: strings.TrimSpace(meta.ContentType)}, nil
 	case locator.KindHTTP:
 		rc, meta, err := r.http.OpenReader(ctx, ref)
 		if err != nil {
-			return nil, 0, false, err
+			return nil, archiveReaderInfo{}, err
 		}
 		if meta.Size >= 0 {
-			return rc, meta.Size, true, nil
+			return rc, archiveReaderInfo{Size: meta.Size, SizeKnown: true, ContentType: meta.ContentType}, nil
 		}
-		return rc, 0, false, nil
+		return rc, archiveReaderInfo{ContentType: meta.ContentType}, nil
 	default:
-		return nil, 0, false, fmt.Errorf("unsupported archive source %q", ref.Raw)
+		return nil, archiveReaderInfo{}, fmt.Errorf("unsupported archive source %q", ref.Raw)
 	}
 }
 

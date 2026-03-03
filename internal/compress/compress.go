@@ -117,30 +117,33 @@ func NewWriter(dst io.WriteCloser, t Type, opts WriterOptions) (io.WriteCloser, 
 	}
 }
 
-func NewReader(src io.ReadCloser, explicit Type, hint string) (io.ReadCloser, Type, error) {
-	if explicit != Auto {
-		r, err := wrapReaderByType(src, explicit)
-		return r, explicit, err
-	}
+// NewReader wraps src with decompression according to explicit mode or auto detection.
+// Auto detection uses this order: magic bytes, filename hint extension, then content type.
+func NewReader(src io.ReadCloser, explicit Type, hint string, contentType string) (io.ReadCloser, Type, error) {
 	br := bufio.NewReader(src)
 	magic, _ := br.Peek(8)
-	t := detectByMagic(magic)
+	detected := detectByMagic(magic)
+
+	if explicit != Auto {
+		if detected != Auto && detected != explicit {
+			return nil, explicit, fmt.Errorf("compression %q does not match archive data (detected %q)", explicit, detected)
+		}
+		wrapped, err := wrapReader(br, src, explicit)
+		return wrapped, explicit, err
+	}
+
+	t := detected
 	if t == Auto {
 		t = detectByExt(hint)
+	}
+	if t == Auto {
+		t = detectByContentType(contentType)
 	}
 	if t == Auto {
 		t = None
 	}
 	wrapped, err := wrapReader(br, src, t)
 	return wrapped, t, err
-}
-
-func wrapReaderByType(src io.ReadCloser, t Type) (io.ReadCloser, error) {
-	if t == None {
-		return src, nil
-	}
-	br := bufio.NewReader(src)
-	return wrapReader(br, src, t)
 }
 
 func wrapReader(reader io.Reader, src io.Closer, t Type) (io.ReadCloser, error) {
@@ -209,6 +212,32 @@ func detectByExt(name string) Type {
 		return Zstd
 	case ".lz4", ".tlz4":
 		return Lz4
+	default:
+		return Auto
+	}
+}
+
+// detectByContentType maps common archive media types to compression types.
+func detectByContentType(v string) Type {
+	ct := strings.ToLower(strings.TrimSpace(v))
+	if ct == "" {
+		return Auto
+	}
+	mediaType, _, _ := strings.Cut(ct, ";")
+	mediaType = strings.TrimSpace(mediaType)
+	switch mediaType {
+	case "application/gzip", "application/x-gzip":
+		return Gzip
+	case "application/x-bzip2":
+		return Bzip2
+	case "application/x-xz":
+		return Xz
+	case "application/zstd", "application/x-zstd":
+		return Zstd
+	case "application/x-lz4":
+		return Lz4
+	case "application/x-tar":
+		return None
 	default:
 		return Auto
 	}

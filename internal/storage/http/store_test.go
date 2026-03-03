@@ -1,6 +1,8 @@
 package httpstore
 
 import (
+	"bytes"
+	"compress/gzip"
 	"context"
 	"io"
 	"net/http"
@@ -20,7 +22,11 @@ func TestOpenReaderSuccessWithContentLength(t *testing.T) {
 	}))
 	defer server.Close()
 
-	store := New()
+	store := &Store{
+		client: &http.Client{
+			Transport: &http.Transport{DisableCompression: true},
+		},
+	}
 	rc, meta, err := store.OpenReader(context.Background(), locator.Ref{
 		Kind: locator.KindHTTP,
 		Raw:  server.URL + "/a.tar",
@@ -40,6 +46,9 @@ func TestOpenReaderSuccessWithContentLength(t *testing.T) {
 	}
 	if meta.Size != int64(len("archive-bytes")) {
 		t.Fatalf("size = %d, want %d", meta.Size, len("archive-bytes"))
+	}
+	if !strings.HasPrefix(meta.ContentType, "text/plain") {
+		t.Fatalf("content type = %q", meta.ContentType)
 	}
 }
 
@@ -75,6 +84,45 @@ func TestOpenReaderSuccessWithoutContentLength(t *testing.T) {
 	}
 	if meta.Size != -1 {
 		t.Fatalf("size = %d, want -1", meta.Size)
+	}
+}
+
+func TestOpenReaderGzipContentEncoding(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		var buf bytes.Buffer
+		zw := gzip.NewWriter(&buf)
+		_, _ = zw.Write([]byte("gzip-body"))
+		_ = zw.Close()
+
+		w.Header().Set("Content-Encoding", "gzip")
+		w.Header().Set("Content-Type", "application/x-tar")
+		_, _ = w.Write(buf.Bytes())
+	}))
+	defer server.Close()
+
+	store := New()
+	rc, meta, err := store.OpenReader(context.Background(), locator.Ref{
+		Kind: locator.KindHTTP,
+		Raw:  server.URL + "/archive",
+		URL:  server.URL + "/archive",
+	})
+	if err != nil {
+		t.Fatalf("OpenReader() error = %v", err)
+	}
+	defer rc.Close() //nolint:errcheck
+
+	b, err := io.ReadAll(rc)
+	if err != nil {
+		t.Fatalf("ReadAll() error = %v", err)
+	}
+	if string(b) != "gzip-body" {
+		t.Fatalf("body = %q", string(b))
+	}
+	if meta.Size != -1 {
+		t.Fatalf("size = %d, want -1", meta.Size)
+	}
+	if meta.ContentType != "application/x-tar" {
+		t.Fatalf("content type = %q, want %q", meta.ContentType, "application/x-tar")
 	}
 }
 
@@ -121,5 +169,26 @@ func TestOpenReaderRejectsNonHTTPRef(t *testing.T) {
 	_, _, err := store.OpenReader(context.Background(), locator.Ref{Kind: locator.KindLocal, Raw: "local.tar"})
 	if err == nil {
 		t.Fatalf("expected error")
+	}
+}
+
+func TestOpenReaderRejectsUnsupportedContentEncoding(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Encoding", "br")
+		_, _ = io.WriteString(w, "encoded-body")
+	}))
+	defer server.Close()
+
+	store := New()
+	_, _, err := store.OpenReader(context.Background(), locator.Ref{
+		Kind: locator.KindHTTP,
+		Raw:  server.URL + "/encoded.tar",
+		URL:  server.URL + "/encoded.tar",
+	})
+	if err == nil {
+		t.Fatalf("expected error")
+	}
+	if !strings.Contains(err.Error(), "unsupported http content-encoding") {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
