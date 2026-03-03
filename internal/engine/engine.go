@@ -283,7 +283,9 @@ func (r *Runner) addS3Member(ctx context.Context, tw *tar.Writer, ref locator.Re
 		return err
 	}
 	if verbose {
+		reporter.beforeExternalLineOutput()
 		_, _ = fmt.Fprintln(r.stdout, hdr.Name)
+		reporter.afterExternalLineOutput()
 	}
 	return nil
 }
@@ -357,7 +359,9 @@ func (r *Runner) addLocalPath(ctx context.Context, tw *tar.Writer, member, chdir
 			}
 		}
 		if verbose {
+			reporter.beforeExternalLineOutput()
 			_, _ = fmt.Fprintln(r.stdout, hdr.Name)
+			reporter.afterExternalLineOutput()
 		}
 		return nil
 	})
@@ -374,7 +378,9 @@ func (r *Runner) runList(ctx context.Context, opts cli.Options) (int, error) {
 			}
 			return 0, nil
 		}
+		reporter.beforeExternalLineOutput()
 		_, _ = fmt.Fprintln(r.stdout, hdr.Name)
+		reporter.afterExternalLineOutput()
 		if _, err := io.Copy(io.Discard, tr); err != nil {
 			return 0, err
 		}
@@ -439,11 +445,13 @@ func (r *Runner) runExtract(ctx context.Context, opts cli.Options) (int, error) 
 		effectiveHdr := *hdr
 		effectiveHdr.Name = extractName
 		if opts.Verbose {
+			reporter.beforeExternalLineOutput()
 			_, _ = fmt.Fprintln(r.stdout, effectiveHdr.Name)
+			reporter.afterExternalLineOutput()
 		}
 		switch parsedTarget.Kind {
 		case locator.KindS3:
-			return r.extractToS3(ctx, parsedTarget, &effectiveHdr, tr)
+			return r.extractToS3(ctx, parsedTarget, &effectiveHdr, tr, reporter)
 		case locator.KindLocal, locator.KindStdio:
 			return r.extractToLocal(parsedTarget.Path, &effectiveHdr, tr, policy, metadataPolicy)
 		default:
@@ -452,7 +460,7 @@ func (r *Runner) runExtract(ctx context.Context, opts cli.Options) (int, error) 
 	})
 }
 
-func (r *Runner) extractToS3(ctx context.Context, target locator.Ref, hdr *tar.Header, tr *tar.Reader) (int, error) {
+func (r *Runner) extractToS3(ctx context.Context, target locator.Ref, hdr *tar.Header, tr *tar.Reader, reporter *progressReporter) (int, error) {
 	warnings := 0
 	name := strings.TrimPrefix(hdr.Name, "./")
 	if name == "" {
@@ -469,7 +477,9 @@ func (r *Runner) extractToS3(ctx context.Context, target locator.Ref, hdr *tar.H
 	meta = mergeMetadata(target.Metadata, meta)
 	if !ok {
 		warnings++
+		reporter.beforeExternalLineOutput()
 		_, _ = fmt.Fprintf(r.stderr, "gotgz: warning: metadata exceeds S3 metadata limit for %s\n", hdr.Name)
+		reporter.afterExternalLineOutput()
 	}
 
 	switch hdr.Typeflag {

@@ -59,6 +59,17 @@ func TestProgressReporterAutoDisablesOnNonTTY(t *testing.T) {
 	}
 }
 
+func TestProgressReporterBeforeExternalLineOutput(t *testing.T) {
+	var buf bytes.Buffer
+	p := newProgressReporter(&buf, cli.ProgressAlways, 100, true, time.Now().Add(-time.Second))
+	p.AddDone(10)
+	p.beforeExternalLineOutput()
+	out := buf.String()
+	if !strings.HasSuffix(out, "\n") {
+		t.Fatalf("expected newline after breaking progress line, got %q", out)
+	}
+}
+
 func TestFormatBytes(t *testing.T) {
 	cases := []struct {
 		input int64
@@ -144,5 +155,7 @@ func TestProgressReporterNilSafe(t *testing.T) {
 	// These should not panic on a nil receiver.
 	p.SetTotal(100, true)
 	p.AddDone(50)
+	p.beforeExternalLineOutput()
+	p.afterExternalLineOutput()
 	p.Finish()
 }

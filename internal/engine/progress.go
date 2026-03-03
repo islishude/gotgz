@@ -19,16 +19,18 @@ const (
 
 // progressReporter tracks bytes processed and renders progress updates.
 type progressReporter struct {
-	mu         sync.Mutex
-	writer     io.Writer
-	enabled    bool
-	total      int64
-	totalKnown bool
-	done       int64
-	startTime  time.Time
-	lastDraw   time.Time
-	rendered   bool
-	finished   bool
+	mu          sync.Mutex
+	writer      io.Writer
+	enabled     bool
+	topPinned   bool
+	total       int64
+	totalKnown  bool
+	done        int64
+	startTime   time.Time
+	lastDraw    time.Time
+	cursorBelow int
+	rendered    bool
+	finished    bool
 }
 
 // newProgressReporter creates a progress reporter configured for the requested mode.
@@ -39,9 +41,12 @@ func newProgressReporter(writer io.Writer, mode cli.ProgressMode, totalBytes int
 	if totalBytes < 0 {
 		totalBytes = 0
 	}
+	interactive := isInteractiveTTY(writer)
+	enabled := shouldEnableProgress(mode, writer, interactive)
 	return &progressReporter{
 		writer:     writer,
-		enabled:    shouldEnableProgress(mode, writer),
+		enabled:    enabled,
+		topPinned:  enabled && interactive,
 		total:      totalBytes,
 		totalKnown: totalKnown,
 		startTime:  startTime,
@@ -91,10 +96,42 @@ func (p *progressReporter) Finish() {
 		return
 	}
 	p.renderLocked(true)
-	if p.rendered {
+	if p.rendered && !p.topPinned {
 		_, _ = fmt.Fprint(p.writer, "\n")
 	}
 	p.finished = true
+}
+
+// beforeExternalLineOutput prepares terminal state before printing external output.
+func (p *progressReporter) beforeExternalLineOutput() {
+	if p == nil {
+		return
+	}
+
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	if !p.enabled || p.finished || !p.rendered || p.topPinned {
+		return
+	}
+	_, _ = fmt.Fprint(p.writer, "\n")
+	p.rendered = false
+	p.lastDraw = time.Time{}
+}
+
+// afterExternalLineOutput records that one non-progress line was printed.
+func (p *progressReporter) afterExternalLineOutput() {
+	if p == nil {
+		return
+	}
+
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	if !p.enabled || p.finished || !p.topPinned || !p.rendered {
+		return
+	}
+	p.cursorBelow++
 }
 
 // renderLocked prints one progress line if refresh throttling allows it.
@@ -108,6 +145,21 @@ func (p *progressReporter) renderLocked(force bool) {
 	}
 
 	line := p.formatLine(now)
+	if p.topPinned {
+		if !p.rendered {
+			// First render claims the top line and leaves cursor below it.
+			_, _ = fmt.Fprintf(p.writer, "\r%s\033[K\n", line)
+			p.cursorBelow = 1
+		} else {
+			up := max(p.cursorBelow, 1)
+			// Save cursor, jump back to progress line, update, then restore.
+			_, _ = fmt.Fprintf(p.writer, "\033[s\033[%dA\r%s\033[K\033[u", up, line)
+		}
+		p.lastDraw = now
+		p.rendered = true
+		return
+	}
+
 	// Use ANSI escape to clear the rest of the line so that shorter lines
 	// do not leave residual characters from the previous render.
 	_, _ = fmt.Fprintf(p.writer, "\r%s\033[K", line)
@@ -160,7 +212,7 @@ func (p *progressReporter) formatLine(now time.Time) string {
 }
 
 // shouldEnableProgress decides whether progress output is active for this run.
-func shouldEnableProgress(mode cli.ProgressMode, writer io.Writer) bool {
+func shouldEnableProgress(mode cli.ProgressMode, writer io.Writer, interactive bool) bool {
 	if writer == nil {
 		return false
 	}
@@ -170,9 +222,9 @@ func shouldEnableProgress(mode cli.ProgressMode, writer io.Writer) bool {
 	case cli.ProgressAlways:
 		return true
 	case "", cli.ProgressAuto:
-		return isInteractiveTTY(writer)
+		return interactive
 	default:
-		return isInteractiveTTY(writer)
+		return interactive
 	}
 }
 
