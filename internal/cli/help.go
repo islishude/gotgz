@@ -6,7 +6,7 @@ func HelpText(program string) string {
 	if program == "" {
 		program = "gotgz"
 	}
-	return fmt.Sprintf(`%s - tar-compatible archiver with S3 support
+	return fmt.Sprintf(`%s - tar-compatible archiver with S3 and HTTP source support
 
 Usage:
   %s -c -f <archive> [members...]
@@ -20,7 +20,7 @@ Modes:
   -t                List archive contents
 
 Main Options:
-  -f <archive>      Archive path: local file, -, s3://bucket/key, or S3 ARN
+  -f <archive>      Archive path: local file, -, s3://bucket/key, S3 ARN, or http(s):// URL (source-only for -x/-t)
   -suffix <value>, --suffix <value>
                     Add suffix to archive filename in create mode (built-in date format uses 20060102 layout)
   -C <dir|s3://...> Change directory before create/extract

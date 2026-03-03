@@ -1,11 +1,12 @@
 # gotgz
 
-A Linux `tar`-compatible CLI tool written in Go, with native AWS S3 support as both archive source and destination.
+A Linux `tar`-compatible CLI tool written in Go, with native AWS S3 support as both archive source and destination, plus HTTP(S) archive source support for extract/list.
 
 ## Features
 
 - **Drop-in tar replacement** — supports common `tar` flags (`-c`, `-x`, `-t`, `-v`, `-f`, `-C`, `-O`)
 - **AWS S3 integration** — use `s3://bucket/key` URIs or S3 ARNs directly in `-f` and member arguments
+- **HTTP archive source** — use `http://` or `https://` URLs directly in `-f` for list/extract
 - **Multiple compression formats** — gzip (`-z`), bzip2 (`-j`), xz (`-J`), zstd (`--zstd`), lz4 (`--lz4`), with auto-detection on extract
 - **PAX format** — preserves metadata on demand: `--xattrs` for extended attributes, `--acl` for ACLs
 - **Permission control** — `--same-owner`, `--same-permissions` (`--numeric-owner` accepted for tar compatibility)
@@ -65,6 +66,9 @@ gotgz -xvf archive.tar.gz -C /tmp/output
 # S3 archive → local directory
 gotgz -xvf s3://my-bucket/backups/archive.tar.gz -C /tmp/output
 
+# HTTP archive → local directory
+gotgz -xvf https://example.com/backups/archive.tar.gz -C /tmp/output
+
 # Local archive → S3
 gotgz -xvf archive.tar -C s3://my-bucket/restored/
 ```
@@ -74,6 +78,7 @@ gotgz -xvf archive.tar -C s3://my-bucket/restored/
 ```bash
 gotgz -tf archive.tar.gz
 gotgz -tf s3://my-bucket/backups/archive.tar.gz
+gotgz -tf https://example.com/backups/archive.tar.gz
 ```
 
 ### Compression options
@@ -111,6 +116,15 @@ gotgz -cvf archive.tar s3://my-bucket/path/to/file.txt
 # Add custom S3 object metadata via query string when uploading archives
 gotgz -cvzf "s3://my-bucket/backups/archive.tgz?env=prod&owner=platform" dir/
 ```
+
+### HTTP archive source
+
+`http://` and `https://` archive URLs are supported as `-f` sources for:
+
+- `-x` extract
+- `-t` list
+
+Current limitation: HTTP URLs are source-only in this release. Create mode (`-c`) does not support HTTP targets, and HTTP requests use anonymous GET without custom headers/auth.
 
 ### Additional options
 

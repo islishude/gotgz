@@ -18,6 +18,7 @@ import (
 	"github.com/islishude/gotgz/internal/cli"
 	"github.com/islishude/gotgz/internal/compress"
 	"github.com/islishude/gotgz/internal/locator"
+	httpstore "github.com/islishude/gotgz/internal/storage/http"
 	localstore "github.com/islishude/gotgz/internal/storage/local"
 	s3store "github.com/islishude/gotgz/internal/storage/s3"
 )
@@ -42,6 +43,7 @@ type MetadataPolicy struct {
 type Runner struct {
 	local  *localstore.ArchiveStore
 	s3     *s3store.Store
+	http   *httpstore.Store
 	stderr io.Writer
 	stdout io.Writer
 }
@@ -56,7 +58,13 @@ func New(ctx context.Context, stdout io.Writer, stderr io.Writer) (*Runner, erro
 	if err != nil {
 		return nil, fmt.Errorf("init s3: %w", err)
 	}
-	return &Runner{local: &localstore.ArchiveStore{}, s3: s3s, stdout: stdout, stderr: stderr}, nil
+	return &Runner{
+		local:  &localstore.ArchiveStore{},
+		s3:     s3s,
+		http:   httpstore.New(),
+		stdout: stdout,
+		stderr: stderr,
+	}, nil
 }
 
 func (r *Runner) Run(ctx context.Context, opts cli.Options) RunResult {
@@ -635,6 +643,15 @@ func (r *Runner) openArchiveReader(ctx context.Context, ref locator.Ref) (io.Rea
 			return nil, 0, false, err
 		}
 		return rc, meta.Size, true, nil
+	case locator.KindHTTP:
+		rc, meta, err := r.http.OpenReader(ctx, ref)
+		if err != nil {
+			return nil, 0, false, err
+		}
+		if meta.Size >= 0 {
+			return rc, meta.Size, true, nil
+		}
+		return rc, 0, false, nil
 	default:
 		return nil, 0, false, fmt.Errorf("unsupported archive source %q", ref.Raw)
 	}
@@ -649,6 +666,8 @@ func (r *Runner) openArchiveWriter(ctx context.Context, ref locator.Ref) (io.Wri
 			return nil, fmt.Errorf("archive object key cannot be empty for -f")
 		}
 		return r.s3.OpenWriter(ctx, ref, ref.Metadata)
+	case locator.KindHTTP:
+		return nil, fmt.Errorf("unsupported archive target %q: http(s) archives are source-only", ref.Raw)
 	default:
 		return nil, fmt.Errorf("unsupported archive target %q", ref.Raw)
 	}
