@@ -52,8 +52,13 @@ func TestProgressAlwaysForCreateExtractList(t *testing.T) {
 	if got := rList.Run(context.Background(), list); got.ExitCode != ExitSuccess {
 		t.Fatalf("list exit=%d err=%v", got.ExitCode, got.Err)
 	}
-	if !strings.Contains(listErr.String(), "gotgz:") {
-		t.Fatalf("list stderr missing progress output:\n%s", listErr.String())
+	for _, item := range []string{
+		"gotgz: [....................]   0.0% ",
+		"gotgz: [####################] 100.0% ",
+	} {
+		if !strings.Contains(listErr.String(), item) {
+			t.Errorf("list stderr missing progress output:\n%s\nitem:\n%s", listErr.String(), item)
+		}
 	}
 
 	if err := os.MkdirAll(outDir, 0o755); err != nil {
@@ -73,8 +78,14 @@ func TestProgressAlwaysForCreateExtractList(t *testing.T) {
 	if got := rExtract.Run(context.Background(), extract); got.ExitCode != ExitSuccess {
 		t.Fatalf("extract exit=%d err=%v", got.ExitCode, got.Err)
 	}
-	if !strings.Contains(extractErr.String(), "gotgz:") {
-		t.Fatalf("extract stderr missing progress output:\n%s", extractErr.String())
+
+	for _, item := range []string{
+		"gotgz: [....................]   0.0% ",
+		"gotgz: [####################] 100.0% ",
+	} {
+		if !strings.Contains(extractErr.String(), item) {
+			t.Errorf("extract stderr missing progress output:\n%s\nitem:\n%s", extractErr.String(), item)
+		}
 	}
 }
 
@@ -185,7 +196,12 @@ func TestProgressDoesNotPolluteStdoutWhenExtractingToStdout(t *testing.T) {
 	if got := stdout.String(); got != "stdout-payload" {
 		t.Fatalf("stdout = %q, want %q", got, "stdout-payload")
 	}
-	if !strings.Contains(stderr.String(), "gotgz:") {
-		t.Fatalf("stderr missing progress output:\n%s", stderr.String())
+	for _, item := range []string{
+		"gotgz: [....................]   0.0% ",
+		"gotgz: [####################] 100.0% ",
+	} {
+		if !strings.Contains(stderr.String(), item) {
+			t.Fatalf("stderr missing progress output:\n%s\nitem:\n%s", stderr.String(), item)
+		}
 	}
 }
