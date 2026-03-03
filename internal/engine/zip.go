@@ -2,7 +2,6 @@ package engine
 
 import (
 	"archive/zip"
-	"bytes"
 	"compress/flate"
 	"context"
 	"errors"
@@ -18,6 +17,8 @@ import (
 	"github.com/islishude/gotgz/internal/cli"
 	"github.com/islishude/gotgz/internal/locator"
 )
+
+const maxZipSymlinkTargetBytes = 4096
 
 // runCreateZip writes create-mode output in zip format.
 func (r *Runner) runCreateZip(ctx context.Context, opts cli.Options, archiveRef locator.Ref) (warnings int, retErr error) {
@@ -476,7 +477,7 @@ func (r *Runner) extractZipEntryToLocal(base string, zf *zip.File, extractName s
 		if rc == nil {
 			return warnings, nil
 		}
-		linkBytes, err := io.ReadAll(newCountingReader(rc, reporter))
+		linkTarget, err := readZipSymlinkTarget(zf, rc, reporter)
 		cerr := rc.Close()
 		if err != nil {
 			return warnings, err
@@ -484,7 +485,6 @@ func (r *Runner) extractZipEntryToLocal(base string, zf *zip.File, extractName s
 		if cerr != nil {
 			return warnings, cerr
 		}
-		linkTarget := string(linkBytes)
 		if err := safeSymlinkTarget(base, target, linkTarget); err != nil {
 			return warnings, err
 		}
@@ -592,17 +592,14 @@ func (r *Runner) extractZipEntryToS3(ctx context.Context, target locator.Ref, zf
 		if rc == nil {
 			return w, nil
 		}
-		linkBytes, err := io.ReadAll(newCountingReader(rc, reporter))
+		w += r.warnf(reporter, "zip symlink %s extracted to S3 as regular object", zf.Name)
+		err = r.s3.UploadStream(ctx, obj, newCountingReader(rc, reporter), target.Metadata)
 		cerr := rc.Close()
 		if err != nil {
 			return w, err
 		}
 		if cerr != nil {
 			return w, cerr
-		}
-		w += r.warnf(reporter, "zip symlink %s extracted to S3 as regular object", zf.Name)
-		if err := r.s3.UploadStream(ctx, obj, bytes.NewReader(linkBytes), target.Metadata); err != nil {
-			return w, err
 		}
 		return w, nil
 	}
@@ -710,6 +707,19 @@ func normalizeCompressionHint(v cli.CompressionHint) cli.CompressionHint {
 		return cli.CompressionAuto
 	}
 	return v
+}
+
+// readZipSymlinkTarget reads a symlink target from a zip entry with a hard cap
+// to avoid unbounded memory growth on malformed archives.
+func readZipSymlinkTarget(zf *zip.File, rc io.Reader, reporter *progressReporter) (string, error) {
+	b, err := io.ReadAll(io.LimitReader(newCountingReader(rc, reporter), maxZipSymlinkTargetBytes+1))
+	if err != nil {
+		return "", err
+	}
+	if len(b) > maxZipSymlinkTargetBytes {
+		return "", fmt.Errorf("zip symlink %s target exceeds %d bytes", zf.Name, maxZipSymlinkTargetBytes)
+	}
+	return string(b), nil
 }
 
 // warnf prints one warning and returns 1 for warning-count accumulation.

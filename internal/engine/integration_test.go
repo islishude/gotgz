@@ -462,6 +462,30 @@ func zipArchiveBytes(t *testing.T, files map[string]string) []byte {
 	return buf.Bytes()
 }
 
+// zipArchiveSymlinkBytes builds an in-memory zip archive with one symlink entry.
+func zipArchiveSymlinkBytes(t *testing.T, name, target string) []byte {
+	t.Helper()
+
+	var buf bytes.Buffer
+	zw := zip.NewWriter(&buf)
+	hdr := &zip.FileHeader{
+		Name:   name,
+		Method: zip.Store,
+	}
+	hdr.SetMode(os.ModeSymlink | 0o777)
+	w, err := zw.CreateHeader(hdr)
+	if err != nil {
+		t.Fatalf("CreateHeader(%q): %v", name, err)
+	}
+	if _, err := io.WriteString(w, target); err != nil {
+		t.Fatalf("Write(%q): %v", name, err)
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatalf("close zip writer: %v", err)
+	}
+	return buf.Bytes()
+}
+
 // zipArchiveBytesUnsupportedMethod builds a zip with one entry using an
 // unsupported compression method code.
 func zipArchiveBytesUnsupportedMethod(t *testing.T, name string, method uint16) []byte {
@@ -964,5 +988,42 @@ func TestExtractZipUnsupportedEntrySkipsWithoutEmptyFile(t *testing.T) {
 
 	if _, err := os.Stat(filepath.Join(out, "dir", "bad.txt")); !os.IsNotExist(err) {
 		t.Fatalf("unsupported zip entry should not create output file, stat err=%v", err)
+	}
+}
+
+func TestExtractZipSymlinkTargetTooLarge(t *testing.T) {
+	root := t.TempDir()
+	archive := filepath.Join(root, "symlink-too-large.zip")
+	out := filepath.Join(root, "out")
+
+	target := strings.Repeat("a", maxZipSymlinkTargetBytes+1)
+	payload := zipArchiveSymlinkBytes(t, "link", target)
+	if err := os.WriteFile(archive, payload, 0o644); err != nil {
+		t.Fatalf("write zip: %v", err)
+	}
+	if err := os.MkdirAll(out, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	r, err := New(context.Background(), io.Discard, io.Discard)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	extract := cli.Options{
+		Mode:    cli.ModeExtract,
+		Archive: archive,
+		Chdir:   out,
+	}
+	got := r.Run(context.Background(), extract)
+	if got.ExitCode != ExitFatal {
+		t.Fatalf("extract exit=%d err=%v, want fatal", got.ExitCode, got.Err)
+	}
+	if got.Err == nil || !strings.Contains(got.Err.Error(), "target exceeds") {
+		t.Fatalf("extract err=%v, want target exceeds error", got.Err)
+	}
+
+	if _, err := os.Lstat(filepath.Join(out, "link")); !os.IsNotExist(err) {
+		t.Fatalf("oversized symlink entry should not create output file, lstat err=%v", err)
 	}
 }
