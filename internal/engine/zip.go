@@ -330,6 +330,11 @@ func (r *Runner) runExtractZip(ctx context.Context, opts cli.Options, reporter *
 
 		innerWarnings := 0
 		for _, zf := range zr.File {
+			select {
+			case <-ctx.Done():
+				return innerWarnings, ctx.Err()
+			default:
+			}
 			if shouldSkipMember(opts, zf.Name) {
 				continue
 			}
