@@ -64,22 +64,40 @@ func (s *Store) OpenReader(ctx context.Context, ref locator.Ref) (io.ReadCloser,
 	if err != nil {
 		return nil, Metadata{}, err
 	}
-	return body, Metadata{Size: size, ContentType: strings.TrimSpace(resp.Header.Get("Content-Type"))}, nil
+	meta := Metadata{
+		Size:        size,
+		ContentType: strings.TrimSpace(resp.Header.Get("Content-Type")),
+	}
+	return body, meta, nil
 }
 
-// decodeResponseBody handles transport-level content encoding for archive streams.
+// decodeResponseBody returns the response body and its content size.
+//
+// When the standard http.Transport has already transparently decompressed the
+// body (resp.Uncompressed == true), the decompressed size is unknown so -1 is
+// returned. When the transport did NOT decompress (e.g. DisableCompression is
+// set), the function inspects Content-Encoding and handles gzip/x-gzip
+// manually; unsupported encodings result in an error.
 func decodeResponseBody(resp *http.Response) (io.ReadCloser, int64, error) {
+	// The Go http.Transport transparently decompresses gzip responses when
+	// the client did not explicitly set Accept-Encoding. In that case
+	// resp.Uncompressed is true, Content-Encoding is stripped, and
+	// ContentLength no longer reflects the actual (decompressed) size.
+	if resp.Uncompressed {
+		return resp.Body, -1, nil
+	}
+
+	// Transport did not decompress; honour Content-Encoding ourselves.
 	contentEncoding := strings.TrimSpace(strings.ToLower(resp.Header.Get("Content-Encoding")))
-	size := resp.ContentLength
 
 	switch contentEncoding {
 	case "", "identity":
-		return resp.Body, size, nil
+		return resp.Body, resp.ContentLength, nil
 	case "gzip", "x-gzip":
 		zr, err := gzip.NewReader(resp.Body)
 		if err != nil {
 			_ = resp.Body.Close()
-			return nil, 0, fmt.Errorf("unsupported http content-encoding %q: %w", contentEncoding, err)
+			return nil, 0, fmt.Errorf("gzip content-encoding: %w", err)
 		}
 		// Decompressed size is unknown up front.
 		return &multiReadCloser{reader: zr, closers: []io.Closer{zr, resp.Body}}, -1, nil
@@ -89,6 +107,8 @@ func decodeResponseBody(resp *http.Response) (io.ReadCloser, int64, error) {
 	}
 }
 
+// multiReadCloser wraps a reader with multiple closers so that closing
+// cascades through all layers (e.g. gzip reader + underlying body).
 type multiReadCloser struct {
 	reader  io.Reader
 	closers []io.Closer

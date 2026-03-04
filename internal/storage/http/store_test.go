@@ -172,6 +172,52 @@ func TestOpenReaderRejectsNonHTTPRef(t *testing.T) {
 	}
 }
 
+func TestOpenReaderGzipManualDecode(t *testing.T) {
+	// When the client has DisableCompression set, the transport will NOT
+	// auto-decompress and Content-Encoding remains in the response. The
+	// store must handle gzip manually in that case.
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		var buf bytes.Buffer
+		zw := gzip.NewWriter(&buf)
+		_, _ = zw.Write([]byte("manual-gzip"))
+		_ = zw.Close()
+
+		w.Header().Set("Content-Encoding", "gzip")
+		w.Header().Set("Content-Type", "application/x-tar")
+		_, _ = w.Write(buf.Bytes())
+	}))
+	defer server.Close()
+
+	store := &Store{
+		client: &http.Client{
+			Transport: &http.Transport{DisableCompression: true},
+		},
+	}
+	rc, meta, err := store.OpenReader(context.Background(), locator.Ref{
+		Kind: locator.KindHTTP,
+		Raw:  server.URL + "/manual.tar",
+		URL:  server.URL + "/manual.tar",
+	})
+	if err != nil {
+		t.Fatalf("OpenReader() error = %v", err)
+	}
+	defer rc.Close() //nolint:errcheck
+
+	b, err := io.ReadAll(rc)
+	if err != nil {
+		t.Fatalf("ReadAll() error = %v", err)
+	}
+	if string(b) != "manual-gzip" {
+		t.Fatalf("body = %q, want %q", string(b), "manual-gzip")
+	}
+	if meta.Size != -1 {
+		t.Fatalf("size = %d, want -1", meta.Size)
+	}
+	if meta.ContentType != "application/x-tar" {
+		t.Fatalf("content type = %q, want %q", meta.ContentType, "application/x-tar")
+	}
+}
+
 func TestOpenReaderRejectsUnsupportedContentEncoding(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Encoding", "br")
@@ -179,7 +225,11 @@ func TestOpenReaderRejectsUnsupportedContentEncoding(t *testing.T) {
 	}))
 	defer server.Close()
 
-	store := New()
+	store := &Store{
+		client: &http.Client{
+			Transport: &http.Transport{DisableCompression: true},
+		},
+	}
 	_, _, err := store.OpenReader(context.Background(), locator.Ref{
 		Kind: locator.KindHTTP,
 		Raw:  server.URL + "/encoded.tar",
