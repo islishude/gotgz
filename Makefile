@@ -12,9 +12,10 @@ fmt:
 	gofmt -w -s .
 	go fix ./...
 
-test: build lint fmt
+test: build lint fmt localstack
+	GOTGZ_TEST_S3_ENDPOINT=http://localhost:4566 go test -v -race ./...
+	docker compose down
+
+localstack:
 	docker compose down
 	docker compose up -d --wait
-	GOTGZ_TEST_S3_ENDPOINT=http://localhost:4566 go test -v -race -coverprofile=coverage.txt ./...
-	go tool cover -func=coverage.txt
-	docker compose down
