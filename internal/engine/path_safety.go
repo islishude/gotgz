@@ -10,21 +10,19 @@ import (
 // safeSymlinkTarget validates that a symlink's target does not escape the
 // extraction base directory. linkname is the raw target from the archive;
 // symlinkPath is the absolute path where the symlink will be created.
+// Absolute symlink targets are always rejected because os.Symlink would
+// create a link pointing outside the extraction directory.
 func safeSymlinkTarget(base, symlinkPath, linkname string) error {
 	if linkname == "" {
 		return fmt.Errorf("symlink target is empty")
 	}
+	if filepath.IsAbs(linkname) {
+		return fmt.Errorf("refusing symlink %q -> %q: absolute symlink target not allowed", symlinkPath, linkname)
+	}
 	base = filepath.Clean(base)
 
-	var resolved string
-	if filepath.IsAbs(linkname) {
-		// Absolute symlink targets are resolved within the base directory.
-		resolved = filepath.Join(base, filepath.FromSlash(linkname))
-	} else {
-		// Relative symlink targets are resolved from the symlink's parent.
-		resolved = filepath.Join(filepath.Dir(symlinkPath), filepath.FromSlash(linkname))
-	}
-	resolved = filepath.Clean(resolved)
+	// Relative symlink targets are resolved from the symlink's parent.
+	resolved := filepath.Clean(filepath.Join(filepath.Dir(symlinkPath), filepath.FromSlash(linkname)))
 
 	rel, err := filepath.Rel(base, resolved)
 	if err != nil {
