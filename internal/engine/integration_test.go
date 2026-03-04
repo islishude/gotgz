@@ -991,6 +991,38 @@ func TestExtractZipUnsupportedEntrySkipsWithoutEmptyFile(t *testing.T) {
 	}
 }
 
+func TestListZipUnsupportedEntryDoesNotWarn(t *testing.T) {
+	root := t.TempDir()
+	archive := filepath.Join(root, "unsupported.zip")
+
+	payload := zipArchiveBytesUnsupportedMethod(t, "dir/bad.txt", 99)
+	if err := os.WriteFile(archive, payload, 0o644); err != nil {
+		t.Fatalf("write unsupported zip: %v", err)
+	}
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	r, err := New(context.Background(), &stdout, &stderr)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	list := cli.Options{
+		Mode:    cli.ModeList,
+		Archive: archive,
+	}
+	got := r.Run(context.Background(), list)
+	if got.ExitCode != ExitSuccess {
+		t.Fatalf("list exit=%d err=%v, want success", got.ExitCode, got.Err)
+	}
+	if !strings.Contains(stdout.String(), "dir/bad.txt") {
+		t.Fatalf("list output = %q, want listed unsupported entry", stdout.String())
+	}
+	if strings.Contains(stderr.String(), "unsupported algorithm") {
+		t.Fatalf("list stderr should not report unsupported algorithm warnings, got %q", stderr.String())
+	}
+}
+
 func TestExtractZipSymlinkTargetTooLarge(t *testing.T) {
 	root := t.TempDir()
 	archive := filepath.Join(root, "symlink-too-large.zip")

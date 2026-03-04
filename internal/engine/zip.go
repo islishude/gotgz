@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"math"
 	"os"
 	"path"
 	"path/filepath"
@@ -243,12 +244,8 @@ func (r *Runner) addLocalPathZip(ctx context.Context, zw *zip.Writer, member, ch
 // runListZip lists archive members from a zip input stream.
 func (r *Runner) runListZip(ctx context.Context, opts cli.Options, reporter *progressReporter, archiveRef locator.Ref, ar io.ReadCloser, info archiveReaderInfo) (int, error) {
 	warnings := r.warnZipReadOptions(opts, reporter)
-	zipWarnings, err := r.withZipReader(archiveRef, ar, info, func(zr *zip.Reader) (int, error) {
-		total := totalZipPayloadBytes(zr, func(zf *zip.File) bool {
-			return !shouldSkipMember(opts, zf.Name)
-		})
-		reporter.SetTotal(total, true)
-
+	reporter.SetTotal(info.Size, info.SizeKnown)
+	zipWarnings, err := r.withZipReader(ctx, archiveRef, ar, info, reporter, func(zr *zip.Reader) (int, error) {
 		innerWarnings := 0
 		for _, zf := range zr.File {
 			select {
@@ -262,26 +259,6 @@ func (r *Runner) runListZip(ctx context.Context, opts cli.Options, reporter *pro
 			reporter.beforeExternalLineOutput()
 			_, _ = fmt.Fprintln(r.stdout, zf.Name)
 			reporter.afterExternalLineOutput()
-
-			if isZipDir(zf) {
-				continue
-			}
-			rc, w, err := r.openZipEntry(zf, reporter)
-			innerWarnings += w
-			if err != nil {
-				return innerWarnings, err
-			}
-			if rc == nil {
-				continue
-			}
-			_, err = io.Copy(io.Discard, newCountingReader(rc, reporter))
-			cerr := rc.Close()
-			if err != nil {
-				return innerWarnings, err
-			}
-			if cerr != nil {
-				return innerWarnings, cerr
-			}
 		}
 		return innerWarnings, nil
 	})
@@ -294,7 +271,7 @@ func (r *Runner) runExtractZip(ctx context.Context, opts cli.Options, reporter *
 	warnings := r.warnZipReadOptions(opts, reporter)
 
 	if opts.ToStdout {
-		zipWarnings, err := r.withZipReader(archiveRef, ar, info, func(zr *zip.Reader) (int, error) {
+		zipWarnings, err := r.withZipReader(ctx, archiveRef, ar, info, nil, func(zr *zip.Reader) (int, error) {
 			total := totalZipPayloadBytes(zr, func(zf *zip.File) bool {
 				if shouldSkipMember(opts, zf.Name) {
 					return false
@@ -320,7 +297,7 @@ func (r *Runner) runExtractZip(ctx context.Context, opts cli.Options, reporter *
 		return warnings, err
 	}
 
-	zipWarnings, err := r.withZipReader(archiveRef, ar, info, func(zr *zip.Reader) (int, error) {
+	zipWarnings, err := r.withZipReader(ctx, archiveRef, ar, info, nil, func(zr *zip.Reader) (int, error) {
 		total := totalZipPayloadBytes(zr, func(zf *zip.File) bool {
 			if shouldSkipMember(opts, zf.Name) {
 				return false
@@ -374,7 +351,8 @@ func (r *Runner) runExtractZip(ctx context.Context, opts cli.Options, reporter *
 
 // withZipReader opens a zip.Reader from local file directly when possible and
 // otherwise copies source bytes to a temporary file to satisfy ReaderAt.
-func (r *Runner) withZipReader(archiveRef locator.Ref, ar io.ReadCloser, info archiveReaderInfo, fn func(zr *zip.Reader) (int, error)) (int, error) {
+// copyReporter tracks archive bytes consumed while preparing the zip reader.
+func (r *Runner) withZipReader(ctx context.Context, archiveRef locator.Ref, ar io.ReadCloser, info archiveReaderInfo, copyReporter *progressReporter, fn func(zr *zip.Reader) (int, error)) (int, error) {
 	if archiveRef.Kind == locator.KindLocal && info.SizeKnown && archiveRef.Path != "" {
 		f, err := os.Open(archiveRef.Path)
 		if err == nil {
@@ -383,6 +361,9 @@ func (r *Runner) withZipReader(archiveRef locator.Ref, ar io.ReadCloser, info ar
 			if statErr == nil && st.Mode().IsRegular() {
 				zr, zipErr := zip.NewReader(f, st.Size())
 				if zipErr == nil {
+					if copyReporter != nil {
+						copyReporter.AddDone(st.Size())
+					}
 					return fn(zr)
 				}
 			}
@@ -398,7 +379,11 @@ func (r *Runner) withZipReader(archiveRef locator.Ref, ar io.ReadCloser, info ar
 		_ = os.Remove(tmp.Name())
 	}()
 
-	if _, err := io.Copy(tmp, ar); err != nil {
+	copySrc := io.Reader(ar)
+	if copyReporter != nil {
+		copySrc = newCountingReader(ar, copyReporter)
+	}
+	if _, err := copyWithContext(ctx, tmp, copySrc); err != nil {
 		return 0, err
 	}
 	st, err := tmp.Stat()
@@ -623,7 +608,7 @@ func (r *Runner) openZipEntry(zf *zip.File, reporter *progressReporter) (io.Read
 
 // totalZipPayloadBytes sums uncompressed payload bytes for matching entries.
 func totalZipPayloadBytes(zr *zip.Reader, match func(zf *zip.File) bool) int64 {
-	var total int64
+	var total uint64
 	for _, zf := range zr.File {
 		if match != nil && !match(zf) {
 			continue
@@ -631,9 +616,12 @@ func totalZipPayloadBytes(zr *zip.Reader, match func(zf *zip.File) bool) int64 {
 		if isZipDir(zf) {
 			continue
 		}
-		total += int64(zf.UncompressedSize64)
+		total += zf.UncompressedSize64
 	}
-	return total
+	if total > math.MaxInt64 {
+		return math.MaxInt64
+	}
+	return int64(total)
 }
 
 // isZipDir reports whether a zip entry is a directory.
