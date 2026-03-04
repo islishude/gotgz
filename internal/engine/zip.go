@@ -138,7 +138,7 @@ func (r *Runner) runExtractZip(ctx context.Context, opts cli.Options, reporter *
 				return name != "" && isZipRegular(zf)
 			})
 			reporter.SetTotal(total, true)
-			return r.extractZipToStdout(zr, opts, reporter)
+			return r.extractZipToStdout(ctx, zr, opts, reporter)
 		})
 		return warnings + zipWarnings, err
 	}
@@ -190,7 +190,7 @@ func (r *Runner) runExtractZip(ctx context.Context, opts cli.Options, reporter *
 					return innerWarnings, err
 				}
 			case locator.KindLocal, locator.KindStdio:
-				w, err := r.extractZipEntryToLocal(parsedTarget.Path, zf, extractName, policy, reporter)
+				w, err := r.extractZipEntryToLocal(ctx, parsedTarget.Path, zf, extractName, policy, reporter)
 				innerWarnings += w
 				if err != nil {
 					return innerWarnings, err

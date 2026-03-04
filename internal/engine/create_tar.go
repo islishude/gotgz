@@ -4,7 +4,6 @@ import (
 	"archive/tar"
 	"context"
 	"fmt"
-	"io"
 	"io/fs"
 	"os"
 	"path"
@@ -210,7 +209,7 @@ func (r *Runner) addS3Member(ctx context.Context, tw *tar.Writer, ref locator.Re
 	if err := tw.WriteHeader(hdr); err != nil {
 		return err
 	}
-	if _, err := io.Copy(tw, newCountingReader(body, reporter)); err != nil {
+	if _, err := copyWithContext(ctx, tw, newCountingReader(body, reporter)); err != nil {
 		return err
 	}
 	if verbose {
@@ -281,7 +280,7 @@ func (r *Runner) addLocalPath(ctx context.Context, tw *tar.Writer, member, chdir
 			if err != nil {
 				return err
 			}
-			_, err = io.Copy(tw, newCountingReader(f, reporter))
+			_, err = copyWithContext(ctx, tw, newCountingReader(f, reporter))
 			cerr := f.Close()
 			if err != nil {
 				return err

@@ -2,6 +2,8 @@ package engine
 
 import (
 	"bytes"
+	"io"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -255,5 +257,30 @@ func TestBeforeExternalLineOutputInitializesTopPinnedRegion(t *testing.T) {
 	p.beforeExternalLineOutput()
 	if got := buf.String(); !strings.Contains(got, "\033[2;999r\033[999;1H") {
 		t.Fatalf("expected scroll region setup, got %q", got)
+	}
+}
+
+func Test_isInteractiveTTY(t *testing.T) {
+	tests := []struct {
+		name   string
+		writer io.Writer
+		want   bool
+	}{
+		{"discard", io.Discard, false},
+		{"Stdin", os.Stdin, true},
+		{"stdout", os.Stdout, false},
+		{"stderr", os.Stderr, false},
+		{"dumb", os.Stdin, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.name == "dumb" {
+				t.Setenv("TERM", "dumb")
+			}
+			got := isInteractiveTTY(tt.writer)
+			if got != tt.want {
+				t.Errorf("isInteractiveTTY() = %v, want %v", got, tt.want)
+			}
+		})
 	}
 }

@@ -21,7 +21,7 @@ import (
 func (r *Runner) runListTar(ctx context.Context, opts cli.Options, reporter *progressReporter, ar io.ReadCloser, info archiveReaderInfo) (int, error) {
 	return r.scanTarArchiveFromReader(ctx, opts, reporter, info, ar, func(hdr *tar.Header, tr *tar.Reader) (int, error) {
 		if shouldSkipMember(opts, hdr.Name) {
-			if _, err := io.Copy(io.Discard, tr); err != nil {
+			if _, err := copyWithContext(ctx, io.Discard, tr); err != nil {
 				return 0, err
 			}
 			return 0, nil
@@ -29,7 +29,7 @@ func (r *Runner) runListTar(ctx context.Context, opts cli.Options, reporter *pro
 		reporter.beforeExternalLineOutput()
 		_, _ = fmt.Fprintln(r.stdout, hdr.Name)
 		reporter.afterExternalLineOutput()
-		if _, err := io.Copy(io.Discard, tr); err != nil {
+		if _, err := copyWithContext(ctx, io.Discard, tr); err != nil {
 			return 0, err
 		}
 		return 0, nil
@@ -44,24 +44,24 @@ func (r *Runner) runExtractTar(ctx context.Context, opts cli.Options, reporter *
 	if opts.ToStdout {
 		return r.scanTarArchiveFromReader(ctx, opts, reporter, info, ar, func(hdr *tar.Header, tr *tar.Reader) (int, error) {
 			if shouldSkipMember(opts, hdr.Name) {
-				if _, err := io.Copy(io.Discard, tr); err != nil {
+				if _, err := copyWithContext(ctx, io.Discard, tr); err != nil {
 					return 0, err
 				}
 				return 0, nil
 			}
 			if _, ok := stripPathComponents(hdr.Name, opts.StripComponents); !ok {
-				if _, err := io.Copy(io.Discard, io.LimitReader(tr, hdr.Size)); err != nil {
+				if _, err := copyWithContext(ctx, io.Discard, io.LimitReader(tr, hdr.Size)); err != nil {
 					return 0, err
 				}
 				return 0, nil
 			}
 			if hdr.Typeflag != tar.TypeReg {
-				if _, err := io.Copy(io.Discard, tr); err != nil {
+				if _, err := copyWithContext(ctx, io.Discard, tr); err != nil {
 					return 0, err
 				}
 				return 0, nil
 			}
-			_, err := io.Copy(r.stdout, tr)
+			_, err := copyWithContext(ctx, r.stdout, tr)
 			return 0, err
 		})
 	}
@@ -77,14 +77,14 @@ func (r *Runner) runExtractTar(ctx context.Context, opts cli.Options, reporter *
 
 	return r.scanTarArchiveFromReader(ctx, opts, reporter, info, ar, func(hdr *tar.Header, tr *tar.Reader) (int, error) {
 		if shouldSkipMember(opts, hdr.Name) {
-			if _, err := io.Copy(io.Discard, tr); err != nil {
+			if _, err := copyWithContext(ctx, io.Discard, tr); err != nil {
 				return 0, err
 			}
 			return 0, nil
 		}
 		extractName, ok := stripPathComponents(hdr.Name, opts.StripComponents)
 		if !ok {
-			if _, err := io.Copy(io.Discard, io.LimitReader(tr, hdr.Size)); err != nil {
+			if _, err := copyWithContext(ctx, io.Discard, io.LimitReader(tr, hdr.Size)); err != nil {
 				return 0, err
 			}
 			return 0, nil
@@ -100,7 +100,7 @@ func (r *Runner) runExtractTar(ctx context.Context, opts cli.Options, reporter *
 		case locator.KindS3:
 			return r.extractToS3(ctx, parsedTarget, &effectiveHdr, tr, reporter)
 		case locator.KindLocal, locator.KindStdio:
-			return r.extractToLocal(parsedTarget.Path, &effectiveHdr, tr, policy, metadataPolicy)
+			return r.extractToLocal(ctx, parsedTarget.Path, &effectiveHdr, tr, policy, metadataPolicy)
 		default:
 			return 0, fmt.Errorf("unsupported extract target %q", target)
 		}
@@ -113,7 +113,7 @@ func (r *Runner) extractToS3(ctx context.Context, target locator.Ref, hdr *tar.H
 	name := strings.TrimPrefix(hdr.Name, "./")
 	if name == "" {
 		if hdr.Size > 0 {
-			if _, err := io.Copy(io.Discard, io.LimitReader(tr, hdr.Size)); err != nil {
+			if _, err := copyWithContext(ctx, io.Discard, io.LimitReader(tr, hdr.Size)); err != nil {
 				return warnings, err
 			}
 		}
@@ -137,7 +137,7 @@ func (r *Runner) extractToS3(ctx context.Context, target locator.Ref, hdr *tar.H
 		}
 	case tar.TypeDir:
 		// S3 has no real directories. Still need to consume any data associated with this entry.
-		if _, err := io.Copy(io.Discard, io.LimitReader(tr, hdr.Size)); err != nil {
+		if _, err := copyWithContext(ctx, io.Discard, io.LimitReader(tr, hdr.Size)); err != nil {
 			return warnings, err
 		}
 	default:
@@ -151,7 +151,7 @@ func (r *Runner) extractToS3(ctx context.Context, target locator.Ref, hdr *tar.H
 }
 
 // extractToLocal writes one tar entry under base according to extraction policy.
-func (r *Runner) extractToLocal(base string, hdr *tar.Header, tr *tar.Reader, policy PermissionPolicy, metadataPolicy MetadataPolicy) (int, error) {
+func (r *Runner) extractToLocal(ctx context.Context, base string, hdr *tar.Header, tr *tar.Reader, policy PermissionPolicy, metadataPolicy MetadataPolicy) (int, error) {
 	target, err := safeJoin(base, hdr.Name)
 	if err != nil {
 		return 0, err
@@ -174,7 +174,7 @@ func (r *Runner) extractToLocal(base string, hdr *tar.Header, tr *tar.Reader, po
 		if err != nil {
 			return 0, err
 		}
-		_, err = io.Copy(f, io.LimitReader(tr, hdr.Size))
+		_, err = copyWithContext(ctx, f, io.LimitReader(tr, hdr.Size))
 		cerr := f.Close()
 		if err != nil {
 			return 0, err
@@ -208,7 +208,7 @@ func (r *Runner) extractToLocal(base string, hdr *tar.Header, tr *tar.Reader, po
 			return 0, err
 		}
 	default:
-		if _, err := io.Copy(io.Discard, io.LimitReader(tr, hdr.Size)); err != nil {
+		if _, err := copyWithContext(ctx, io.Discard, io.LimitReader(tr, hdr.Size)); err != nil {
 			return 0, err
 		}
 		return 0, nil

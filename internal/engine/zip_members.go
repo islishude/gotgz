@@ -41,7 +41,7 @@ func (r *Runner) addS3MemberZip(ctx context.Context, zw *zip.Writer, ref locator
 	if err != nil {
 		return err
 	}
-	if _, err := io.Copy(w, newCountingReader(body, reporter)); err != nil {
+	if _, err := copyWithContext(ctx, w, newCountingReader(body, reporter)); err != nil {
 		return err
 	}
 	if verbose {
@@ -128,7 +128,7 @@ func (r *Runner) addLocalPathZip(ctx context.Context, zw *zip.Writer, member, ch
 			if err != nil {
 				return err
 			}
-			_, err = io.Copy(w, newCountingReader(f, reporter))
+			_, err = copyWithContext(ctx, w, newCountingReader(f, reporter))
 			cerr := f.Close()
 			if err != nil {
 				return err

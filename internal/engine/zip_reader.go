@@ -68,9 +68,14 @@ func (r *Runner) withZipReader(ctx context.Context, archiveRef locator.Ref, ar i
 }
 
 // extractZipToStdout writes matching regular zip members to stdout.
-func (r *Runner) extractZipToStdout(zr *zip.Reader, opts cli.Options, reporter *progressReporter) (int, error) {
+func (r *Runner) extractZipToStdout(ctx context.Context, zr *zip.Reader, opts cli.Options, reporter *progressReporter) (int, error) {
 	warnings := 0
 	for _, zf := range zr.File {
+		select {
+		case <-ctx.Done():
+			return warnings, ctx.Err()
+		default:
+		}
 		if shouldSkipMember(opts, zf.Name) {
 			continue
 		}
@@ -86,7 +91,7 @@ func (r *Runner) extractZipToStdout(zr *zip.Reader, opts cli.Options, reporter *
 		if rc == nil {
 			continue
 		}
-		_, err = io.Copy(r.stdout, newCountingReader(rc, reporter))
+		_, err = copyWithContext(ctx, r.stdout, newCountingReader(rc, reporter))
 		cerr := rc.Close()
 		if err != nil {
 			return warnings, err

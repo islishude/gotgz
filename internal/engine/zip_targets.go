@@ -4,7 +4,6 @@ import (
 	"archive/zip"
 	"context"
 	"errors"
-	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -13,7 +12,7 @@ import (
 )
 
 // extractZipEntryToLocal extracts one zip entry into the local filesystem.
-func (r *Runner) extractZipEntryToLocal(base string, zf *zip.File, extractName string, policy PermissionPolicy, reporter *progressReporter) (int, error) {
+func (r *Runner) extractZipEntryToLocal(ctx context.Context, base string, zf *zip.File, extractName string, policy PermissionPolicy, reporter *progressReporter) (int, error) {
 	target, err := safeJoin(base, extractName)
 	if err != nil {
 		return 0, err
@@ -89,7 +88,7 @@ func (r *Runner) extractZipEntryToLocal(base string, zf *zip.File, extractName s
 			_ = rc.Close()
 			return warnings, err
 		}
-		_, err = io.Copy(out, newCountingReader(rc, reporter))
+		_, err = copyWithContext(ctx, out, newCountingReader(rc, reporter))
 		rerr := rc.Close()
 		cerr := out.Close()
 		if err != nil {
