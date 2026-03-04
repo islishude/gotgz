@@ -356,6 +356,160 @@ func TestS3ZipRoundTrip(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
+// Test: create a local zip archive from S3 members
+// ---------------------------------------------------------------------------
+func TestS3ZipMemberCreateLocalArchive(t *testing.T) {
+	ctx := context.Background()
+	ep := s3Endpoint(t)
+	client, bucket := setupS3Bucket(t, ctx, ep)
+
+	putObject(t, ctx, client, bucket, "docs/one.txt", "one-value")
+	putObject(t, ctx, client, bucket, "docs/two.txt", "two-value")
+
+	root := t.TempDir()
+	archive := filepath.Join(root, "out.zip")
+
+	r := newRunnerWithEndpoint(t, ep, io.Discard, io.Discard)
+	create := cli.Options{
+		Mode:    cli.ModeCreate,
+		Archive: archive,
+		Members: []string{
+			fmt.Sprintf("s3://%s/docs/one.txt", bucket),
+			fmt.Sprintf("s3://%s/docs/two.txt", bucket),
+		},
+	}
+	res := r.Run(ctx, create)
+	if res.ExitCode != ExitSuccess {
+		t.Fatalf("create exit=%d err=%v", res.ExitCode, res.Err)
+	}
+
+	var listBuf bytes.Buffer
+	r2 := newRunnerWithEndpoint(t, ep, &listBuf, io.Discard)
+	list := cli.Options{Mode: cli.ModeList, Archive: archive}
+	res = r2.Run(ctx, list)
+	if res.ExitCode != ExitSuccess {
+		t.Fatalf("list exit=%d err=%v", res.ExitCode, res.Err)
+	}
+	for _, want := range []string{"docs/one.txt", "docs/two.txt"} {
+		if !strings.Contains(listBuf.String(), want) {
+			t.Fatalf("listing missing %q:\n%s", want, listBuf.String())
+		}
+	}
+
+	outDir := filepath.Join(root, "extracted")
+	if err := os.MkdirAll(outDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	r3 := newRunnerWithEndpoint(t, ep, io.Discard, io.Discard)
+	extract := cli.Options{Mode: cli.ModeExtract, Archive: archive, Chdir: outDir}
+	res = r3.Run(ctx, extract)
+	if res.ExitCode != ExitSuccess {
+		t.Fatalf("extract exit=%d err=%v", res.ExitCode, res.Err)
+	}
+
+	for _, tc := range []struct {
+		file string
+		want string
+	}{
+		{"docs/one.txt", "one-value"},
+		{"docs/two.txt", "two-value"},
+	} {
+		b, err := os.ReadFile(filepath.Join(outDir, tc.file))
+		if err != nil {
+			t.Fatalf("read %s: %v", tc.file, err)
+		}
+		if string(b) != tc.want {
+			t.Fatalf("%s content = %q, want %q", tc.file, string(b), tc.want)
+		}
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Test: full zip S3→S3 round trip (S3 members → S3 zip archive → extract to S3)
+// ---------------------------------------------------------------------------
+func TestS3ZipFullRoundTrip(t *testing.T) {
+	ctx := context.Background()
+	ep := s3Endpoint(t)
+	client, bucket := setupS3Bucket(t, ctx, ep)
+
+	putObject(t, ctx, client, bucket, "input/doc.txt", "document-content")
+	putObject(t, ctx, client, bucket, "input/img.bin", "binary-content")
+
+	archiveURI := fmt.Sprintf("s3://%s/roundtrip/archive.zip", bucket)
+
+	r := newRunnerWithEndpoint(t, ep, io.Discard, io.Discard)
+	create := cli.Options{
+		Mode:    cli.ModeCreate,
+		Archive: archiveURI,
+		Members: []string{
+			fmt.Sprintf("s3://%s/input/doc.txt", bucket),
+			fmt.Sprintf("s3://%s/input/img.bin", bucket),
+		},
+	}
+	res := r.Run(ctx, create)
+	if res.ExitCode != ExitSuccess {
+		t.Fatalf("create exit=%d err=%v", res.ExitCode, res.Err)
+	}
+
+	s3Target := fmt.Sprintf("s3://%s/output-zip/", bucket)
+	r2 := newRunnerWithEndpoint(t, ep, io.Discard, io.Discard)
+	extract := cli.Options{Mode: cli.ModeExtract, Archive: archiveURI, Chdir: s3Target}
+	res = r2.Run(ctx, extract)
+	if res.ExitCode != ExitSuccess {
+		t.Fatalf("extract exit=%d err=%v", res.ExitCode, res.Err)
+	}
+
+	for _, tc := range []struct {
+		key  string
+		want string
+	}{
+		{"output-zip/input/doc.txt", "document-content"},
+		{"output-zip/input/img.bin", "binary-content"},
+	} {
+		got := getObject(t, ctx, client, bucket, tc.key)
+		if got != tc.want {
+			t.Fatalf("s3://%s/%s = %q, want %q", bucket, tc.key, got, tc.want)
+		}
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Test: extracting zip symlink entries to S3 stores link target as object body
+// ---------------------------------------------------------------------------
+func TestS3ExtractZipSymlinkToS3(t *testing.T) {
+	ctx := context.Background()
+	ep := s3Endpoint(t)
+	client, bucket := setupS3Bucket(t, ctx, ep)
+
+	root := t.TempDir()
+	archive := filepath.Join(root, "symlink.zip")
+	payload := zipArchiveSymlinkBytes(t, "dir/link", "target.txt")
+	if err := os.WriteFile(archive, payload, 0o644); err != nil {
+		t.Fatalf("write zip: %v", err)
+	}
+
+	var stderr bytes.Buffer
+	r := newRunnerWithEndpoint(t, ep, io.Discard, &stderr)
+	extract := cli.Options{
+		Mode:    cli.ModeExtract,
+		Archive: archive,
+		Chdir:   fmt.Sprintf("s3://%s/extracted/", bucket),
+	}
+	res := r.Run(ctx, extract)
+	if res.ExitCode != ExitWarning {
+		t.Fatalf("extract exit=%d err=%v, want warning", res.ExitCode, res.Err)
+	}
+	if !strings.Contains(stderr.String(), "zip symlink dir/link extracted to S3 as regular object") {
+		t.Fatalf("stderr=%q, want symlink-to-s3 warning", stderr.String())
+	}
+
+	got := getObject(t, ctx, client, bucket, "extracted/dir/link")
+	if got != "target.txt" {
+		t.Fatalf("s3://%s/%s = %q, want %q", bucket, "extracted/dir/link", got, "target.txt")
+	}
+}
+
+// ---------------------------------------------------------------------------
 // Test: archive uploads to S3 set an explicit Content-Type
 // ---------------------------------------------------------------------------
 func TestS3ArchiveUploadSetsContentType(t *testing.T) {

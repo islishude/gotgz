@@ -102,6 +102,173 @@ func TestExtractStripComponents(t *testing.T) {
 	}
 }
 
+func TestExtractTarHardLinkEntryCreatesHardLink(t *testing.T) {
+	root := t.TempDir()
+	archive := filepath.Join(root, "hardlink.tar")
+	out := filepath.Join(root, "out")
+
+	payload := tarArchiveBytesWithHardLink(t, "dir/original.txt", "hardlink-content", "dir/alias.txt")
+	if err := os.WriteFile(archive, payload, 0o644); err != nil {
+		t.Fatalf("write tar: %v", err)
+	}
+	if err := os.MkdirAll(out, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	r, err := New(context.Background(), io.Discard, io.Discard)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	extract := cli.Options{
+		Mode:    cli.ModeExtract,
+		Archive: archive,
+		Chdir:   out,
+	}
+	got := r.Run(context.Background(), extract)
+	if got.ExitCode != ExitSuccess {
+		t.Fatalf("extract exit=%d err=%v", got.ExitCode, got.Err)
+	}
+
+	original := filepath.Join(out, "dir", "original.txt")
+	alias := filepath.Join(out, "dir", "alias.txt")
+
+	b, err := os.ReadFile(alias)
+	if err != nil {
+		t.Fatalf("read hardlink file: %v", err)
+	}
+	if string(b) != "hardlink-content" {
+		t.Fatalf("hardlink content = %q, want %q", string(b), "hardlink-content")
+	}
+
+	origInfo, err := os.Stat(original)
+	if err != nil {
+		t.Fatalf("stat original: %v", err)
+	}
+	aliasInfo, err := os.Stat(alias)
+	if err != nil {
+		t.Fatalf("stat alias: %v", err)
+	}
+	if !os.SameFile(origInfo, aliasInfo) {
+		t.Fatalf("expected %s to be a hard link to %s", alias, original)
+	}
+}
+
+func TestExtractTarHardLinkTargetEscapesExtractionDir(t *testing.T) {
+	root := t.TempDir()
+	archive := filepath.Join(root, "hardlink-escape.tar")
+	out := filepath.Join(root, "out")
+
+	payload := tarArchiveHardLinkBytes(t, "dir/alias.txt", "../../../etc/passwd")
+	if err := os.WriteFile(archive, payload, 0o644); err != nil {
+		t.Fatalf("write tar: %v", err)
+	}
+	if err := os.MkdirAll(out, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	r, err := New(context.Background(), io.Discard, io.Discard)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	extract := cli.Options{
+		Mode:    cli.ModeExtract,
+		Archive: archive,
+		Chdir:   out,
+	}
+	got := r.Run(context.Background(), extract)
+	if got.ExitCode != ExitFatal {
+		t.Fatalf("extract exit=%d err=%v, want fatal", got.ExitCode, got.Err)
+	}
+	if got.Err == nil || !strings.Contains(got.Err.Error(), "outside target directory") {
+		t.Fatalf("extract err=%v, want outside target directory error", got.Err)
+	}
+
+	if _, err := os.Lstat(filepath.Join(out, "dir", "alias.txt")); !os.IsNotExist(err) {
+		t.Fatalf("escaping hard link entry should not create output file, lstat err=%v", err)
+	}
+}
+
+func TestExtractTarSameOwnerDoesNotFail(t *testing.T) {
+	root := t.TempDir()
+	archive := filepath.Join(root, "same-owner.tar")
+	out := filepath.Join(root, "out")
+
+	payload := tarArchiveBytesWithOwnership(t, "dir/file.txt", "same-owner-content", 424242, 434343)
+	if err := os.WriteFile(archive, payload, 0o644); err != nil {
+		t.Fatalf("write tar: %v", err)
+	}
+	if err := os.MkdirAll(out, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	r, err := New(context.Background(), io.Discard, io.Discard)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	sameOwner := true
+	extract := cli.Options{
+		Mode:      cli.ModeExtract,
+		Archive:   archive,
+		Chdir:     out,
+		SameOwner: &sameOwner,
+	}
+	got := r.Run(context.Background(), extract)
+	if got.ExitCode != ExitSuccess {
+		t.Fatalf("extract exit=%d err=%v", got.ExitCode, got.Err)
+	}
+
+	b, err := os.ReadFile(filepath.Join(out, "dir", "file.txt"))
+	if err != nil {
+		t.Fatalf("read extracted file: %v", err)
+	}
+	if string(b) != "same-owner-content" {
+		t.Fatalf("content mismatch = %q", string(b))
+	}
+}
+
+func TestExtractTarDefaultTypeSkipsEntryAndContinues(t *testing.T) {
+	root := t.TempDir()
+	archive := filepath.Join(root, "default-type.tar")
+	out := filepath.Join(root, "out")
+
+	payload := tarArchiveBytesWithDefaultTypeEntry(t, "meta/ignored.pax", "ignored-payload", "dir/after.txt", "after-content")
+	if err := os.WriteFile(archive, payload, 0o644); err != nil {
+		t.Fatalf("write tar: %v", err)
+	}
+	if err := os.MkdirAll(out, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	r, err := New(context.Background(), io.Discard, io.Discard)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	extract := cli.Options{
+		Mode:    cli.ModeExtract,
+		Archive: archive,
+		Chdir:   out,
+	}
+	got := r.Run(context.Background(), extract)
+	if got.ExitCode != ExitSuccess {
+		t.Fatalf("extract exit=%d err=%v", got.ExitCode, got.Err)
+	}
+
+	if _, err := os.Lstat(filepath.Join(out, "meta", "ignored.pax")); !os.IsNotExist(err) {
+		t.Fatalf("default type entry should be skipped, lstat err=%v", err)
+	}
+	b, err := os.ReadFile(filepath.Join(out, "dir", "after.txt"))
+	if err != nil {
+		t.Fatalf("read subsequent file: %v", err)
+	}
+	if string(b) != "after-content" {
+		t.Fatalf("subsequent content mismatch = %q", string(b))
+	}
+}
+
 func TestCreateArchiveWithSuffix(t *testing.T) {
 	root := t.TempDir()
 	src := filepath.Join(root, "src")
@@ -441,6 +608,133 @@ func tarArchiveBytes(t *testing.T, files map[string]string) []byte {
 	return buf.Bytes()
 }
 
+// tarArchiveBytesWithHardLink builds an in-memory tar archive containing one
+// regular file and one hard-link entry pointing at it.
+func tarArchiveBytesWithHardLink(t *testing.T, targetName, targetContent, linkName string) []byte {
+	t.Helper()
+
+	var buf bytes.Buffer
+	tw := tar.NewWriter(&buf)
+
+	targetHdr := &tar.Header{
+		Name:     targetName,
+		Mode:     0o644,
+		Size:     int64(len(targetContent)),
+		Typeflag: tar.TypeReg,
+		Format:   tar.FormatPAX,
+	}
+	if err := tw.WriteHeader(targetHdr); err != nil {
+		t.Fatalf("WriteHeader(%q): %v", targetName, err)
+	}
+	if _, err := io.WriteString(tw, targetContent); err != nil {
+		t.Fatalf("Write(%q): %v", targetName, err)
+	}
+
+	if err := tw.WriteHeader(&tar.Header{
+		Name:     linkName,
+		Mode:     0o644,
+		Typeflag: tar.TypeLink,
+		Linkname: targetName,
+		Format:   tar.FormatPAX,
+	}); err != nil {
+		t.Fatalf("WriteHeader(%q): %v", linkName, err)
+	}
+
+	if err := tw.Close(); err != nil {
+		t.Fatalf("close tar writer: %v", err)
+	}
+	return buf.Bytes()
+}
+
+// tarArchiveHardLinkBytes builds an in-memory tar archive with one hard-link
+// entry that links to linkTarget.
+func tarArchiveHardLinkBytes(t *testing.T, name, linkTarget string) []byte {
+	t.Helper()
+
+	var buf bytes.Buffer
+	tw := tar.NewWriter(&buf)
+	if err := tw.WriteHeader(&tar.Header{
+		Name:     name,
+		Mode:     0o644,
+		Typeflag: tar.TypeLink,
+		Linkname: linkTarget,
+		Format:   tar.FormatPAX,
+	}); err != nil {
+		t.Fatalf("WriteHeader(%q): %v", name, err)
+	}
+	if err := tw.Close(); err != nil {
+		t.Fatalf("close tar writer: %v", err)
+	}
+	return buf.Bytes()
+}
+
+// tarArchiveBytesWithOwnership builds an in-memory tar archive with one regular
+// file carrying explicit uid/gid ownership metadata.
+func tarArchiveBytesWithOwnership(t *testing.T, name, content string, uid, gid int) []byte {
+	t.Helper()
+
+	var buf bytes.Buffer
+	tw := tar.NewWriter(&buf)
+	if err := tw.WriteHeader(&tar.Header{
+		Name:     name,
+		Mode:     0o644,
+		Size:     int64(len(content)),
+		Typeflag: tar.TypeReg,
+		Uid:      uid,
+		Gid:      gid,
+		Format:   tar.FormatPAX,
+	}); err != nil {
+		t.Fatalf("WriteHeader(%q): %v", name, err)
+	}
+	if _, err := io.WriteString(tw, content); err != nil {
+		t.Fatalf("Write(%q): %v", name, err)
+	}
+	if err := tw.Close(); err != nil {
+		t.Fatalf("close tar writer: %v", err)
+	}
+	return buf.Bytes()
+}
+
+// tarArchiveBytesWithDefaultTypeEntry builds an archive with one entry that
+// falls into extractToLocal's default switch branch, followed by a regular file.
+func tarArchiveBytesWithDefaultTypeEntry(t *testing.T, skippedName, skippedPayload, nextName, nextContent string) []byte {
+	t.Helper()
+
+	var buf bytes.Buffer
+	tw := tar.NewWriter(&buf)
+
+	if err := tw.WriteHeader(&tar.Header{
+		Name:     skippedName,
+		Mode:     0o644,
+		Size:     int64(len(skippedPayload)),
+		Typeflag: byte('V'),
+		Format:   tar.FormatPAX,
+	}); err != nil {
+		t.Fatalf("WriteHeader(%q): %v", skippedName, err)
+	}
+	if _, err := io.WriteString(tw, skippedPayload); err != nil {
+		t.Fatalf("Write(%q): %v", skippedName, err)
+	}
+
+	if err := tw.WriteHeader(&tar.Header{
+		Name:     nextName,
+		Mode:     0o644,
+		Size:     int64(len(nextContent)),
+		Typeflag: tar.TypeReg,
+		Format:   tar.FormatPAX,
+	}); err != nil {
+		t.Fatalf("WriteHeader(%q): %v", nextName, err)
+	}
+	if _, err := io.WriteString(tw, nextContent); err != nil {
+		t.Fatalf("Write(%q): %v", nextName, err)
+	}
+
+	if err := tw.Close(); err != nil {
+		t.Fatalf("close tar writer: %v", err)
+	}
+	return buf.Bytes()
+}
+
 // zipArchiveBytes builds an in-memory zip archive from name->content pairs.
 func zipArchiveBytes(t *testing.T, files map[string]string) []byte {
 	t.Helper()
@@ -725,6 +1019,65 @@ func TestCreateExtractLocalZipRoundTrip(t *testing.T) {
 	}
 	if string(b) != "world" {
 		t.Fatalf("content mismatch = %q", string(b))
+	}
+}
+
+func TestCreateExtractLocalZipSymlinkRoundTrip(t *testing.T) {
+	root := t.TempDir()
+	src := filepath.Join(root, "src")
+	out := filepath.Join(root, "out")
+	archive := filepath.Join(root, "a.zip")
+
+	if err := os.MkdirAll(src, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(src, "target.txt"), []byte("link-target"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("target.txt", filepath.Join(src, "link.txt")); err != nil {
+		t.Skipf("symlink is not supported on this environment: %v", err)
+	}
+
+	r, err := New(context.Background(), io.Discard, io.Discard)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	create := cli.Options{Mode: cli.ModeCreate, Archive: archive, Chdir: root, Members: []string{"src"}}
+	if got := r.Run(context.Background(), create); got.ExitCode != ExitSuccess {
+		t.Fatalf("create exit=%d err=%v", got.ExitCode, got.Err)
+	}
+
+	if err := os.MkdirAll(out, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	extract := cli.Options{Mode: cli.ModeExtract, Archive: archive, Chdir: out}
+	if got := r.Run(context.Background(), extract); got.ExitCode != ExitSuccess {
+		t.Fatalf("extract exit=%d err=%v", got.ExitCode, got.Err)
+	}
+
+	linkPath := filepath.Join(out, "src", "link.txt")
+	info, err := os.Lstat(linkPath)
+	if err != nil {
+		t.Fatalf("lstat symlink: %v", err)
+	}
+	if info.Mode()&os.ModeSymlink == 0 {
+		t.Fatalf("%s is not a symlink, mode=%v", linkPath, info.Mode())
+	}
+	target, err := os.Readlink(linkPath)
+	if err != nil {
+		t.Fatalf("readlink: %v", err)
+	}
+	if target != "target.txt" {
+		t.Fatalf("symlink target = %q, want %q", target, "target.txt")
+	}
+
+	b, err := os.ReadFile(linkPath)
+	if err != nil {
+		t.Fatalf("read symlinked file: %v", err)
+	}
+	if string(b) != "link-target" {
+		t.Fatalf("symlinked content mismatch = %q", string(b))
 	}
 }
 
@@ -1057,5 +1410,41 @@ func TestExtractZipSymlinkTargetTooLarge(t *testing.T) {
 
 	if _, err := os.Lstat(filepath.Join(out, "link")); !os.IsNotExist(err) {
 		t.Fatalf("oversized symlink entry should not create output file, lstat err=%v", err)
+	}
+}
+
+func TestExtractZipSymlinkTargetEscapesExtractionDir(t *testing.T) {
+	root := t.TempDir()
+	archive := filepath.Join(root, "symlink-escape.zip")
+	out := filepath.Join(root, "out")
+
+	payload := zipArchiveSymlinkBytes(t, "link", "../../../etc/passwd")
+	if err := os.WriteFile(archive, payload, 0o644); err != nil {
+		t.Fatalf("write zip: %v", err)
+	}
+	if err := os.MkdirAll(out, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	r, err := New(context.Background(), io.Discard, io.Discard)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	extract := cli.Options{
+		Mode:    cli.ModeExtract,
+		Archive: archive,
+		Chdir:   out,
+	}
+	got := r.Run(context.Background(), extract)
+	if got.ExitCode != ExitFatal {
+		t.Fatalf("extract exit=%d err=%v, want fatal", got.ExitCode, got.Err)
+	}
+	if got.Err == nil || !strings.Contains(got.Err.Error(), "escapes extraction directory") {
+		t.Fatalf("extract err=%v, want escapes extraction directory error", got.Err)
+	}
+
+	if _, err := os.Lstat(filepath.Join(out, "link")); !os.IsNotExist(err) {
+		t.Fatalf("escaping symlink entry should not create output file, lstat err=%v", err)
 	}
 }
