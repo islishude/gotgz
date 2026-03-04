@@ -7,7 +7,7 @@ A Linux `tar`-compatible CLI tool written in Go, with native AWS S3 support as b
 - **Drop-in tar replacement** — supports common `tar` flags (`-c`, `-x`, `-t`, `-v`, `-f`, `-C`, `-O`)
 - **AWS S3 integration** — use `s3://bucket/key` URIs or S3 ARNs directly in `-f` and member arguments
 - **HTTP archive source** — use `http://` or `https://` URLs directly in `-f` for list/extract
-- **Multiple compression formats** — gzip (`-z`), bzip2 (`-j`), xz (`-J`), zstd (`--zstd`), lz4 (`--lz4`), with auto-detection on extract
+- **Multiple archive/compression formats** — native `.zip` plus tar-family compression: gzip (`-z`), bzip2 (`-j`), xz (`-J`), zstd (`--zstd`), lz4 (`--lz4`), with auto-detection on extract/list
 - **PAX format** — preserves metadata on demand: `--xattrs` for extended attributes, `--acl` for ACLs
 - **Permission control** — `--same-owner`, `--same-permissions` (`--numeric-owner` accepted for tar compatibility)
 - **Exclude patterns** — `--exclude` and `--exclude-from` (glob matching)
@@ -40,6 +40,9 @@ go build -o gotgz ./cmd/gotgz
 # Local files → local archive
 gotgz -cvf archive.tar dir1 file1.txt
 
+# Local files → zip archive
+gotgz -cvf archive.zip dir1 file1.txt
+
 # Local files → compressed archive
 gotgz -cvzf archive.tar.gz dir1 file1.txt
 
@@ -55,6 +58,9 @@ gotgz -cvf archive.tar s3://my-bucket/data/file1.txt s3://my-bucket/data/file2.t
 
 # S3 objects → S3 archive
 gotgz -cvf s3://my-bucket/out.tar s3://my-bucket/data/file1.txt
+
+# Local files → S3 zip archive
+gotgz -cvf s3://my-bucket/out.zip dir1 file1.txt
 ```
 
 ### Extract an archive
@@ -63,11 +69,17 @@ gotgz -cvf s3://my-bucket/out.tar s3://my-bucket/data/file1.txt
 # Local archive → local directory
 gotgz -xvf archive.tar.gz -C /tmp/output
 
+# Local zip archive → local directory
+gotgz -xvf archive.zip -C /tmp/output
+
 # S3 archive → local directory
 gotgz -xvf s3://my-bucket/backups/archive.tar.gz -C /tmp/output
 
 # HTTP archive → local directory
 gotgz -xvf https://example.com/backups/archive.tar.gz -C /tmp/output
+
+# HTTP zip archive → local directory
+gotgz -xvf https://example.com/backups/archive.zip -C /tmp/output
 
 # Local archive → S3
 gotgz -xvf archive.tar -C s3://my-bucket/restored/
@@ -77,6 +89,7 @@ gotgz -xvf archive.tar -C s3://my-bucket/restored/
 
 ```bash
 gotgz -tf archive.tar.gz
+gotgz -tf archive.zip
 gotgz -tf s3://my-bucket/backups/archive.tar.gz
 gotgz -tf https://example.com/backups/archive.tar.gz
 ```
@@ -94,7 +107,9 @@ gotgz -tf https://example.com/backups/archive.tar.gz
 You can control compression strength for create mode with `-compression-level=<1-9>` (or `--compression-level=<1-9>`).  
 If not provided, each algorithm uses its own default level.
 
-When extracting or listing, compression is auto-detected from file magic bytes or extension.
+When extracting or listing, archive/compression format is auto-detected by magic bytes first, then filename extension, then content type.
+
+For `.zip` archives, tar-specific compression flags (`-z/-j/-J/--zstd/--lz4`) and tar metadata-owner flags (`--xattrs`, `--acl`, `--same-owner`, `--numeric-owner`) are ignored with warnings. `--compression-level` still applies and maps to zip Deflate level.
 
 ### S3 addressing
 

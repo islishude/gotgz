@@ -101,21 +101,32 @@ func classifyResult(err error, warnings int) RunResult {
 }
 
 func (r *Runner) runCreate(ctx context.Context, opts cli.Options) (warnings int, retErr error) {
-	metadataPolicy := resolveMetadataPolicy(opts)
-	reporter := newProgressReporter(r.stderr, opts.Progress, 0, false, time.Now(), opts.Verbose)
-	defer reporter.Finish()
-
 	archiveRef, err := locator.ParseArchive(opts.Archive)
 	if err != nil {
 		return 0, err
 	}
+	format := detectCreateArchiveFormat(archiveRef)
+	switch format {
+	case archiveFormatZip:
+		return r.runCreateZip(ctx, opts, archiveRef)
+	default:
+		return r.runCreateTar(ctx, opts, archiveRef)
+	}
+}
+
+// runCreateTar writes create-mode output in tar format.
+func (r *Runner) runCreateTar(ctx context.Context, opts cli.Options, archiveRef locator.Ref) (warnings int, retErr error) {
+	metadataPolicy := resolveMetadataPolicy(opts)
+	reporter := newProgressReporter(r.stderr, opts.Progress, 0, false, time.Now(), opts.Verbose)
+	defer reporter.Finish()
+
 	if opts.Suffix != "" {
 		switch archiveRef.Kind {
 		case locator.KindLocal:
-			archiveRef.Path = AddTarSuffix(archiveRef.Path, opts.Suffix)
+			archiveRef.Path = AddArchiveSuffix(archiveRef.Path, opts.Suffix)
 			archiveRef.Raw = archiveRef.Path
 		case locator.KindS3:
-			archiveRef.Key = AddTarSuffix(archiveRef.Key, opts.Suffix)
+			archiveRef.Key = AddArchiveSuffix(archiveRef.Key, opts.Suffix)
 		case locator.KindStdio:
 			return 0, fmt.Errorf("cannot use -suffix with -f -")
 		}
@@ -385,8 +396,40 @@ func (r *Runner) addLocalPath(ctx context.Context, tw *tar.Writer, member, chdir
 func (r *Runner) runList(ctx context.Context, opts cli.Options) (int, error) {
 	reporter := newProgressReporter(r.stderr, opts.Progress, 0, false, time.Now(), true)
 	defer reporter.Finish()
+	ref, ar, info, magic, err := r.openArchiveForRead(ctx, opts.Archive)
+	if err != nil {
+		return 0, err
+	}
+	defer ar.Close() //nolint:errcheck
 
-	return r.scanArchive(ctx, opts, reporter, func(hdr *tar.Header, tr *tar.Reader) (int, error) {
+	switch detectReadArchiveFormat(magic, archiveNameHint(ref), info.ContentType) {
+	case archiveFormatZip:
+		return r.runListZip(ctx, opts, reporter, ref, ar, info)
+	default:
+		return r.runListTar(ctx, opts, reporter, ar, info)
+	}
+}
+
+func (r *Runner) runExtract(ctx context.Context, opts cli.Options) (int, error) {
+	reporter := newProgressReporter(r.stderr, opts.Progress, 0, false, time.Now(), opts.Verbose && !opts.ToStdout)
+	defer reporter.Finish()
+	ref, ar, info, magic, err := r.openArchiveForRead(ctx, opts.Archive)
+	if err != nil {
+		return 0, err
+	}
+	defer ar.Close() //nolint:errcheck
+
+	switch detectReadArchiveFormat(magic, archiveNameHint(ref), info.ContentType) {
+	case archiveFormatZip:
+		return r.runExtractZip(ctx, opts, reporter, ref, ar, info)
+	default:
+		return r.runExtractTar(ctx, opts, reporter, ar, info)
+	}
+}
+
+// runListTar lists archive members from a tar input stream.
+func (r *Runner) runListTar(ctx context.Context, opts cli.Options, reporter *progressReporter, ar io.ReadCloser, info archiveReaderInfo) (int, error) {
+	return r.scanTarArchiveFromReader(ctx, opts, reporter, info, ar, func(hdr *tar.Header, tr *tar.Reader) (int, error) {
 		if shouldSkipMember(opts, hdr.Name) {
 			if _, err := io.Copy(io.Discard, tr); err != nil {
 				return 0, err
@@ -403,14 +446,13 @@ func (r *Runner) runList(ctx context.Context, opts cli.Options) (int, error) {
 	})
 }
 
-func (r *Runner) runExtract(ctx context.Context, opts cli.Options) (int, error) {
+// runExtractTar extracts archive members from a tar input stream.
+func (r *Runner) runExtractTar(ctx context.Context, opts cli.Options, reporter *progressReporter, ar io.ReadCloser, info archiveReaderInfo) (int, error) {
 	policy := resolvePolicy(opts)
 	metadataPolicy := resolveMetadataPolicy(opts)
-	reporter := newProgressReporter(r.stderr, opts.Progress, 0, false, time.Now(), opts.Verbose && !opts.ToStdout)
-	defer reporter.Finish()
 
 	if opts.ToStdout {
-		return r.scanArchive(ctx, opts, reporter, func(hdr *tar.Header, tr *tar.Reader) (int, error) {
+		return r.scanTarArchiveFromReader(ctx, opts, reporter, info, ar, func(hdr *tar.Header, tr *tar.Reader) (int, error) {
 			if shouldSkipMember(opts, hdr.Name) {
 				if _, err := io.Copy(io.Discard, tr); err != nil {
 					return 0, err
@@ -443,7 +485,7 @@ func (r *Runner) runExtract(ctx context.Context, opts cli.Options) (int, error) 
 		return 0, err
 	}
 
-	return r.scanArchive(ctx, opts, reporter, func(hdr *tar.Header, tr *tar.Reader) (int, error) {
+	return r.scanTarArchiveFromReader(ctx, opts, reporter, info, ar, func(hdr *tar.Header, tr *tar.Reader) (int, error) {
 		if shouldSkipMember(opts, hdr.Name) {
 			if _, err := io.Copy(io.Discard, tr); err != nil {
 				return 0, err
@@ -595,16 +637,8 @@ func (r *Runner) extractToLocal(base string, hdr *tar.Header, tr *tar.Reader, po
 	return 0, nil
 }
 
-func (r *Runner) scanArchive(ctx context.Context, opts cli.Options, reporter *progressReporter, fn func(hdr *tar.Header, tr *tar.Reader) (int, error)) (int, error) {
-	archiveRef, err := locator.ParseArchive(opts.Archive)
-	if err != nil {
-		return 0, err
-	}
-	ar, info, err := r.openArchiveReader(ctx, archiveRef)
-	if err != nil {
-		return 0, err
-	}
-	defer ar.Close() //nolint:errcheck
+// scanTarArchiveFromReader scans a tar stream with optional compression.
+func (r *Runner) scanTarArchiveFromReader(ctx context.Context, opts cli.Options, reporter *progressReporter, info archiveReaderInfo, ar io.ReadCloser, fn func(hdr *tar.Header, tr *tar.Reader) (int, error)) (int, error) {
 	reporter.SetTotal(info.Size, info.SizeKnown)
 	ar = newCountingReadCloser(ar, reporter)
 
@@ -617,12 +651,22 @@ func (r *Runner) scanArchive(ctx context.Context, opts cli.Options, reporter *pr
 	tr := tar.NewReader(cr)
 	warnings := 0
 	for {
+		select {
+		case <-ctx.Done():
+			return warnings, ctx.Err()
+		default:
+		}
 		hdr, err := tr.Next()
 		if err != nil {
 			if errors.Is(err, io.EOF) {
 				break
 			}
 			return warnings, err
+		}
+		select {
+		case <-ctx.Done():
+			return warnings, ctx.Err()
+		default:
 		}
 		w, err := fn(hdr, tr)
 		warnings += w
@@ -631,6 +675,25 @@ func (r *Runner) scanArchive(ctx context.Context, opts cli.Options, reporter *pr
 		}
 	}
 	return warnings, nil
+}
+
+// openArchiveForRead opens a readable archive stream and returns the stream
+// plus a replayable magic-byte prefix used for archive format detection.
+func (r *Runner) openArchiveForRead(ctx context.Context, archive string) (locator.Ref, io.ReadCloser, archiveReaderInfo, []byte, error) {
+	ref, err := locator.ParseArchive(archive)
+	if err != nil {
+		return locator.Ref{}, nil, archiveReaderInfo{}, nil, err
+	}
+	ar, info, err := r.openArchiveReader(ctx, ref)
+	if err != nil {
+		return locator.Ref{}, nil, archiveReaderInfo{}, nil, err
+	}
+	magic, replay, err := replayWithMagicPrefix(ar, 8)
+	if err != nil {
+		_ = ar.Close()
+		return locator.Ref{}, nil, archiveReaderInfo{}, nil, err
+	}
+	return ref, replay, info, magic, nil
 }
 
 // openArchiveReader opens the archive for reading and returns the reader along

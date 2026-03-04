@@ -2,8 +2,11 @@ package engine
 
 import (
 	"archive/tar"
+	"archive/zip"
 	"bytes"
 	"context"
+	"encoding/binary"
+	"errors"
 	"io"
 	"io/fs"
 	"net/http"
@@ -104,7 +107,7 @@ func TestCreateArchiveWithSuffix(t *testing.T) {
 	src := filepath.Join(root, "src")
 	out := filepath.Join(root, "out")
 	archiveBase := filepath.Join(root, "backup.tar.gz")
-	archiveWithSuffix := AddTarSuffix(archiveBase, "custom")
+	archiveWithSuffix := AddArchiveSuffix(archiveBase, "custom")
 
 	if err := os.MkdirAll(src, 0o755); err != nil {
 		t.Fatal(err)
@@ -438,6 +441,120 @@ func tarArchiveBytes(t *testing.T, files map[string]string) []byte {
 	return buf.Bytes()
 }
 
+// zipArchiveBytes builds an in-memory zip archive from name->content pairs.
+func zipArchiveBytes(t *testing.T, files map[string]string) []byte {
+	t.Helper()
+
+	var buf bytes.Buffer
+	zw := zip.NewWriter(&buf)
+	for name, content := range files {
+		w, err := zw.Create(name)
+		if err != nil {
+			t.Fatalf("Create(%q): %v", name, err)
+		}
+		if _, err := io.WriteString(w, content); err != nil {
+			t.Fatalf("Write(%q): %v", name, err)
+		}
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatalf("close zip writer: %v", err)
+	}
+	return buf.Bytes()
+}
+
+// zipArchiveSymlinkBytes builds an in-memory zip archive with one symlink entry.
+func zipArchiveSymlinkBytes(t *testing.T, name, target string) []byte {
+	t.Helper()
+
+	var buf bytes.Buffer
+	zw := zip.NewWriter(&buf)
+	hdr := &zip.FileHeader{
+		Name:   name,
+		Method: zip.Store,
+	}
+	hdr.SetMode(os.ModeSymlink | 0o777)
+	w, err := zw.CreateHeader(hdr)
+	if err != nil {
+		t.Fatalf("CreateHeader(%q): %v", name, err)
+	}
+	if _, err := io.WriteString(w, target); err != nil {
+		t.Fatalf("Write(%q): %v", name, err)
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatalf("close zip writer: %v", err)
+	}
+	return buf.Bytes()
+}
+
+// zipArchiveBytesUnsupportedMethod builds a zip with one entry using an
+// unsupported compression method code.
+func zipArchiveBytesUnsupportedMethod(t *testing.T, name string, method uint16) []byte {
+	t.Helper()
+
+	var buf bytes.Buffer
+	write := func(v any) {
+		if err := binary.Write(&buf, binary.LittleEndian, v); err != nil {
+			t.Fatalf("binary write: %v", err)
+		}
+	}
+
+	fileName := []byte(name)
+
+	// Local file header.
+	write(uint32(0x04034b50))
+	write(uint16(20))
+	write(uint16(0))
+	write(method)
+	write(uint16(0))
+	write(uint16(0))
+	write(uint32(0))
+	write(uint32(0))
+	write(uint32(0))
+	write(uint16(len(fileName)))
+	write(uint16(0))
+	if _, err := buf.Write(fileName); err != nil {
+		t.Fatalf("write local filename: %v", err)
+	}
+
+	cdOffset := buf.Len()
+
+	// Central directory header.
+	write(uint32(0x02014b50))
+	write(uint16(20))
+	write(uint16(20))
+	write(uint16(0))
+	write(method)
+	write(uint16(0))
+	write(uint16(0))
+	write(uint32(0))
+	write(uint32(0))
+	write(uint32(0))
+	write(uint16(len(fileName)))
+	write(uint16(0))
+	write(uint16(0))
+	write(uint16(0))
+	write(uint16(0))
+	write(uint32(0))
+	write(uint32(0))
+	if _, err := buf.Write(fileName); err != nil {
+		t.Fatalf("write central filename: %v", err)
+	}
+
+	cdSize := buf.Len() - cdOffset
+
+	// End of central directory.
+	write(uint32(0x06054b50))
+	write(uint16(0))
+	write(uint16(0))
+	write(uint16(1))
+	write(uint16(1))
+	write(uint32(cdSize))
+	write(uint32(cdOffset))
+	write(uint16(0))
+
+	return buf.Bytes()
+}
+
 func TestListHTTPArchive(t *testing.T) {
 	archiveBytes := tarArchiveBytes(t, map[string]string{
 		"files/one.txt": "one",
@@ -529,5 +646,416 @@ func TestCreateToHTTPArchiveTargetFails(t *testing.T) {
 	}
 	if got.Err == nil || !strings.Contains(got.Err.Error(), "unsupported archive target") {
 		t.Fatalf("err = %v", got.Err)
+	}
+}
+
+func TestExtractTarRespectsContextCancellation(t *testing.T) {
+	root := t.TempDir()
+	src := filepath.Join(root, "src")
+	archive := filepath.Join(root, "a.tar")
+	out := filepath.Join(root, "out")
+
+	if err := os.MkdirAll(src, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(src, "hello.txt"), []byte("world"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(out, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	r, err := New(context.Background(), io.Discard, io.Discard)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	create := cli.Options{Mode: cli.ModeCreate, Archive: archive, Chdir: root, Members: []string{"src"}}
+	if got := r.Run(context.Background(), create); got.ExitCode != ExitSuccess {
+		t.Fatalf("create exit=%d err=%v", got.ExitCode, got.Err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	extract := cli.Options{Mode: cli.ModeExtract, Archive: archive, Chdir: out}
+	got := r.Run(ctx, extract)
+	if got.ExitCode != ExitFatal {
+		t.Fatalf("extract exit=%d err=%v, want fatal", got.ExitCode, got.Err)
+	}
+	if !errors.Is(got.Err, context.Canceled) {
+		t.Fatalf("extract err=%v, want context canceled", got.Err)
+	}
+}
+
+func TestCreateExtractLocalZipRoundTrip(t *testing.T) {
+	root := t.TempDir()
+	src := filepath.Join(root, "src")
+	out := filepath.Join(root, "out")
+	archive := filepath.Join(root, "a.zip")
+
+	if err := os.MkdirAll(src, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(src, "hello.txt"), []byte("world"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	r, err := New(context.Background(), io.Discard, io.Discard)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	create := cli.Options{Mode: cli.ModeCreate, Archive: archive, Chdir: root, Members: []string{"src"}}
+	if got := r.Run(context.Background(), create); got.ExitCode != ExitSuccess {
+		t.Fatalf("create exit=%d err=%v", got.ExitCode, got.Err)
+	}
+
+	if err := os.MkdirAll(out, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	extract := cli.Options{Mode: cli.ModeExtract, Archive: archive, Chdir: out}
+	if got := r.Run(context.Background(), extract); got.ExitCode != ExitSuccess {
+		t.Fatalf("extract exit=%d err=%v", got.ExitCode, got.Err)
+	}
+
+	b, err := os.ReadFile(filepath.Join(out, "src", "hello.txt"))
+	if err != nil {
+		t.Fatalf("read extracted file: %v", err)
+	}
+	if string(b) != "world" {
+		t.Fatalf("content mismatch = %q", string(b))
+	}
+}
+
+func TestExtractZipStripComponents(t *testing.T) {
+	root := t.TempDir()
+	srcRoot := filepath.Join(root, "src")
+	archive := filepath.Join(root, "a.zip")
+	out := filepath.Join(root, "out")
+
+	if err := os.MkdirAll(filepath.Join(srcRoot, "dir"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(srcRoot, "dir", "file.txt"), []byte("strip-me"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	r, err := New(context.Background(), io.Discard, io.Discard)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	create := cli.Options{Mode: cli.ModeCreate, Archive: archive, Chdir: root, Members: []string{"src"}}
+	if got := r.Run(context.Background(), create); got.ExitCode != ExitSuccess {
+		t.Fatalf("create exit=%d err=%v", got.ExitCode, got.Err)
+	}
+
+	if err := os.MkdirAll(out, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	extract := cli.Options{Mode: cli.ModeExtract, Archive: archive, Chdir: out, StripComponents: 1}
+	if got := r.Run(context.Background(), extract); got.ExitCode != ExitSuccess {
+		t.Fatalf("extract exit=%d err=%v", got.ExitCode, got.Err)
+	}
+
+	data, err := os.ReadFile(filepath.Join(out, "dir", "file.txt"))
+	if err != nil {
+		t.Fatalf("read stripped file: %v", err)
+	}
+	if string(data) != "strip-me" {
+		t.Fatalf("content mismatch = %q", string(data))
+	}
+}
+
+func TestExtractZipToStdout(t *testing.T) {
+	root := t.TempDir()
+	src := filepath.Join(root, "src")
+	archive := filepath.Join(root, "a.zip")
+
+	if err := os.MkdirAll(src, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(src, "hello.txt"), []byte("zip-stdout"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var out bytes.Buffer
+	r, err := New(context.Background(), &out, io.Discard)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	create := cli.Options{Mode: cli.ModeCreate, Archive: archive, Chdir: root, Members: []string{"src"}}
+	if got := r.Run(context.Background(), create); got.ExitCode != ExitSuccess {
+		t.Fatalf("create exit=%d err=%v", got.ExitCode, got.Err)
+	}
+
+	extract := cli.Options{
+		Mode:      cli.ModeExtract,
+		Archive:   archive,
+		ToStdout:  true,
+		Wildcards: true,
+		Members:   []string{"*/hello.txt"},
+	}
+	if got := r.Run(context.Background(), extract); got.ExitCode != ExitSuccess {
+		t.Fatalf("extract exit=%d err=%v", got.ExitCode, got.Err)
+	}
+	if out.String() != "zip-stdout" {
+		t.Fatalf("stdout content mismatch = %q", out.String())
+	}
+}
+
+func TestListHTTPZipArchive(t *testing.T) {
+	archiveBytes := zipArchiveBytes(t, map[string]string{
+		"files/one.txt": "one",
+		"files/two.txt": "two",
+	})
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		flusher, ok := w.(http.Flusher)
+		if !ok {
+			t.Fatalf("response writer does not implement http.Flusher")
+		}
+		mid := len(archiveBytes) / 2
+		_, _ = w.Write(archiveBytes[:mid])
+		flusher.Flush()
+		_, _ = w.Write(archiveBytes[mid:])
+	}))
+	defer server.Close()
+
+	var stdout bytes.Buffer
+	r, err := New(context.Background(), &stdout, io.Discard)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	list := cli.Options{Mode: cli.ModeList, Archive: server.URL + "/archive.tar"}
+	if got := r.Run(context.Background(), list); got.ExitCode != ExitSuccess {
+		t.Fatalf("list exit=%d err=%v", got.ExitCode, got.Err)
+	}
+
+	output := stdout.String()
+	for _, item := range []string{"files/one.txt", "files/two.txt"} {
+		if !strings.Contains(output, item) {
+			t.Fatalf("list output missing %q:\n%s", item, output)
+		}
+	}
+}
+
+func TestExtractHTTPZipArchive(t *testing.T) {
+	archiveBytes := zipArchiveBytes(t, map[string]string{
+		"dir/hello.txt": "hello-zip-http",
+	})
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		flusher, ok := w.(http.Flusher)
+		if !ok {
+			t.Fatalf("response writer does not implement http.Flusher")
+		}
+		mid := len(archiveBytes) / 2
+		_, _ = w.Write(archiveBytes[:mid])
+		flusher.Flush()
+		_, _ = w.Write(archiveBytes[mid:])
+	}))
+	defer server.Close()
+
+	outDir := t.TempDir()
+	r, err := New(context.Background(), io.Discard, io.Discard)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	extract := cli.Options{
+		Mode:    cli.ModeExtract,
+		Archive: server.URL + "/archive.tar",
+		Chdir:   outDir,
+	}
+	if got := r.Run(context.Background(), extract); got.ExitCode != ExitSuccess {
+		t.Fatalf("extract exit=%d err=%v", got.ExitCode, got.Err)
+	}
+
+	b, err := os.ReadFile(filepath.Join(outDir, "dir", "hello.txt"))
+	if err != nil {
+		t.Fatalf("read extracted file: %v", err)
+	}
+	if string(b) != "hello-zip-http" {
+		t.Fatalf("content mismatch = %q", string(b))
+	}
+}
+
+func TestZipCreateIgnoredOptionsReturnWarning(t *testing.T) {
+	root := t.TempDir()
+	src := filepath.Join(root, "src")
+	archive := filepath.Join(root, "a.zip")
+
+	if err := os.MkdirAll(src, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(src, "hello.txt"), []byte("world"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	r, err := New(context.Background(), io.Discard, io.Discard)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	create := cli.Options{
+		Mode:        cli.ModeCreate,
+		Archive:     archive,
+		Compression: cli.CompressionGzip,
+		ACL:         true,
+		Xattrs:      true,
+		Chdir:       root,
+		Members:     []string{"src"},
+	}
+	got := r.Run(context.Background(), create)
+	if got.ExitCode != ExitWarning {
+		t.Fatalf("create exit=%d err=%v, want warning", got.ExitCode, got.Err)
+	}
+}
+
+func TestZipExtractIgnoredOptionsReturnWarning(t *testing.T) {
+	root := t.TempDir()
+	src := filepath.Join(root, "src")
+	archive := filepath.Join(root, "a.zip")
+	out := filepath.Join(root, "out")
+
+	if err := os.MkdirAll(src, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(src, "hello.txt"), []byte("world"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(out, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	r, err := New(context.Background(), io.Discard, io.Discard)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	create := cli.Options{Mode: cli.ModeCreate, Archive: archive, Chdir: root, Members: []string{"src"}}
+	if got := r.Run(context.Background(), create); got.ExitCode != ExitSuccess {
+		t.Fatalf("create exit=%d err=%v", got.ExitCode, got.Err)
+	}
+
+	sameOwner := true
+	extract := cli.Options{
+		Mode:         cli.ModeExtract,
+		Archive:      archive,
+		Chdir:        out,
+		Compression:  cli.CompressionGzip,
+		ACL:          true,
+		Xattrs:       true,
+		NumericOwner: true,
+		SameOwner:    &sameOwner,
+	}
+	got := r.Run(context.Background(), extract)
+	if got.ExitCode != ExitWarning {
+		t.Fatalf("extract exit=%d err=%v, want warning", got.ExitCode, got.Err)
+	}
+}
+
+func TestExtractZipUnsupportedEntrySkipsWithoutEmptyFile(t *testing.T) {
+	root := t.TempDir()
+	archive := filepath.Join(root, "unsupported.zip")
+	out := filepath.Join(root, "out")
+
+	payload := zipArchiveBytesUnsupportedMethod(t, "dir/bad.txt", 99)
+	if err := os.WriteFile(archive, payload, 0o644); err != nil {
+		t.Fatalf("write unsupported zip: %v", err)
+	}
+	if err := os.MkdirAll(out, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	r, err := New(context.Background(), io.Discard, io.Discard)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	extract := cli.Options{
+		Mode:    cli.ModeExtract,
+		Archive: archive,
+		Chdir:   out,
+	}
+	got := r.Run(context.Background(), extract)
+	if got.ExitCode != ExitWarning {
+		t.Fatalf("extract exit=%d err=%v, want warning", got.ExitCode, got.Err)
+	}
+
+	if _, err := os.Stat(filepath.Join(out, "dir", "bad.txt")); !os.IsNotExist(err) {
+		t.Fatalf("unsupported zip entry should not create output file, stat err=%v", err)
+	}
+}
+
+func TestListZipUnsupportedEntryDoesNotWarn(t *testing.T) {
+	root := t.TempDir()
+	archive := filepath.Join(root, "unsupported.zip")
+
+	payload := zipArchiveBytesUnsupportedMethod(t, "dir/bad.txt", 99)
+	if err := os.WriteFile(archive, payload, 0o644); err != nil {
+		t.Fatalf("write unsupported zip: %v", err)
+	}
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	r, err := New(context.Background(), &stdout, &stderr)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	list := cli.Options{
+		Mode:    cli.ModeList,
+		Archive: archive,
+	}
+	got := r.Run(context.Background(), list)
+	if got.ExitCode != ExitSuccess {
+		t.Fatalf("list exit=%d err=%v, want success", got.ExitCode, got.Err)
+	}
+	if !strings.Contains(stdout.String(), "dir/bad.txt") {
+		t.Fatalf("list output = %q, want listed unsupported entry", stdout.String())
+	}
+	if strings.Contains(stderr.String(), "unsupported algorithm") {
+		t.Fatalf("list stderr should not report unsupported algorithm warnings, got %q", stderr.String())
+	}
+}
+
+func TestExtractZipSymlinkTargetTooLarge(t *testing.T) {
+	root := t.TempDir()
+	archive := filepath.Join(root, "symlink-too-large.zip")
+	out := filepath.Join(root, "out")
+
+	target := strings.Repeat("a", maxZipSymlinkTargetBytes+1)
+	payload := zipArchiveSymlinkBytes(t, "link", target)
+	if err := os.WriteFile(archive, payload, 0o644); err != nil {
+		t.Fatalf("write zip: %v", err)
+	}
+	if err := os.MkdirAll(out, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	r, err := New(context.Background(), io.Discard, io.Discard)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	extract := cli.Options{
+		Mode:    cli.ModeExtract,
+		Archive: archive,
+		Chdir:   out,
+	}
+	got := r.Run(context.Background(), extract)
+	if got.ExitCode != ExitFatal {
+		t.Fatalf("extract exit=%d err=%v, want fatal", got.ExitCode, got.Err)
+	}
+	if got.Err == nil || !strings.Contains(got.Err.Error(), "target exceeds") {
+		t.Fatalf("extract err=%v, want target exceeds error", got.Err)
+	}
+
+	if _, err := os.Lstat(filepath.Join(out, "link")); !os.IsNotExist(err) {
+		t.Fatalf("oversized symlink entry should not create output file, lstat err=%v", err)
 	}
 }

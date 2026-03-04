@@ -37,6 +37,11 @@ func TestAddFileSuffix(t *testing.T) {
 			want: fmt.Sprintf("example-%s.tar.gz", time.Now().Format("20060102")),
 		},
 		{
+			name: "Add date suffix to file with zip extension",
+			args: args{fileName: "example.zip", suffix: "date"},
+			want: fmt.Sprintf("example-%s.zip", time.Now().Format("20060102")),
+		},
+		{
 			name: "Add date suffix to file with multiple dots",
 			args: args{fileName: "example.test.txt", suffix: "date"},
 			want: fmt.Sprintf("example.test-%s.txt", time.Now().Format("20060102")),
@@ -80,6 +85,11 @@ func TestAddFileSuffix(t *testing.T) {
 			name: "Add custom suffix to file with tar extension",
 			args: args{fileName: "example.tar.gz", suffix: "custom"},
 			want: "example-custom.tar.gz",
+		},
+		{
+			name: "Add custom suffix to file with zip extension",
+			args: args{fileName: "example.zip", suffix: "custom"},
+			want: "example-custom.zip",
 		},
 		{
 			name: "Add custom suffix to file with multiple dots",
@@ -134,7 +144,7 @@ func TestAddFileSuffix(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := AddTarSuffix(tt.args.fileName, tt.args.suffix); got != tt.want {
+			if got := AddArchiveSuffix(tt.args.fileName, tt.args.suffix); got != tt.want {
 				t.Errorf("AddSuffix() = %v, want %v", got, tt.want)
 			}
 		})
