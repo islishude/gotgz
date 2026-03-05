@@ -261,25 +261,143 @@ func TestBeforeExternalLineOutputInitializesTopPinnedRegion(t *testing.T) {
 }
 
 func Test_isInteractiveTTY(t *testing.T) {
-	tests := []struct {
-		name   string
-		writer io.Writer
-		want   bool
-	}{
-		{"discard", io.Discard, false},
-		{"Stdin", os.Stdin, true},
-		{"stdout", os.Stdout, false},
-		{"stderr", os.Stderr, false},
-		{"dumb", os.Stdin, false},
+	t.Run("non-file writer", func(t *testing.T) {
+		if got := isInteractiveTTY(io.Discard); got {
+			t.Fatalf("isInteractiveTTY(io.Discard) = %v, want false", got)
+		}
+	})
+
+	t.Run("pipe writer is non-interactive", func(t *testing.T) {
+		r, w, err := os.Pipe()
+		if err != nil {
+			t.Fatalf("os.Pipe() error = %v", err)
+		}
+		defer func() {
+			_ = r.Close()
+			_ = w.Close()
+		}()
+
+		if got := isInteractiveTTY(w); got {
+			t.Fatalf("isInteractiveTTY(pipe writer) = %v, want false", got)
+		}
+	})
+
+	t.Run("dumb term disables tty", func(t *testing.T) {
+		ttyFile := findTTYFile(t)
+		if ttyFile == nil {
+			t.Skip("no character device available in stdio for tty detection tests")
+		}
+		t.Setenv("TERM", "dumb")
+		if got := isInteractiveTTY(ttyFile); got {
+			t.Fatalf("isInteractiveTTY(ttyFile) = %v, want false when TERM=dumb", got)
+		}
+	})
+
+	t.Run("empty TERM still counts as interactive", func(t *testing.T) {
+		ttyFile := findTTYFile(t)
+		if ttyFile == nil {
+			t.Skip("no character device available in stdio for tty detection tests")
+		}
+		t.Setenv("TERM", "")
+		if got := isInteractiveTTY(ttyFile); !got {
+			t.Fatalf("isInteractiveTTY(ttyFile) = %v, want true when TERM is empty", got)
+		}
+	})
+
+	t.Run("char device with non-dumb TERM is interactive", func(t *testing.T) {
+		ttyFile := findTTYFile(t)
+		if ttyFile == nil {
+			t.Skip("no character device available in stdio for tty detection tests")
+		}
+		t.Setenv("TERM", "xterm-256color")
+		if got := isInteractiveTTY(ttyFile); !got {
+			t.Fatalf("isInteractiveTTY(ttyFile) = %v, want true", got)
+		}
+	})
+}
+
+func findTTYFile(t *testing.T) *os.File {
+	t.Helper()
+	for _, candidate := range []*os.File{os.Stdin, os.Stdout, os.Stderr} {
+		if candidate == nil {
+			continue
+		}
+		info, err := candidate.Stat()
+		if err != nil {
+			t.Logf("stat %q: %v", candidate.Name(), err)
+			continue
+		}
+		if info.Mode()&os.ModeCharDevice != 0 {
+			return candidate
+		}
+		t.Logf("%q mode=%s is not a character device", candidate.Name(), info.Mode())
 	}
+	return nil
+}
+
+func TestShouldEnableProgress(t *testing.T) {
+	tests := []struct {
+		name        string
+		mode        cli.ProgressMode
+		writer      io.Writer
+		interactive bool
+		want        bool
+	}{
+		{
+			name:        "nil writer always disabled",
+			mode:        cli.ProgressAlways,
+			writer:      nil,
+			interactive: true,
+			want:        false,
+		},
+		{
+			name:        "never disables",
+			mode:        cli.ProgressNever,
+			writer:      io.Discard,
+			interactive: true,
+			want:        false,
+		},
+		{
+			name:        "always enables on non-nil writer",
+			mode:        cli.ProgressAlways,
+			writer:      io.Discard,
+			interactive: false,
+			want:        true,
+		},
+		{
+			name:        "auto enables only when interactive",
+			mode:        cli.ProgressAuto,
+			writer:      io.Discard,
+			interactive: true,
+			want:        true,
+		},
+		{
+			name:        "auto disables when non-interactive",
+			mode:        cli.ProgressAuto,
+			writer:      io.Discard,
+			interactive: false,
+			want:        false,
+		},
+		{
+			name:        "empty mode behaves like auto",
+			mode:        "",
+			writer:      io.Discard,
+			interactive: true,
+			want:        true,
+		},
+		{
+			name:        "unknown mode behaves like auto",
+			mode:        cli.ProgressMode("custom"),
+			writer:      io.Discard,
+			interactive: false,
+			want:        false,
+		},
+	}
+
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if tt.name == "dumb" {
-				t.Setenv("TERM", "dumb")
-			}
-			got := isInteractiveTTY(tt.writer)
-			if got != tt.want {
-				t.Errorf("isInteractiveTTY() = %v, want %v", got, tt.want)
+			if got := shouldEnableProgress(tt.mode, tt.writer, tt.interactive); got != tt.want {
+				t.Fatalf("shouldEnableProgress(%q, writer, %v) = %v, want %v", tt.mode, tt.interactive, got, tt.want)
 			}
 		})
 	}
