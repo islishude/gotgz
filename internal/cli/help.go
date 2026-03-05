@@ -35,9 +35,11 @@ Main Options:
   -h, --help        Show this help message
 
 Compression:
-  -z                gzip
-  -j                bzip2
-  -J                xz
+  -z, --gzip, --gunzip
+                    gzip
+  -j, --bzip, --bzip2
+                    bzip2
+  -J, --xz          xz
   --zstd            zstd
   --lz4             lz4
   -compression-level <1-9>, --compression-level <1-9>

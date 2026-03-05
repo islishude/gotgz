@@ -186,6 +186,12 @@ func Parse(args []string) (Options, error) {
 				opts.Compression = CompressionZstd
 			case "lz4":
 				opts.Compression = CompressionLz4
+			case "gzip", "gunzip":
+				opts.Compression = CompressionGzip
+			case "bzip", "bzip2":
+				opts.Compression = CompressionBzip2
+			case "xz":
+				opts.Compression = CompressionXz
 			case "help":
 				opts.Help = true
 			case "progress":

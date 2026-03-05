@@ -1,6 +1,9 @@
 package cli
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestParseShortBundle(t *testing.T) {
 	opts, err := Parse([]string{"-cvf", "out.tar", "a", "b"})
@@ -21,6 +24,16 @@ func TestParseShortBundle(t *testing.T) {
 	}
 }
 
+func TestParseNoArgs(t *testing.T) {
+	_, err := Parse(nil)
+	if err == nil {
+		t.Fatalf("expected parse error")
+	}
+	if !strings.Contains(err.Error(), "no operation mode specified") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func TestParseLegacyToken(t *testing.T) {
 	opts, err := Parse([]string{"cvf", "out.tar", "dir"})
 	if err != nil {
@@ -31,10 +44,75 @@ func TestParseLegacyToken(t *testing.T) {
 	}
 }
 
+func TestParseLegacyTokenRejectsUnknownRune(t *testing.T) {
+	if legacyToken("cxq") {
+		t.Fatalf("legacyToken() should reject unknown flag token")
+	}
+}
+
 func TestParseModeConflict(t *testing.T) {
 	_, err := Parse([]string{"-cxf", "out.tar", "dir"})
 	if err == nil {
 		t.Fatalf("expected conflict error")
+	}
+}
+
+func TestParseModeConflictOnShortC(t *testing.T) {
+	_, err := Parse([]string{"-xcf", "in.tar"})
+	if err == nil {
+		t.Fatalf("expected conflict error")
+	}
+}
+
+func TestParseModeConflictOnShortT(t *testing.T) {
+	_, err := Parse([]string{"-xtf", "in.tar"})
+	if err == nil {
+		t.Fatalf("expected conflict error")
+	}
+}
+
+func TestParseListModeShortFlag(t *testing.T) {
+	opts, err := Parse([]string{"-tf", "in.tar"})
+	if err != nil {
+		t.Fatalf("Parse() error = %v", err)
+	}
+	if opts.Mode != ModeList {
+		t.Fatalf("mode = %q, want %q", opts.Mode, ModeList)
+	}
+}
+
+func TestParseToStdoutShortFlag(t *testing.T) {
+	opts, err := Parse([]string{"-xOf", "in.tar"})
+	if err != nil {
+		t.Fatalf("Parse() error = %v", err)
+	}
+	if !opts.ToStdout {
+		t.Fatalf("to-stdout expected true")
+	}
+}
+
+func TestParseShortCompressionFlags(t *testing.T) {
+	tests := []struct {
+		name string
+		arg  string
+		want CompressionHint
+	}{
+		{name: "gzip short flag", arg: "-xzf", want: CompressionGzip},
+		{name: "bzip2 short flag", arg: "-xjf", want: CompressionBzip2},
+		{name: "xz short flag", arg: "-xJf", want: CompressionXz},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			opts, err := Parse([]string{tt.arg, "in.tar"})
+			if err != nil {
+				t.Fatalf("Parse() error = %v", err)
+			}
+			if opts.Compression != tt.want {
+				t.Fatalf("compression = %q, want %q", opts.Compression, tt.want)
+			}
+		})
 	}
 }
 
@@ -83,6 +161,137 @@ func TestParseLongOptions(t *testing.T) {
 	}
 }
 
+func TestParseDoubleDashMembers(t *testing.T) {
+	opts, err := Parse([]string{"-xf", "in.tar", "--", "--literal", "path/file"})
+	if err != nil {
+		t.Fatalf("Parse() error = %v", err)
+	}
+	if len(opts.Members) != 2 {
+		t.Fatalf("members len = %d, want 2", len(opts.Members))
+	}
+	if opts.Members[0] != "--literal" || opts.Members[1] != "path/file" {
+		t.Fatalf("members = %#v", opts.Members)
+	}
+}
+
+func TestParseLongOptionsAdditionalCoverage(t *testing.T) {
+	opts, err := Parse([]string{"-x", "-f", "in.tar", "--same-owner", "--no-same-permissions", "--zstd"})
+	if err != nil {
+		t.Fatalf("Parse() error = %v", err)
+	}
+	if opts.SameOwner == nil || !*opts.SameOwner {
+		t.Fatalf("expected same-owner")
+	}
+	if opts.SamePermissions == nil || *opts.SamePermissions {
+		t.Fatalf("expected no-same-permissions")
+	}
+	if opts.Compression != CompressionZstd {
+		t.Fatalf("compression = %q, want %q", opts.Compression, CompressionZstd)
+	}
+}
+
+func TestParseSingleDashCompatibilityErrors(t *testing.T) {
+	tests := []struct {
+		name   string
+		arg    string
+		errSub string
+	}{
+		{
+			name:   "unsupported single-dash compression option",
+			arg:    "-compression-levelx=7",
+			errSub: "unsupported option -compression-levelx=7",
+		},
+		{
+			name:   "single-dash compression option missing value",
+			arg:    "-compression-level",
+			errSub: "option --compression-level requires a value",
+		},
+		{
+			name:   "single-dash compression option invalid value",
+			arg:    "-compression-level=0",
+			errSub: "option --compression-level requires an integer between 1 and 9",
+		},
+		{
+			name:   "unsupported single-dash suffix option",
+			arg:    "-suffixx=date",
+			errSub: "unsupported option -suffixx=date",
+		},
+		{
+			name:   "single-dash suffix missing value",
+			arg:    "-suffix",
+			errSub: "option --suffix requires a value",
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := Parse([]string{"-x", "-f", "in.tar", tt.arg})
+			if err == nil {
+				t.Fatalf("expected parse error")
+			}
+			if !strings.Contains(err.Error(), tt.errSub) {
+				t.Fatalf("unexpected error: %v", err)
+			}
+		})
+	}
+}
+
+// TestParseLongCompressionAliases verifies long-form aliases map to expected compression hints.
+func TestParseLongCompressionAliases(t *testing.T) {
+	tests := []struct {
+		name string
+		arg  string
+		want CompressionHint
+	}{
+		{name: "gzip alias", arg: "--gzip", want: CompressionGzip},
+		{name: "gunzip alias", arg: "--gunzip", want: CompressionGzip},
+		{name: "bzip alias", arg: "--bzip", want: CompressionBzip2},
+		{name: "bzip2 alias", arg: "--bzip2", want: CompressionBzip2},
+		{name: "xz alias", arg: "--xz", want: CompressionXz},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			opts, err := Parse([]string{"-x", "-f", "in.tar", tt.arg})
+			if err != nil {
+				t.Fatalf("Parse() error = %v", err)
+			}
+			if opts.Compression != tt.want {
+				t.Fatalf("compression = %q, want %q", opts.Compression, tt.want)
+			}
+		})
+	}
+}
+
+func TestParseLongOptionsMissingValues(t *testing.T) {
+	tests := []struct {
+		name   string
+		arg    string
+		errSub string
+	}{
+		{name: "exclude missing value", arg: "--exclude", errSub: "option --exclude requires a value"},
+		{name: "exclude-from missing value", arg: "--exclude-from", errSub: "option --exclude-from requires a value"},
+		{name: "strip-components missing value", arg: "--strip-components", errSub: "option --strip-components requires a value"},
+		{name: "compression-level missing value", arg: "--compression-level", errSub: "option --compression-level requires a value"},
+		{name: "suffix missing value", arg: "--suffix", errSub: "option --suffix requires a value"},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := Parse([]string{"-x", "-f", "in.tar", tt.arg})
+			if err == nil {
+				t.Fatalf("expected parse error")
+			}
+			if !strings.Contains(err.Error(), tt.errSub) {
+				t.Fatalf("unexpected error: %v", err)
+			}
+		})
+	}
+}
+
 func TestParseHelpShort(t *testing.T) {
 	opts, err := Parse([]string{"-h"})
 	if err != nil {
@@ -108,6 +317,80 @@ func TestParseStripComponentsInvalid(t *testing.T) {
 	if err == nil {
 		t.Fatalf("expected parse error")
 	}
+}
+
+func TestParseUnsupportedLongOption(t *testing.T) {
+	_, err := Parse([]string{"-x", "-f", "in.tar", "--unknown-flag"})
+	if err == nil {
+		t.Fatalf("expected parse error")
+	}
+	if !strings.Contains(err.Error(), "unsupported option --unknown-flag") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestParseShortOptionInlineAndErrors(t *testing.T) {
+	t.Run("inline short C sets chdir", func(t *testing.T) {
+		opts, err := Parse([]string{"-xC/tmp", "-f", "in.tar"})
+		if err != nil {
+			t.Fatalf("Parse() error = %v", err)
+		}
+		if opts.Chdir != "/tmp" {
+			t.Fatalf("chdir = %q, want /tmp", opts.Chdir)
+		}
+	})
+
+	t.Run("short option missing argument", func(t *testing.T) {
+		_, err := Parse([]string{"-xf"})
+		if err == nil {
+			t.Fatalf("expected parse error")
+		}
+		if !strings.Contains(err.Error(), "option -f requires an argument") {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+
+	t.Run("unsupported short option", func(t *testing.T) {
+		_, err := Parse([]string{"-xq", "-f", "in.tar"})
+		if err == nil {
+			t.Fatalf("expected parse error")
+		}
+		if !strings.Contains(err.Error(), "unsupported option -q") {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+}
+
+func TestParseRequiredFieldsAndCreateMembers(t *testing.T) {
+	t.Run("missing mode", func(t *testing.T) {
+		_, err := Parse([]string{"-f", "in.tar"})
+		if err == nil {
+			t.Fatalf("expected parse error")
+		}
+		if !strings.Contains(err.Error(), "no operation mode specified") {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+
+	t.Run("missing archive", func(t *testing.T) {
+		_, err := Parse([]string{"-x"})
+		if err == nil {
+			t.Fatalf("expected parse error")
+		}
+		if !strings.Contains(err.Error(), "option -f is required") {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+
+	t.Run("create without members", func(t *testing.T) {
+		_, err := Parse([]string{"-cf", "out.tar"})
+		if err == nil {
+			t.Fatalf("expected parse error")
+		}
+		if !strings.Contains(err.Error(), "cowardly refusing to create an empty archive") {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
 }
 
 func TestParseCompressionLevelSingleDash(t *testing.T) {
