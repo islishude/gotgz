@@ -128,10 +128,11 @@ func (r *Runner) extractZipEntryToS3(ctx context.Context, target locator.Ref, zf
 	}
 
 	obj := locator.Ref{
-		Kind:     locator.KindS3,
-		Bucket:   target.Bucket,
-		Key:      locator.JoinS3Prefix(target.Key, name),
-		Metadata: target.Metadata,
+		Kind:         locator.KindS3,
+		Bucket:       target.Bucket,
+		Key:          locator.JoinS3Prefix(target.Key, name),
+		Metadata:     target.Metadata,
+		CacheControl: target.CacheControl,
 	}
 
 	if isZipRegular(zf) {

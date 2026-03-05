@@ -53,6 +53,9 @@ gotgz -cvzf archive.tar.gz -suffix date dir1 file1.txt
 # Local files → S3
 gotgz -cvzf s3://my-bucket/backups/archive.tar.gz dir1 file1.txt
 
+# Local files → S3 with Cache-Control
+gotgz -cvzf s3://my-bucket/backups/archive.tar.gz --s3-cache-control "max-age=3600,public" dir1 file1.txt
+
 # S3 objects → local archive
 gotgz -cvf archive.tar s3://my-bucket/data/file1.txt s3://my-bucket/data/file2.txt
 
@@ -83,6 +86,9 @@ gotgz -xvf https://example.com/backups/archive.zip -C /tmp/output
 
 # Local archive → S3
 gotgz -xvf archive.tar -C s3://my-bucket/restored/
+
+# Local archive → S3 with Cache-Control
+gotgz -xvf archive.tar -C s3://my-bucket/restored/ --s3-cache-control no-store
 ```
 
 ### List contents
@@ -132,6 +138,8 @@ gotgz -cvf archive.tar s3://my-bucket/path/to/file.txt
 gotgz -cvzf "s3://my-bucket/backups/archive.tgz?env=prod&owner=platform" dir/
 ```
 
+Use `--s3-cache-control` to set the S3 `Cache-Control` header for archive uploads (`-f s3://...`) and extract targets (`-C s3://...`) without URL-encoding.
+
 ### HTTP archive source
 
 `http://` and `https://` archive URLs are supported as `-f` sources for:
@@ -152,6 +160,10 @@ gotgz -cvf archive.tar --exclude='*.log' --exclude-from=excludes.txt dir/
 
 # Wildcard member filtering for list/extract
 gotgz -tf archive.tar --wildcards 'src/*.go'
+
+# Set Cache-Control for S3 writes
+gotgz -cvf s3://my-bucket/out.tar --s3-cache-control "max-age=600,public" dir/
+gotgz -xvf archive.tar -C s3://my-bucket/restored/ --s3-cache-control no-cache
 
 # Permission preservation
 gotgz -xvf archive.tar --same-owner --same-permissions

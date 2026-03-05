@@ -9,6 +9,7 @@ import (
 
 	"github.com/islishude/gotgz/internal/archive"
 	"github.com/islishude/gotgz/internal/cli"
+	"github.com/islishude/gotgz/internal/locator"
 )
 
 func TestResolvePolicyOverrides(t *testing.T) {
@@ -23,6 +24,22 @@ func TestResolvePolicyOverrides(t *testing.T) {
 	}
 	if !p.NumericOwner {
 		t.Fatalf("NumericOwner should be true")
+	}
+}
+
+func TestApplyS3CacheControl(t *testing.T) {
+	ref := locator.Ref{Kind: locator.KindS3, Bucket: "bucket", Key: "out.tar"}
+	got := applyS3CacheControl(ref, " max-age=3600 ")
+	if got.CacheControl != "max-age=3600" {
+		t.Fatalf("cache-control = %q, want %q", got.CacheControl, "max-age=3600")
+	}
+}
+
+func TestApplyS3CacheControlNonS3Ignored(t *testing.T) {
+	ref := locator.Ref{Kind: locator.KindLocal, Path: "/tmp/out.tar"}
+	got := applyS3CacheControl(ref, "no-store")
+	if got.CacheControl != "" {
+		t.Fatalf("non-s3 ref should ignore cache-control, got %q", got.CacheControl)
 	}
 }
 

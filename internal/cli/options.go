@@ -46,6 +46,7 @@ type Options struct {
 	CompressionLevel *int
 	StripComponents  int
 	Chdir            string
+	S3CacheControl   string
 	ToStdout         bool
 	Compression      CompressionHint
 	Exclude          []string
@@ -158,6 +159,13 @@ func Parse(args []string) (Options, error) {
 				}
 				i = nextI
 				opts.Suffix = v
+			case "s3-cache-control":
+				v, nextI, err := resolveValue(name, value, hasValue, args, i)
+				if err != nil {
+					return opts, err
+				}
+				i = nextI
+				opts.S3CacheControl = strings.TrimSpace(v)
 			case "wildcards":
 				opts.Wildcards = true
 			case "numeric-owner":

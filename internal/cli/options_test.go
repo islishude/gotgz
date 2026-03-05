@@ -40,7 +40,7 @@ func TestParseModeConflict(t *testing.T) {
 
 func TestParseLongOptions(t *testing.T) {
 	opts, err := Parse([]string{
-		"-x", "-f", "in.tar", "--exclude=*.tmp", "--exclude-from", "ex.txt", "--wildcards", "--numeric-owner", "--no-same-owner", "--same-permissions", "--lz4", "--strip-components=1", "--compression-level=9", "--suffix=custom", "--acl", "--xattrs", "--progress",
+		"-x", "-f", "in.tar", "--exclude=*.tmp", "--exclude-from", "ex.txt", "--wildcards", "--numeric-owner", "--no-same-owner", "--same-permissions", "--lz4", "--strip-components=1", "--compression-level=9", "--suffix=custom", "--s3-cache-control=max-age=3600,public", "--acl", "--xattrs", "--progress",
 	})
 	if err != nil {
 		t.Fatalf("Parse() error = %v", err)
@@ -68,6 +68,9 @@ func TestParseLongOptions(t *testing.T) {
 	}
 	if opts.Suffix != "custom" {
 		t.Fatalf("suffix = %q, want %q", opts.Suffix, "custom")
+	}
+	if opts.S3CacheControl != "max-age=3600,public" {
+		t.Fatalf("s3-cache-control = %q, want %q", opts.S3CacheControl, "max-age=3600,public")
 	}
 	if !opts.ACL {
 		t.Fatalf("acl expected true")
@@ -131,6 +134,23 @@ func TestParseSuffixSingleDash(t *testing.T) {
 	}
 	if opts.Suffix != "date" {
 		t.Fatalf("suffix = %q, want %q", opts.Suffix, "date")
+	}
+}
+
+func TestParseS3CacheControlValueArg(t *testing.T) {
+	opts, err := Parse([]string{"-x", "-f", "in.tar", "--s3-cache-control", " no-store "})
+	if err != nil {
+		t.Fatalf("Parse() error = %v", err)
+	}
+	if opts.S3CacheControl != "no-store" {
+		t.Fatalf("s3-cache-control = %q, want %q", opts.S3CacheControl, "no-store")
+	}
+}
+
+func TestParseS3CacheControlMissingValue(t *testing.T) {
+	_, err := Parse([]string{"-x", "-f", "in.tar", "--s3-cache-control"})
+	if err == nil {
+		t.Fatalf("expected parse error")
 	}
 }
 

@@ -24,6 +24,8 @@ Main Options:
   -suffix <value>, --suffix <value>
                     Add suffix to archive filename in create mode (built-in date format uses 20060102 layout)
   -C <dir|s3://...> Change directory before create/extract
+  --s3-cache-control <value>
+                    Set Cache-Control header when writing to S3 targets
   --strip-components <count>
                     Remove <count> leading path elements when extracting
   -v                Verbose output

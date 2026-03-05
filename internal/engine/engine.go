@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"strings"
 	"time"
 
 	"github.com/islishude/gotgz/internal/cli"
@@ -99,6 +100,7 @@ func (r *Runner) runCreate(ctx context.Context, opts cli.Options) (warnings int,
 	if err != nil {
 		return 0, err
 	}
+	archiveRef = applyS3CacheControl(archiveRef, opts.S3CacheControl)
 	format := detectCreateArchiveFormat(archiveRef)
 	switch format {
 	case archiveFormatZip:
@@ -142,4 +144,17 @@ func (r *Runner) runExtract(ctx context.Context, opts cli.Options) (int, error) 
 	default:
 		return r.runExtractTar(ctx, opts, reporter, ar, info)
 	}
+}
+
+// applyS3CacheControl sets Cache-Control on S3 refs when the option is provided.
+func applyS3CacheControl(ref locator.Ref, cacheControl string) locator.Ref {
+	if ref.Kind != locator.KindS3 {
+		return ref
+	}
+	cacheControl = strings.TrimSpace(cacheControl)
+	if cacheControl == "" {
+		return ref
+	}
+	ref.CacheControl = cacheControl
+	return ref
 }
