@@ -71,6 +71,36 @@ func TestParseModeConflictOnShortT(t *testing.T) {
 	}
 }
 
+func TestParseModeConflictOnLongModes(t *testing.T) {
+	tests := []struct {
+		name string
+		args []string
+	}{
+		{
+			name: "extract after create",
+			args: []string{"--create", "--extract", "-f", "in.tar", "a"},
+		},
+		{
+			name: "create after extract",
+			args: []string{"--extract", "--create", "-f", "in.tar", "a"},
+		},
+		{
+			name: "list after extract",
+			args: []string{"--extract", "--list", "-f", "in.tar"},
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := Parse(tt.args)
+			if err == nil {
+				t.Fatalf("expected conflict error")
+			}
+		})
+	}
+}
+
 func TestParseListModeShortFlag(t *testing.T) {
 	opts, err := Parse([]string{"-tf", "in.tar"})
 	if err != nil {
@@ -83,6 +113,16 @@ func TestParseListModeShortFlag(t *testing.T) {
 
 func TestParseToStdoutShortFlag(t *testing.T) {
 	opts, err := Parse([]string{"-xOf", "in.tar"})
+	if err != nil {
+		t.Fatalf("Parse() error = %v", err)
+	}
+	if !opts.ToStdout {
+		t.Fatalf("to-stdout expected true")
+	}
+}
+
+func TestParseToStdoutLongFlag(t *testing.T) {
+	opts, err := Parse([]string{"-x", "-f", "in.tar", "--to-stdout"})
 	if err != nil {
 		t.Fatalf("Parse() error = %v", err)
 	}
@@ -158,6 +198,63 @@ func TestParseLongOptions(t *testing.T) {
 	}
 	if opts.Progress != ProgressAlways {
 		t.Fatalf("progress = %q, want %q", opts.Progress, ProgressAlways)
+	}
+}
+
+func TestParseLongModeAliases(t *testing.T) {
+	tests := []struct {
+		name string
+		args []string
+		want Mode
+	}{
+		{name: "create", args: []string{"--create", "-f", "out.tar", "a"}, want: ModeCreate},
+		{name: "extract", args: []string{"--extract", "-f", "in.tar"}, want: ModeExtract},
+		{name: "list", args: []string{"--list", "-f", "in.tar"}, want: ModeList},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			opts, err := Parse(tt.args)
+			if err != nil {
+				t.Fatalf("Parse() error = %v", err)
+			}
+			if opts.Mode != tt.want {
+				t.Fatalf("mode = %q, want %q", opts.Mode, tt.want)
+			}
+		})
+	}
+}
+
+func TestParseDirectoryLongAliases(t *testing.T) {
+	tests := []struct {
+		name string
+		args []string
+		want string
+	}{
+		{
+			name: "directory long option",
+			args: []string{"-x", "-f", "in.tar", "--directory", "/tmp/output"},
+			want: "/tmp/output",
+		},
+		{
+			name: "cd long option",
+			args: []string{"-x", "-f", "in.tar", "--cd=s3://bucket/path"},
+			want: "s3://bucket/path",
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			opts, err := Parse(tt.args)
+			if err != nil {
+				t.Fatalf("Parse() error = %v", err)
+			}
+			if opts.Chdir != tt.want {
+				t.Fatalf("chdir = %q, want %q", opts.Chdir, tt.want)
+			}
+		})
 	}
 }
 
@@ -276,6 +373,8 @@ func TestParseLongOptionsMissingValues(t *testing.T) {
 		{name: "strip-components missing value", arg: "--strip-components", errSub: "option --strip-components requires a value"},
 		{name: "compression-level missing value", arg: "--compression-level", errSub: "option --compression-level requires a value"},
 		{name: "suffix missing value", arg: "--suffix", errSub: "option --suffix requires a value"},
+		{name: "directory missing value", arg: "--directory", errSub: "option --directory requires a value"},
+		{name: "cd missing value", arg: "--cd", errSub: "option --cd requires a value"},
 	}
 
 	for _, tt := range tests {

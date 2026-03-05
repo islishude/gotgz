@@ -28,6 +28,12 @@ func TestHelpTextCustomProgram(t *testing.T) {
 func TestHelpTextMentionsZipAutoDetectAndWarnings(t *testing.T) {
 	got := HelpText("gotgz")
 	wantContains := []string{
+		"-c, --create",
+		"-x, --extract",
+		"-t, --list",
+		"-O, --to-stdout",
+		"--cd <dir|s3://...>",
+		"--directory <dir|s3://...>",
 		"for .zip output it maps to Deflate level",
 		"auto-detect archive type by magic bytes, then file extension, then content-type",
 		".zip archives ignore tar-only compression flags and metadata owner/xattr/acl options with warnings",

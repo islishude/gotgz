@@ -15,21 +15,22 @@ Usage:
   %s [bundled flags] <archive> [members...]   (example: %s -cvf out.tar dir)
 
 Modes:
-  -c                Create archive
-  -x                Extract archive
-  -t                List archive contents
+  -c, --create      Create archive
+  -x, --extract     Extract archive
+  -t, --list        List archive contents
 
 Main Options:
   -f <archive>      Archive path: local file, -, s3://bucket/key, S3 ARN, or http(s):// URL (source-only for -x/-t)
   -suffix <value>, --suffix <value>
                     Add suffix to archive filename in create mode (built-in date format uses 20060102 layout)
-  -C <dir|s3://...> Change directory before create/extract
+  -C <dir|s3://...>, --cd <dir|s3://...>, --directory <dir|s3://...>
+                    Change directory before create/extract
   --s3-cache-control <value>
                     Set Cache-Control header when writing to S3 targets
   --strip-components <count>
                     Remove <count> leading path elements when extracting
   -v                Verbose output
-  -O                Extract regular file data to stdout
+  -O, --to-stdout   Extract regular file data to stdout
   --progress        Force progress output (writes to stderr)
   --no-progress     Disable progress output
   -h, --help        Show this help message

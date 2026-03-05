@@ -112,6 +112,18 @@ func Parse(args []string) (Options, error) {
 		if strings.HasPrefix(a, "--") {
 			name, value, hasValue := strings.Cut(a[2:], "=")
 			switch name {
+			case "create":
+				if err := setMode(&opts, ModeCreate); err != nil {
+					return opts, err
+				}
+			case "extract":
+				if err := setMode(&opts, ModeExtract); err != nil {
+					return opts, err
+				}
+			case "list":
+				if err := setMode(&opts, ModeList); err != nil {
+					return opts, err
+				}
 			case "exclude":
 				v, nextI, err := resolveValue(name, value, hasValue, args, i)
 				if err != nil {
@@ -159,6 +171,13 @@ func Parse(args []string) (Options, error) {
 				}
 				i = nextI
 				opts.Suffix = v
+			case "cd", "directory":
+				v, nextI, err := resolveValue(name, value, hasValue, args, i)
+				if err != nil {
+					return opts, err
+				}
+				i = nextI
+				opts.Chdir = v
 			case "s3-cache-control":
 				v, nextI, err := resolveValue(name, value, hasValue, args, i)
 				if err != nil {
@@ -192,6 +211,8 @@ func Parse(args []string) (Options, error) {
 				opts.Compression = CompressionBzip2
 			case "xz":
 				opts.Compression = CompressionXz
+			case "to-stdout":
+				opts.ToStdout = true
 			case "help":
 				opts.Help = true
 			case "progress":
