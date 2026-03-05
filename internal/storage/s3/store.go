@@ -123,6 +123,9 @@ func (s *Store) OpenWriter(ctx context.Context, ref locator.Ref, metadata map[st
 	if contentType := contentTypeForKey(ref.Key); contentType != "" {
 		in.ContentType = new(contentType)
 	}
+	if cacheControl := strings.TrimSpace(ref.CacheControl); cacheControl != "" {
+		in.CacheControl = new(cacheControl)
+	}
 	s.applyEncryption(in)
 	go func() {
 		_, err := s.tm.UploadObject(ctx, in)
@@ -145,6 +148,9 @@ func (s *Store) UploadStream(ctx context.Context, ref locator.Ref, body io.Reade
 	}
 	if contentType := contentTypeForKey(ref.Key); contentType != "" {
 		in.ContentType = new(contentType)
+	}
+	if cacheControl := strings.TrimSpace(ref.CacheControl); cacheControl != "" {
+		in.CacheControl = new(cacheControl)
 	}
 	s.applyEncryption(in)
 	_, err := s.tm.UploadObject(ctx, in)

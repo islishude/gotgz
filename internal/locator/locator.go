@@ -26,6 +26,8 @@ type Ref struct {
 	Bucket   string
 	Key      string
 	Metadata map[string]string
+	// CacheControl stores the S3 Cache-Control header for upload targets.
+	CacheControl string
 }
 
 func ParseArchive(v string) (Ref, error) {

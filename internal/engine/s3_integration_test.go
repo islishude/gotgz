@@ -642,6 +642,52 @@ func TestS3ArchiveUploadMetadataFromQuery(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
+// Test: archive uploads to S3 apply Cache-Control from CLI flag
+// ---------------------------------------------------------------------------
+func TestS3ArchiveUploadCacheControlFromFlag(t *testing.T) {
+	ctx := context.Background()
+	ep := s3Endpoint(t)
+	client, bucket := setupS3Bucket(t, ctx, ep)
+
+	root := t.TempDir()
+	srcDir := filepath.Join(root, "data")
+	if err := os.MkdirAll(srcDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(srcDir, "msg.txt"), []byte("cache-control-flag"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	archiveURI := fmt.Sprintf("s3://%s/archives/with-cache-control.tgz", bucket)
+	r := newRunnerWithEndpoint(t, ep, io.Discard, io.Discard)
+	create := cli.Options{
+		Mode:           cli.ModeCreate,
+		Archive:        archiveURI,
+		Compression:    cli.CompressionGzip,
+		Chdir:          root,
+		S3CacheControl: "max-age=600,public",
+		Members:        []string{"data"},
+	}
+	res := r.Run(ctx, create)
+	if res.ExitCode != ExitSuccess {
+		t.Fatalf("create exit=%d err=%v", res.ExitCode, res.Err)
+	}
+
+	out, err := client.GetObject(ctx, &awss3.GetObjectInput{
+		Bucket: new(bucket),
+		Key:    new("archives/with-cache-control.tgz"),
+	})
+	if err != nil {
+		t.Fatalf("get uploaded archive: %v", err)
+	}
+	defer out.Body.Close() // nolint: errcheck
+
+	if got := aws.ToString(out.CacheControl); got != "max-age=600,public" {
+		t.Fatalf("cache-control=%q, want %q", got, "max-age=600,public")
+	}
+}
+
+// ---------------------------------------------------------------------------
 // Test: extract a local archive to S3
 // ---------------------------------------------------------------------------
 func TestS3ExtractToS3(t *testing.T) {
@@ -695,6 +741,120 @@ func TestS3ExtractToS3(t *testing.T) {
 		if got != tc.want {
 			t.Fatalf("s3://%s/%s = %q, want %q", bucket, tc.key, got, tc.want)
 		}
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Test: extracting a local tar archive to S3 applies Cache-Control from flag
+// ---------------------------------------------------------------------------
+func TestS3ExtractToS3CacheControlFromFlag(t *testing.T) {
+	ctx := context.Background()
+	ep := s3Endpoint(t)
+	client, bucket := setupS3Bucket(t, ctx, ep)
+
+	root := t.TempDir()
+	srcDir := filepath.Join(root, "src")
+	if err := os.MkdirAll(srcDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(srcDir, "x.txt"), []byte("x-value"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	localArchive := filepath.Join(root, "test.tar")
+	r := newRunnerWithEndpoint(t, ep, io.Discard, io.Discard)
+	create := cli.Options{
+		Mode:    cli.ModeCreate,
+		Archive: localArchive,
+		Chdir:   root,
+		Members: []string{"src"},
+	}
+	res := r.Run(ctx, create)
+	if res.ExitCode != ExitSuccess {
+		t.Fatalf("create exit=%d err=%v", res.ExitCode, res.Err)
+	}
+
+	s3Target := fmt.Sprintf("s3://%s/extracted/", bucket)
+	r2 := newRunnerWithEndpoint(t, ep, io.Discard, io.Discard)
+	extract := cli.Options{
+		Mode:           cli.ModeExtract,
+		Archive:        localArchive,
+		Chdir:          s3Target,
+		S3CacheControl: "no-store",
+	}
+	res = r2.Run(ctx, extract)
+	if res.ExitCode != ExitSuccess {
+		t.Fatalf("extract-to-s3 exit=%d err=%v", res.ExitCode, res.Err)
+	}
+
+	out, err := client.GetObject(ctx, &awss3.GetObjectInput{
+		Bucket: new(bucket),
+		Key:    new("extracted/src/x.txt"),
+	})
+	if err != nil {
+		t.Fatalf("get extracted object: %v", err)
+	}
+	defer out.Body.Close() // nolint: errcheck
+
+	if got := aws.ToString(out.CacheControl); got != "no-store" {
+		t.Fatalf("cache-control=%q, want %q", got, "no-store")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Test: extracting a local zip archive to S3 applies Cache-Control from flag
+// ---------------------------------------------------------------------------
+func TestS3ExtractZipToS3CacheControlFromFlag(t *testing.T) {
+	ctx := context.Background()
+	ep := s3Endpoint(t)
+	client, bucket := setupS3Bucket(t, ctx, ep)
+
+	root := t.TempDir()
+	srcDir := filepath.Join(root, "src")
+	if err := os.MkdirAll(srcDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(srcDir, "z.txt"), []byte("zip-value"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	localArchive := filepath.Join(root, "test.zip")
+	r := newRunnerWithEndpoint(t, ep, io.Discard, io.Discard)
+	create := cli.Options{
+		Mode:    cli.ModeCreate,
+		Archive: localArchive,
+		Chdir:   root,
+		Members: []string{"src"},
+	}
+	res := r.Run(ctx, create)
+	if res.ExitCode != ExitSuccess {
+		t.Fatalf("create zip exit=%d err=%v", res.ExitCode, res.Err)
+	}
+
+	s3Target := fmt.Sprintf("s3://%s/extracted-zip/", bucket)
+	r2 := newRunnerWithEndpoint(t, ep, io.Discard, io.Discard)
+	extract := cli.Options{
+		Mode:           cli.ModeExtract,
+		Archive:        localArchive,
+		Chdir:          s3Target,
+		S3CacheControl: "max-age=120",
+	}
+	res = r2.Run(ctx, extract)
+	if res.ExitCode != ExitSuccess {
+		t.Fatalf("extract zip-to-s3 exit=%d err=%v", res.ExitCode, res.Err)
+	}
+
+	out, err := client.GetObject(ctx, &awss3.GetObjectInput{
+		Bucket: new(bucket),
+		Key:    new("extracted-zip/src/z.txt"),
+	})
+	if err != nil {
+		t.Fatalf("get extracted zip object: %v", err)
+	}
+	defer out.Body.Close() // nolint: errcheck
+
+	if got := aws.ToString(out.CacheControl); got != "max-age=120" {
+		t.Fatalf("cache-control=%q, want %q", got, "max-age=120")
 	}
 }
 

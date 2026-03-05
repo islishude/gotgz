@@ -151,6 +151,7 @@ func (r *Runner) runExtractZip(ctx context.Context, opts cli.Options, reporter *
 	if err != nil {
 		return warnings, err
 	}
+	parsedTarget = applyS3CacheControl(parsedTarget, opts.S3CacheControl)
 
 	zipWarnings, err := r.withZipReader(ctx, archiveRef, ar, info, nil, func(zr *zip.Reader) (int, error) {
 		total := totalZipPayloadBytes(zr, func(zf *zip.File) bool {

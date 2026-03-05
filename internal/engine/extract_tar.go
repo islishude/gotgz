@@ -74,6 +74,7 @@ func (r *Runner) runExtractTar(ctx context.Context, opts cli.Options, reporter *
 	if err != nil {
 		return 0, err
 	}
+	parsedTarget = applyS3CacheControl(parsedTarget, opts.S3CacheControl)
 
 	return r.scanTarArchiveFromReader(ctx, opts, reporter, info, ar, func(hdr *tar.Header, tr *tar.Reader) (int, error) {
 		if shouldSkipMember(opts, hdr.Name) {
@@ -120,7 +121,12 @@ func (r *Runner) extractToS3(ctx context.Context, target locator.Ref, hdr *tar.H
 		// Do not create an S3 object when the entry name is empty.
 		return warnings, nil
 	}
-	obj := locator.Ref{Kind: locator.KindS3, Bucket: target.Bucket, Key: locator.JoinS3Prefix(target.Key, name)}
+	obj := locator.Ref{
+		Kind:         locator.KindS3,
+		Bucket:       target.Bucket,
+		Key:          locator.JoinS3Prefix(target.Key, name),
+		CacheControl: target.CacheControl,
+	}
 	meta, ok := archive.HeaderToS3Metadata(hdr)
 	meta = mergeMetadata(target.Metadata, meta)
 	if !ok {

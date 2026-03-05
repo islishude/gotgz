@@ -31,6 +31,7 @@ func TestHelpTextMentionsZipAutoDetectAndWarnings(t *testing.T) {
 		"for .zip output it maps to Deflate level",
 		"auto-detect archive type by magic bytes, then file extension, then content-type",
 		".zip archives ignore tar-only compression flags and metadata owner/xattr/acl options with warnings",
+		"--s3-cache-control <value>",
 	}
 	for _, want := range wantContains {
 		if !strings.Contains(got, want) {
