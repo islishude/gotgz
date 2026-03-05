@@ -187,7 +187,7 @@ gotgz cvf archive.tar dir/
 
 # Progress behavior
 gotgz -xvf archive.tar --progress
-gotgz -cvf out.tar dir/ --no-progress
+gotgz -cvf out.tar --no-progress dir/
 ```
 
 ## Environment Variables
