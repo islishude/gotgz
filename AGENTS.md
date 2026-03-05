@@ -46,11 +46,25 @@ defer func() {
 }()
 ```
 
-### Don't use `aws.String` or similar helper functions to create pointer values from the AWS SDK. Use `new(string)` instead.
+### Don't use `aws.String` or similar helper functions to create pointer values from the AWS SDK. Use `new(expr)` instead.
+
+**Wrong**
+
+```go
+// Pointer to a string variable with the value "my-object-key".
+aws.String("my-object-key")
+// Pointer to a int variable with the value 42.
+aws.Int(42)
+```
+
+**Right**
 
 ```go
 new("my-object-key")
+new(42)
 ```
+
+The feature was introduced in Go 1.26.
 
 ## Code Documentation and Commenting
 
