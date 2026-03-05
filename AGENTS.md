@@ -71,7 +71,7 @@ The feature was introduced in Go 1.26.
 - At a minimum every function must be commented with its intended purpose and
   any assumptions that it makes
   - Function comments must always begin with the name of the function per
-    [Effective Go](http://golang.org/doc/effective_go.html)
+    [Effective Go](https://go.dev/doc/effective_go)
   - Function comments should be complete sentences since they allow a wide
     variety of automated presentations such as [go.dev](https://go.dev)
   - The general rule of thumb is to look at it as if you were completely
@@ -80,43 +80,6 @@ The feature was introduced in Go 1.26.
     to use it?
 - Exported functions should also include detailed information the caller of the
   function will likely need to know and/or understand:
-
-**WRONG**
-
-```Go
-// convert a compact uint32 to big.Int
-func CompactToBig(compact uint32) *big.Int {
-```
-
-**RIGHT**
-
-```Go
-// CompactToBig converts a compact representation of a whole number N to a
-// big integer.  The representation is similar to IEEE754 floating point
-// numbers.
-//
-// Like IEEE754 floating point, there are three basic components: the sign,
-// the exponent, and the mantissa. They are broken out as follows:
-//
-//        * the most significant 8 bits represent the unsigned base 256 exponent
-//        * bit 23 (the 24th bit) represents the sign bit
-//        * the least significant 23 bits represent the mantissa
-//
-//        -------------------------------------------------
-//        |   Exponent     |    Sign    |    Mantissa     |
-//        -------------------------------------------------
-//        | 8 bits [31-24] | 1 bit [23] | 23 bits [22-00] |
-//        -------------------------------------------------
-//
-// The formula to calculate N is:
-//         N = (-1^sign) * mantissa * 256^(exponent-3)
-//
-// This compact form is only used in bitcoin to encode unsigned 256-bit numbers
-// which represent difficulty targets, thus there really is not a need for a
-// sign bit, but it is implemented here to stay consistent with bitcoind.
-func CompactToBig(compact uint32) *big.Int {
-```
-
 - Comments in the body of the code are highly encouraged, but they should
   explain the intention of the code as opposed to just calling out the
   obvious
@@ -124,22 +87,84 @@ func CompactToBig(compact uint32) *big.Int {
 **WRONG**
 
 ```Go
-// return err if amt is less than 5460
-if amt < 5460 {
-  return err
+// Max upload size is 10MB.
+const maxUploadSize = 20 << 20
+
+// Cache is a struct that has a map and a mutex.
+type Cache struct {
+	mu sync.RWMutex
+	m  map[string]string
+}
+
+// DeleteUser deletes a user.
+func DeleteUser(ctx context.Context, userID string) error {
+	// ...
+	return nil
+}
+
+// Loop 3 times
+for i := 0; i < 3; i++ {
+	// Call charge
+	err := charge()
+	// If no error break
+	if err == nil {
+		break
+	}
+	// If conflict backoff
+	if isConflict(err) {
+		backoff(i)
+	}
+}
+
+u, err := r.db.FindUser(id)
+if err != nil {
+	// Handle error
+	return User{}, err
 }
 ```
 
 **RIGHT**
 
 ```Go
-// Treat transactions with amounts less than the amount which is considered dust
-// as non-standard.
-if amt < 5460 {
-  return err
+const (
+	// maxUploadSize limits memory usage during multipart parsing.
+	maxUploadSize = 10 << 20 // 10 MiB
+)
+
+// Cache stores values by key and is safe for concurrent use.
+//
+// Cache guarantees that for any key, the value returned by Get is either the
+// most recent Set for that key or not found.
+type Cache struct {
+	mu sync.RWMutex
+	m  map[string]string
+}
+
+// DeleteUser deletes the user and all dependent records.
+//
+// It returns ErrNotFound if the user does not exist.
+// If ctx is canceled, DeleteUser aborts and returns ctx.Err().
+func DeleteUser(ctx context.Context, userID string) error {
+	// ...
+	return nil
+}
+
+// We retry on 409 because the provider returns it for idempotency conflicts
+// during eventual consistency windows.
+for i := 0; i < 3; i++ {
+	err := charge()
+	if err == nil {
+		break
+	}
+	if !isConflict(err) {
+		return err
+	}
+	backoff(i)
+}
+
+u, err := r.db.FindUser(id)
+if err != nil {
+	// Wrap to preserve the original error while adding query context for logs.
+	return User{}, fmt.Errorf("find user %q: %w", id, err)
 }
 ```
-
-**NOTE:** The above should really use a constant as opposed to a magic number,
-but it was left as a magic number to show how much of a difference a good
-comment can make.
