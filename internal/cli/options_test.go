@@ -91,7 +91,6 @@ func TestParseModeConflictOnLongModes(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			_, err := Parse(tt.args)
 			if err == nil {
@@ -143,7 +142,6 @@ func TestParseShortCompressionFlags(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			opts, err := Parse([]string{tt.arg, "in.tar"})
 			if err != nil {
@@ -213,7 +211,6 @@ func TestParseLongModeAliases(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			opts, err := Parse(tt.args)
 			if err != nil {
@@ -245,7 +242,6 @@ func TestParseDirectoryLongAliases(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			opts, err := Parse(tt.args)
 			if err != nil {
@@ -321,7 +317,6 @@ func TestParseSingleDashCompatibilityErrors(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			_, err := Parse([]string{"-x", "-f", "in.tar", tt.arg})
 			if err == nil {
@@ -349,7 +344,6 @@ func TestParseLongCompressionAliases(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			opts, err := Parse([]string{"-x", "-f", "in.tar", tt.arg})
 			if err != nil {
@@ -378,7 +372,6 @@ func TestParseLongOptionsMissingValues(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			_, err := Parse([]string{"-x", "-f", "in.tar", tt.arg})
 			if err == nil {
