@@ -17,7 +17,7 @@ import (
 	"github.com/islishude/gotgz/internal/locator"
 )
 
-// s3Endpoint returns the LocalStack endpoint if configured, or skips the test.
+// s3Endpoint returns the configured S3 emulator endpoint, or skips the test.
 func s3Endpoint(t *testing.T) string {
 	t.Helper()
 	ep := os.Getenv("GOTGZ_TEST_S3_ENDPOINT")
@@ -27,7 +27,7 @@ func s3Endpoint(t *testing.T) string {
 	return ep
 }
 
-// setupS3Bucket creates a temporary S3 bucket on LocalStack and returns its name.
+// setupS3Bucket creates a temporary bucket on the configured S3 emulator and returns its name.
 // The bucket is deleted when the test finishes.
 func setupS3Bucket(t *testing.T, ctx context.Context, endpoint string) (*awss3.Client, string) {
 	t.Helper()
@@ -66,7 +66,7 @@ func setupS3Bucket(t *testing.T, ctx context.Context, endpoint string) (*awss3.C
 	return client, bucket
 }
 
-// putObject is a small helper to upload an object to LocalStack.
+// putObject uploads an object to the configured S3 emulator.
 func putObject(t *testing.T, ctx context.Context, client *awss3.Client, bucket, key, body string) {
 	t.Helper()
 	_, err := client.PutObject(ctx, &awss3.PutObjectInput{
@@ -100,7 +100,7 @@ func getObject(t *testing.T, ctx context.Context, client *awss3.Client, bucket, 
 // newRunnerWithEndpoint creates a Runner pointing at the given S3 endpoint.
 func newRunnerWithEndpoint(t *testing.T, endpoint string, stdout, stderr io.Writer) *Runner {
 	t.Helper()
-	// Point the AWS SDK at LocalStack via environment.
+	// Point the AWS SDK at the configured S3 emulator via environment.
 	t.Setenv("AWS_ENDPOINT_URL", endpoint)
 	t.Setenv("AWS_ACCESS_KEY_ID", "test")
 	t.Setenv("AWS_SECRET_ACCESS_KEY", "test")

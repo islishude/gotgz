@@ -12,10 +12,11 @@ fmt:
 	gofmt -w -s .
 	go fix ./...
 
-test: build lint fmt localstack
+test: build lint fmt ruststack
 	GOTGZ_TEST_S3_ENDPOINT=http://localhost:4566 go test -v -race ./...
 	docker compose down
 
-localstack:
+ruststack:
 	docker compose down
-	docker compose up -d --wait
+	docker compose up -d
+	until curl -sf http://localhost:4566/health >/dev/null; do sleep 1; done

@@ -13,18 +13,23 @@ jobs:
   test:
     runs-on: ubuntu-latest
     services:
-      localstack:
-        image: localstack/localstack:4.13.1
+      ruststack:
+        image: ghcr.io/tyrchen/ruststack:0.3.0
+        env:
+          DEFAULT_REGION: us-east-1
+          SERVICES: s3
         ports: ["4566:4566"]
         options: >-
-          --health-cmd "awslocal s3 ls" --health-interval 1s --health-timeout 5s
-          --health-retries 5
+          --no-healthcheck
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-go@v6
         with:
           go-version: "1.26"
           check-latest: true
+      - name: Wait for RustStack
+        run: |
+          timeout 30 bash -c 'until curl -sf http://localhost:4566/health >/dev/null; do sleep 1; done'
       - name: Golangci-lint
         uses: golangci/golangci-lint-action@v9
         with:
