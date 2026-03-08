@@ -18,5 +18,4 @@ test: build lint fmt ruststack
 
 ruststack:
 	docker compose down
-	docker compose up -d
-	until curl -sf http://localhost:4566/health >/dev/null; do sleep 1; done
+	docker compose up -d --wait

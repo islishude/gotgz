@@ -222,8 +222,7 @@ The integration tests require a running RustStack S3 endpoint to test S3 operati
 
 ```bash
 # Start RustStack
-docker compose up -d
-until curl -sf http://localhost:4566/health >/dev/null; do sleep 1; done
+docker compose up -d --wait
 
 # Run integration tests
 GOTGZ_TEST_S3_ENDPOINT=http://localhost:4566 go test -v -run TestS3 ./internal/engine/ -count=1

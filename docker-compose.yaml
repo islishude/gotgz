@@ -2,11 +2,9 @@ name: "test"
 
 services:
   ruststack:
-    image: ghcr.io/tyrchen/ruststack:0.3.0
+    image: ghcr.io/tyrchen/ruststack:0.3.1
     environment:
       DEFAULT_REGION: us-east-1
       SERVICES: s3
     ports:
       - 4566:4566
-    healthcheck:
-      disable: true
