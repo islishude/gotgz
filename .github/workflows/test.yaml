@@ -13,12 +13,12 @@ jobs:
   test:
     runs-on: ubuntu-latest
     services:
-      localstack:
-        image: localstack/localstack:4.13.1
+      ruststack:
+        image: ghcr.io/tyrchen/ruststack:0.3.1
+        env:
+          DEFAULT_REGION: us-east-1
+          SERVICES: s3
         ports: ["4566:4566"]
-        options: >-
-          --health-cmd "awslocal s3 ls" --health-interval 1s --health-timeout 5s
-          --health-retries 5
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-go@v6

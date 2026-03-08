@@ -199,7 +199,7 @@ gotgz -cvf out.tar --no-progress dir/
 | `GOTGZ_S3_PART_SIZE_MB`   | Multipart upload part size in MB                          | `16`     |
 | `GOTGZ_S3_CONCURRENCY`    | Multipart upload concurrency                              | `4`      |
 | `GOTGZ_S3_MAX_RETRIES`    | Maximum retry attempts for S3 operations                  |          |
-| `GOTGZ_S3_USE_PATH_STYLE` | Use path-style S3 addressing (for LocalStack/MinIO)       | `false`  |
+| `GOTGZ_S3_USE_PATH_STYLE` | Use path-style S3 addressing (for RustStack/MinIO)        | `false`  |
 
 Standard AWS SDK environment variables (`AWS_REGION`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_ENDPOINT_URL`, etc.) are also respected.
 
@@ -216,12 +216,12 @@ Standard AWS SDK environment variables (`AWS_REGION`, `AWS_ACCESS_KEY_ID`, `AWS_
 go test ./...
 ```
 
-### Run integration tests (with LocalStack)
+### Run integration tests (with RustStack)
 
-The integration tests require a running LocalStack instance to test S3 operations:
+The integration tests require a running RustStack S3 endpoint to test S3 operations:
 
 ```bash
-# Start LocalStack
+# Start RustStack
 docker compose up -d --wait
 
 # Run integration tests
