@@ -125,7 +125,7 @@ func (p *progressReporter) beforeExternalLineOutput() {
 	if !p.rendered {
 		return
 	}
-	_, _ = fmt.Fprint(p.writer, "\n")
+	_, _ = fmt.Fprintln(p.writer)
 	p.rendered = false
 	p.lastDraw = time.Time{}
 }
