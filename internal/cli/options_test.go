@@ -525,6 +525,16 @@ func TestParseSplitSizeValidation(t *testing.T) {
 			errSub: "option --split-size does not support bzip2 compression",
 		},
 		{
+			name:   "xz unsupported",
+			args:   []string{"-c", "-f", "out.tar.xz", "--split-size=1M", "--xz", "dir"},
+			errSub: "option --split-size does not support xz compression",
+		},
+		{
+			name:   "xz inferred from archive name",
+			args:   []string{"-c", "-f", "out.tar.xz", "--split-size=1M", "dir"},
+			errSub: "option --split-size does not support xz compression",
+		},
+		{
 			name:   "reserved archive name",
 			args:   []string{"-c", "-f", "out.part0001.tar.gz", "--split-size=1M", "dir"},
 			errSub: "option --split-size cannot use an archive name that already contains .partNNNN",

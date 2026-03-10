@@ -133,7 +133,7 @@ Split archives are discovered automatically from `part0001` during list/extract 
 When extracting or listing, archive/compression format is auto-detected by magic bytes first, then filename extension, then content type.
 
 For extract/list on `.zip` archives, tar-specific compression flags (`-z/-j/-J/--zstd/--lz4`) and tar metadata-owner flags (`--xattrs`, `--acl`, `--same-owner`, `--numeric-owner`) are ignored with warnings. `--compression-level` still applies and maps to zip Deflate level during create.
-`--split-size` currently supports uncompressed tar plus gzip/zstd/lz4 output, but not zip, `-f -`, or HTTP multi-volume input.
+`--split-size` currently supports uncompressed tar plus gzip/zstd/lz4 output, but not zip, bzip2, xz, `-f -`, or HTTP multi-volume input.
 
 ### S3 addressing
 

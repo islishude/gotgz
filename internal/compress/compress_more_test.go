@@ -90,35 +90,6 @@ func TestNewWriterRejectsInvalidOptions(t *testing.T) {
 	}
 }
 
-// TestNewWriterXZWithLevelSupportsFlush verifies that xz writers created with
-// an explicit level still expose flush support for split-volume rotation.
-func TestNewWriterXZWithLevelSupportsFlush(t *testing.T) {
-	level := 6
-	var buf bytes.Buffer
-
-	w, err := NewWriter(nopWriteCloser{Writer: &buf}, Xz, WriterOptions{Level: &level})
-	if err != nil {
-		t.Fatalf("NewWriter() error = %v", err)
-	}
-
-	flusher, ok := w.(FlushWriteCloser)
-	if !ok {
-		t.Fatalf("NewWriter() type = %T, want FlushWriteCloser", w)
-	}
-	if _, err := flusher.Write([]byte(strings.Repeat("xz-flush-payload-", 32))); err != nil {
-		t.Fatalf("Write() error = %v", err)
-	}
-	if err := flusher.Flush(); err != nil {
-		t.Fatalf("Flush() error = %v", err)
-	}
-	if err := flusher.Close(); err != nil {
-		t.Fatalf("Close() error = %v", err)
-	}
-	if buf.Len() == 0 {
-		t.Fatalf("compressed buffer is empty after flush and close")
-	}
-}
-
 // TestNewReaderFallsBackToContentType verifies that content-type detection is
 // used when magic bytes and hint suffixes are inconclusive.
 func TestNewReaderFallsBackToContentType(t *testing.T) {
@@ -254,6 +225,25 @@ func TestNormalizeLevel(t *testing.T) {
 	level = 0
 	if _, _, err := normalizeLevel(&level); err == nil {
 		t.Fatalf("normalizeLevel(invalid) error = nil, want non-nil")
+	}
+}
+
+// TestXZDictCapForLevel verifies representative xz preset mappings.
+func TestXZDictCapForLevel(t *testing.T) {
+	tests := []struct {
+		level int
+		want  int
+	}{
+		{level: 1, want: 256 << 10},
+		{level: 4, want: 4 << 20},
+		{level: 6, want: 8 << 20},
+		{level: 9, want: 32 << 20},
+	}
+
+	for _, tt := range tests {
+		if got := xzDictCapForLevel(tt.level); got != tt.want {
+			t.Fatalf("xzDictCapForLevel(%d) = %d, want %d", tt.level, got, tt.want)
+		}
 	}
 }
 
