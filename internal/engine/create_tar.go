@@ -72,7 +72,9 @@ func (r *Runner) runCreateTar(ctx context.Context, opts cli.Options, archiveRef 
 				return warnings, err
 			}
 		case locator.KindLocal:
-			if err := r.addLocalPath(ctx, tw, m, opts.Chdir, excludes, opts.Verbose, metadataPolicy, reporter); err != nil {
+			w, err := r.addLocalPath(ctx, tw, m, opts.Chdir, excludes, opts.Verbose, metadataPolicy, reporter)
+			warnings += w
+			if err != nil {
 				return warnings, err
 			}
 		default:
@@ -208,14 +210,16 @@ func (r *Runner) addS3Member(ctx context.Context, tw tarArchiveWriter, ref locat
 	return nil
 }
 
-// addLocalPath walks one local member path and writes entries into the tar stream.
-func (r *Runner) addLocalPath(ctx context.Context, tw tarArchiveWriter, member, chdir string, excludes []string, verbose bool, metadataPolicy MetadataPolicy, reporter *progressReporter) error {
+// addLocalPath walks one local member path and writes entries into the tar
+// stream, returning any metadata warnings emitted along the way.
+func (r *Runner) addLocalPath(ctx context.Context, tw tarArchiveWriter, member, chdir string, excludes []string, verbose bool, metadataPolicy MetadataPolicy, reporter *progressReporter) (int, error) {
 	basePath := member
 	if chdir != "" {
 		basePath = filepath.Join(chdir, member)
 	}
 	cleanMember := path.Clean(filepath.ToSlash(member))
-	return filepath.WalkDir(basePath, func(current string, d fs.DirEntry, walkErr error) error {
+	warnings := 0
+	err := filepath.WalkDir(basePath, func(current string, d fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
 		}
@@ -244,7 +248,10 @@ func (r *Runner) addLocalPath(ctx context.Context, tw tarArchiveWriter, member, 
 		}
 		linkname := ""
 		if st.Mode()&os.ModeSymlink != 0 {
-			linkname, _ = os.Readlink(current)
+			linkname, err = os.Readlink(current)
+			if err != nil {
+				return err
+			}
 		}
 		hdr, err := tar.FileInfoHeader(st, linkname)
 		if err != nil {
@@ -254,7 +261,10 @@ func (r *Runner) addLocalPath(ctx context.Context, tw tarArchiveWriter, member, 
 		hdr.Format = tar.FormatPAX
 
 		if metadataPolicy.Xattrs || metadataPolicy.ACL {
-			xattrs, acls, _ := archive.ReadPathMetadata(current)
+			xattrs, acls, err := archive.ReadPathMetadata(current)
+			if err != nil {
+				warnings += r.warnf(reporter, "create: metadata for %s is incomplete: %v", current, err)
+			}
 			xattrs, acls = prepareMetadataForArchive(xattrs, acls, metadataPolicy)
 			archive.EncodeXattrToPAX(hdr, xattrs)
 			archive.EncodeACLToPAX(hdr, acls)
@@ -287,4 +297,5 @@ func (r *Runner) addLocalPath(ctx context.Context, tw tarArchiveWriter, member, 
 		}
 		return nil
 	})
+	return warnings, err
 }

@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -42,6 +43,55 @@ func TestWithZipReaderRespectsContextDuringTempCopy(t *testing.T) {
 		}
 	case <-time.After(1500 * time.Millisecond):
 		t.Fatal("withZipReader() did not stop after context cancellation")
+	}
+}
+
+func TestWithZipReaderRejectsKnownOversizeBeforeCopy(t *testing.T) {
+	t.Setenv(zipStagingLimitEnv, "64")
+
+	called := false
+	_, err := (&Runner{}).withZipReader(
+		context.Background(),
+		locator.Ref{Kind: locator.KindStdio, Raw: "-"},
+		io.NopCloser(strings.NewReader("ignored")),
+		archiveReaderInfo{Size: 65, SizeKnown: true},
+		nil,
+		func(_ *zip.Reader) (int, error) {
+			called = true
+			return 0, nil
+		},
+	)
+	if err == nil || !strings.Contains(err.Error(), "staging limit") {
+		t.Fatalf("withZipReader() err = %v, want staging limit error", err)
+	}
+	if called {
+		t.Fatal("zip callback should not run for oversized input")
+	}
+}
+
+func TestWithZipReaderRejectsUnknownOversizeDuringCopy(t *testing.T) {
+	t.Setenv(zipStagingLimitEnv, "64")
+
+	payload := zipArchiveBytes(t, map[string]string{
+		"file.txt": strings.Repeat("x", 256),
+	})
+	called := false
+	_, err := (&Runner{}).withZipReader(
+		context.Background(),
+		locator.Ref{Kind: locator.KindStdio, Raw: "-"},
+		io.NopCloser(bytes.NewReader(payload)),
+		archiveReaderInfo{},
+		nil,
+		func(_ *zip.Reader) (int, error) {
+			called = true
+			return 0, nil
+		},
+	)
+	if err == nil || !strings.Contains(err.Error(), "staging limit") {
+		t.Fatalf("withZipReader() err = %v, want staging limit error", err)
+	}
+	if called {
+		t.Fatal("zip callback should not run for oversized staged input")
 	}
 }
 

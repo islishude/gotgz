@@ -23,6 +23,9 @@ func (r *Runner) extractZipEntryToLocal(ctx context.Context, base string, zf *zi
 
 	switch {
 	case isZipDir(zf):
+		if err := ensureSymlinkFreePath(base, target); err != nil {
+			return warnings, err
+		}
 		perm := mode.Perm()
 		if perm == 0 {
 			perm = 0o755
@@ -50,6 +53,9 @@ func (r *Runner) extractZipEntryToLocal(ctx context.Context, base string, zf *zi
 		if cerr != nil {
 			return warnings, cerr
 		}
+		if err := ensureSymlinkFreeParentPath(base, target); err != nil {
+			return warnings, err
+		}
 		if err := safeSymlinkTarget(base, target, linkTarget); err != nil {
 			return warnings, err
 		}
@@ -70,6 +76,10 @@ func (r *Runner) extractZipEntryToLocal(ctx context.Context, base string, zf *zi
 		}
 		if rc == nil {
 			return warnings, nil
+		}
+		if err := ensureSymlinkFreePath(base, target); err != nil {
+			_ = rc.Close()
+			return warnings, err
 		}
 
 		perm := mode.Perm()

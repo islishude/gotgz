@@ -163,14 +163,20 @@ func TestDecodeMetadataForExtract(t *testing.T) {
 	archive.EncodeACLToPAX(hdr, map[string][]byte{"system.posix_acl_access": []byte("acl-record")})
 
 	t.Run("all disabled", func(t *testing.T) {
-		x, a := decodeMetadataForExtract(hdr, MetadataPolicy{})
+		x, a, err := decodeMetadataForExtract(hdr, MetadataPolicy{})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
 		if x != nil || a != nil {
 			t.Fatalf("expected nil metadata")
 		}
 	})
 
 	t.Run("xattrs enabled acl disabled", func(t *testing.T) {
-		x, a := decodeMetadataForExtract(hdr, MetadataPolicy{Xattrs: true})
+		x, a, err := decodeMetadataForExtract(hdr, MetadataPolicy{Xattrs: true})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
 		if a != nil {
 			t.Fatalf("acls expected nil")
 		}
@@ -183,12 +189,33 @@ func TestDecodeMetadataForExtract(t *testing.T) {
 	})
 
 	t.Run("acl enabled", func(t *testing.T) {
-		x, a := decodeMetadataForExtract(hdr, MetadataPolicy{ACL: true})
+		x, a, err := decodeMetadataForExtract(hdr, MetadataPolicy{ACL: true})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
 		if x != nil {
 			t.Fatalf("xattrs expected nil when --xattrs not set")
 		}
 		if string(a["system.posix_acl_access"]) != "acl-record" {
 			t.Fatalf("expected acl record")
+		}
+	})
+
+	t.Run("malformed xattr reports error", func(t *testing.T) {
+		bad := &tar.Header{
+			Name:       "bad.txt",
+			Mode:       0o644,
+			PAXRecords: map[string]string{"GOTGZ.xattr.bad": "***"},
+		}
+		x, a, err := decodeMetadataForExtract(bad, MetadataPolicy{Xattrs: true})
+		if err == nil || !strings.Contains(err.Error(), "decode xattrs") {
+			t.Fatalf("decodeMetadataForExtract() err = %v, want decode xattrs failure", err)
+		}
+		if x != nil {
+			t.Fatalf("xattrs should be nil on decode failure")
+		}
+		if a != nil {
+			t.Fatalf("acls should be nil when not requested")
 		}
 	})
 }

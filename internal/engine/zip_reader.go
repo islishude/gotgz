@@ -8,13 +8,20 @@ import (
 	"io"
 	"math"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/islishude/gotgz/internal/cli"
 	"github.com/islishude/gotgz/internal/locator"
 )
 
-const maxZipSymlinkTargetBytes = 4096
+const (
+	maxZipSymlinkTargetBytes    = 4096
+	defaultZipStagingLimitBytes = 1 << 30
+	zipStagingLimitEnv          = "GOTGZ_ZIP_STAGING_LIMIT_BYTES"
+)
+
+var errZipStagingLimitExceeded = errors.New("zip staging limit exceeded")
 
 // withZipReader opens a zip.Reader from local file directly when possible and
 // otherwise copies source bytes to a temporary file to satisfy ReaderAt.
@@ -37,6 +44,11 @@ func (r *Runner) withZipReader(ctx context.Context, archiveRef locator.Ref, ar i
 		}
 	}
 
+	stagingLimit := zipStagingLimitBytes()
+	if info.SizeKnown && info.Size > stagingLimit {
+		return 0, zipStagingLimitError(archiveRef, stagingLimit)
+	}
+
 	tmp, err := os.CreateTemp("", "gotgz-zip-*")
 	if err != nil {
 		return 0, err
@@ -50,7 +62,10 @@ func (r *Runner) withZipReader(ctx context.Context, archiveRef locator.Ref, ar i
 	if copyReporter != nil {
 		copySrc = newCountingReader(ar, copyReporter)
 	}
-	if _, err := copyWithContext(ctx, tmp, copySrc); err != nil {
+	if _, err := copyWithContextLimit(ctx, tmp, copySrc, stagingLimit); err != nil {
+		if errors.Is(err, errZipStagingLimitExceeded) {
+			return 0, zipStagingLimitError(archiveRef, stagingLimit)
+		}
 		return 0, err
 	}
 	st, err := tmp.Stat()
@@ -65,6 +80,98 @@ func (r *Runner) withZipReader(ctx context.Context, archiveRef locator.Ref, ar i
 		return 0, err
 	}
 	return fn(zr)
+}
+
+// zipStagingLimitBytes returns the maximum number of bytes a non-local zip
+// source may spool to temporary storage before being rejected.
+func zipStagingLimitBytes() int64 {
+	v := strings.TrimSpace(os.Getenv(zipStagingLimitEnv))
+	if v == "" {
+		return defaultZipStagingLimitBytes
+	}
+	limit, err := strconv.ParseInt(v, 10, 64)
+	if err != nil || limit <= 0 {
+		return defaultZipStagingLimitBytes
+	}
+	return limit
+}
+
+// zipStagingLimitError formats the staging-limit failure for user-facing
+// extract/list errors.
+func zipStagingLimitError(ref locator.Ref, limit int64) error {
+	source := ref.Raw
+	if strings.TrimSpace(source) == "" {
+		source = ref.Path
+	}
+	if strings.TrimSpace(source) == "" {
+		source = ref.URL
+	}
+	if strings.TrimSpace(source) == "" {
+		source = "zip input"
+	}
+	return fmt.Errorf("%s exceeds zip staging limit of %d bytes; set %s to raise the limit", source, limit, zipStagingLimitEnv)
+}
+
+// copyWithContextLimit copies src into dst while enforcing a hard byte limit.
+func copyWithContextLimit(ctx context.Context, dst io.Writer, src io.Reader, limit int64) (int64, error) {
+	if limit <= 0 {
+		return copyWithContext(ctx, dst, src)
+	}
+
+	buf := make([]byte, contextCopyBufferSize)
+	var written int64
+	for {
+		select {
+		case <-ctx.Done():
+			return written, ctx.Err()
+		default:
+		}
+
+		nr, rerr := src.Read(buf)
+		if nr > 0 {
+			if written+int64(nr) > limit {
+				allowed := limit - written
+				if allowed > 0 {
+					nw, werr := dst.Write(buf[:allowed])
+					if nw < 0 || int64(nw) > allowed {
+						nw = 0
+						if werr == nil {
+							werr = errInvalidWrite
+						}
+					}
+					written += int64(nw)
+					if werr != nil {
+						return written, werr
+					}
+					if int64(nw) != allowed {
+						return written, io.ErrShortWrite
+					}
+				}
+				return written, errZipStagingLimitExceeded
+			}
+
+			nw, werr := dst.Write(buf[:nr])
+			if nw < 0 || nr < nw {
+				nw = 0
+				if werr == nil {
+					werr = errInvalidWrite
+				}
+			}
+			written += int64(nw)
+			if werr != nil {
+				return written, werr
+			}
+			if nw != nr {
+				return written, io.ErrShortWrite
+			}
+		}
+		if rerr != nil {
+			if errors.Is(rerr, io.EOF) {
+				return written, nil
+			}
+			return written, rerr
+		}
+	}
 }
 
 // extractZipToStdout writes matching regular zip members to stdout.

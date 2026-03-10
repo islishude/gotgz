@@ -133,7 +133,7 @@ func (r *Runner) runExtractTarReader(ctx context.Context, opts cli.Options, repo
 		case locator.KindS3:
 			return r.extractToS3(ctx, parsedTarget, &effectiveHdr, tr, reporter)
 		case locator.KindLocal, locator.KindStdio:
-			return r.extractToLocal(ctx, parsedTarget.Path, &effectiveHdr, tr, policy, metadataPolicy)
+			return r.extractToLocal(ctx, parsedTarget.Path, &effectiveHdr, tr, policy, metadataPolicy, reporter)
 		default:
 			return 0, fmt.Errorf("unsupported extract target %q", target)
 		}
@@ -189,7 +189,7 @@ func (r *Runner) extractToS3(ctx context.Context, target locator.Ref, hdr *tar.H
 }
 
 // extractToLocal writes one tar entry under base according to extraction policy.
-func (r *Runner) extractToLocal(ctx context.Context, base string, hdr *tar.Header, tr *tar.Reader, policy PermissionPolicy, metadataPolicy MetadataPolicy) (int, error) {
+func (r *Runner) extractToLocal(ctx context.Context, base string, hdr *tar.Header, tr *tar.Reader, policy PermissionPolicy, metadataPolicy MetadataPolicy, reporter *progressReporter) (int, error) {
 	target, err := safeJoin(base, hdr.Name)
 	if err != nil {
 		return 0, err
@@ -198,58 +198,74 @@ func (r *Runner) extractToLocal(ctx context.Context, base string, hdr *tar.Heade
 	if !policy.SamePerms {
 		mode = mode &^ currentUmask()
 	}
+	warnings := 0
 
 	switch hdr.Typeflag {
 	case tar.TypeDir:
+		if err := ensureSymlinkFreePath(base, target); err != nil {
+			return warnings, err
+		}
 		if err := os.MkdirAll(target, mode.Perm()); err != nil {
-			return 0, err
+			return warnings, err
 		}
 	case tar.TypeReg:
+		if err := ensureSymlinkFreePath(base, target); err != nil {
+			return warnings, err
+		}
 		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
-			return 0, err
+			return warnings, err
 		}
 		f, err := os.OpenFile(target, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, mode.Perm())
 		if err != nil {
-			return 0, err
+			return warnings, err
 		}
 		_, err = copyWithContext(ctx, f, io.LimitReader(tr, hdr.Size))
 		cerr := f.Close()
 		if err != nil {
-			return 0, err
+			return warnings, err
 		}
 		if cerr != nil {
-			return 0, cerr
+			return warnings, cerr
 		}
 	case tar.TypeSymlink:
+		if err := ensureSymlinkFreeParentPath(base, target); err != nil {
+			return warnings, err
+		}
 		if err := safeSymlinkTarget(base, target, hdr.Linkname); err != nil {
-			return 0, err
+			return warnings, err
 		}
 		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
-			return 0, err
+			return warnings, err
 		}
 		if err := os.Remove(target); err != nil && !errors.Is(err, os.ErrNotExist) {
-			return 0, err
+			return warnings, err
 		}
 		if err := os.Symlink(hdr.Linkname, target); err != nil {
-			return 0, err
+			return warnings, err
 		}
 	case tar.TypeLink:
+		if err := ensureSymlinkFreeParentPath(base, target); err != nil {
+			return warnings, err
+		}
 		linkTarget, err := safeJoin(base, hdr.Linkname)
 		if err != nil {
-			return 0, err
+			return warnings, err
+		}
+		if err := ensureSymlinkFreePath(base, linkTarget); err != nil {
+			return warnings, err
 		}
 		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
-			return 0, err
+			return warnings, err
 		}
 		_ = os.Remove(target)
 		if err := os.Link(linkTarget, target); err != nil {
-			return 0, err
+			return warnings, err
 		}
 	default:
 		if _, err := copyWithContext(ctx, io.Discard, io.LimitReader(tr, hdr.Size)); err != nil {
-			return 0, err
+			return warnings, err
 		}
-		return 0, nil
+		return warnings, nil
 	}
 
 	if policy.SamePerms {
@@ -262,9 +278,14 @@ func (r *Runner) extractToLocal(ctx context.Context, base string, hdr *tar.Heade
 		_ = os.Chtimes(target, hdr.ModTime, hdr.ModTime)
 	}
 
-	xattrs, acls := decodeMetadataForExtract(hdr, metadataPolicy)
-	_ = archive.WritePathMetadata(target, xattrs, acls)
-	return 0, nil
+	xattrs, acls, err := decodeMetadataForExtract(hdr, metadataPolicy)
+	if err != nil {
+		warnings += r.warnf(reporter, "extract: metadata for %s is malformed: %v", hdr.Name, err)
+	}
+	if err := archive.WritePathMetadata(target, xattrs, acls); err != nil {
+		warnings += r.warnf(reporter, "extract: metadata for %s could not be fully restored: %v", hdr.Name, err)
+	}
+	return warnings, nil
 }
 
 // scanTarArchiveFromReader scans a tar stream with optional compression.

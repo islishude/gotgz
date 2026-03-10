@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -39,5 +40,43 @@ func TestSafeSymlinkTarget(t *testing.T) {
 				t.Fatalf("expected error containing %q, got: %v", tt.wantErr, err)
 			}
 		})
+	}
+}
+
+func TestEnsureSymlinkFreePathRejectsExistingSymlink(t *testing.T) {
+	base := filepath.Join(t.TempDir(), "extract")
+	outside := filepath.Join(t.TempDir(), "outside")
+	if err := os.MkdirAll(base, 0o755); err != nil {
+		t.Fatalf("mkdir base: %v", err)
+	}
+	if err := os.MkdirAll(outside, 0o755); err != nil {
+		t.Fatalf("mkdir outside: %v", err)
+	}
+	if err := os.Symlink(outside, filepath.Join(base, "dir")); err != nil {
+		t.Fatalf("symlink: %v", err)
+	}
+
+	err := ensureSymlinkFreePath(base, filepath.Join(base, "dir", "file.txt"))
+	if err == nil || !strings.Contains(err.Error(), "follow symlink") {
+		t.Fatalf("ensureSymlinkFreePath() err = %v, want symlink traversal error", err)
+	}
+}
+
+func TestSafeSymlinkTargetRejectsResolvedSymlinkTraversal(t *testing.T) {
+	base := filepath.Join(t.TempDir(), "extract")
+	outside := filepath.Join(t.TempDir(), "outside")
+	if err := os.MkdirAll(base, 0o755); err != nil {
+		t.Fatalf("mkdir base: %v", err)
+	}
+	if err := os.MkdirAll(outside, 0o755); err != nil {
+		t.Fatalf("mkdir outside: %v", err)
+	}
+	if err := os.Symlink(outside, filepath.Join(base, "redir")); err != nil {
+		t.Fatalf("symlink: %v", err)
+	}
+
+	err := safeSymlinkTarget(base, filepath.Join(base, "link"), "redir/file.txt")
+	if err == nil || !strings.Contains(err.Error(), "follow symlink") {
+		t.Fatalf("safeSymlinkTarget() err = %v, want symlink traversal error", err)
 	}
 }

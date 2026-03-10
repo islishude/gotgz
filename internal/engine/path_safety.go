@@ -1,7 +1,9 @@
 package engine
 
 import (
+	"errors"
 	"fmt"
+	"os"
 	"path"
 	"path/filepath"
 	"strings"
@@ -31,6 +33,9 @@ func safeSymlinkTarget(base, symlinkPath, linkname string) error {
 	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 		return fmt.Errorf("refusing symlink %q -> %q: target escapes extraction directory", symlinkPath, linkname)
 	}
+	if err := ensureSymlinkFreePath(base, resolved); err != nil {
+		return fmt.Errorf("refusing symlink %q -> %q: %w", symlinkPath, linkname, err)
+	}
 	return nil
 }
 
@@ -48,6 +53,50 @@ func safeJoin(base, member string) (string, error) {
 		return "", fmt.Errorf("refusing to write outside target directory: %s", member)
 	}
 	return candidate, nil
+}
+
+// ensureSymlinkFreeParentPath verifies that candidate's parent chain under
+// base does not traverse any pre-existing symbolic links.
+func ensureSymlinkFreeParentPath(base, candidate string) error {
+	parent := filepath.Dir(filepath.Clean(candidate))
+	if parent == filepath.Clean(candidate) {
+		return nil
+	}
+	return ensureSymlinkFreePath(base, parent)
+}
+
+// ensureSymlinkFreePath rejects existing symbolic links anywhere in the
+// already-present portion of candidate's path below base.
+func ensureSymlinkFreePath(base, candidate string) error {
+	base = filepath.Clean(base)
+	candidate = filepath.Clean(candidate)
+
+	rel, err := filepath.Rel(base, candidate)
+	if err != nil {
+		return fmt.Errorf("compute relative path for %q: %w", candidate, err)
+	}
+	if rel == "." {
+		return nil
+	}
+	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return fmt.Errorf("refusing to access outside target directory: %s", candidate)
+	}
+
+	current := base
+	for part := range strings.SplitSeq(rel, string(filepath.Separator)) {
+		current = filepath.Join(current, part)
+		info, err := os.Lstat(current)
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+		if err != nil {
+			return fmt.Errorf("lstat %q: %w", current, err)
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("refusing to follow symlink in extraction path: %s", current)
+		}
+	}
+	return nil
 }
 
 // stripPathComponents drops leading path components from a member name.

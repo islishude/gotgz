@@ -4,6 +4,8 @@ package archive
 
 import (
 	"bytes"
+	"errors"
+	"fmt"
 	"strings"
 
 	"golang.org/x/sys/unix"
@@ -16,9 +18,11 @@ func ReadPathMetadata(path string) (map[string][]byte, map[string][]byte, error)
 	}
 	xattrs := make(map[string][]byte)
 	acls := make(map[string][]byte)
+	var readErrs []error
 	for _, name := range names {
 		v, err := getXattr(path, name)
 		if err != nil {
+			readErrs = append(readErrs, fmt.Errorf("read xattr %q on %q: %w", name, path, err))
 			continue
 		}
 		xattrs[name] = v
@@ -26,23 +30,25 @@ func ReadPathMetadata(path string) (map[string][]byte, map[string][]byte, error)
 			acls[name] = v
 		}
 	}
-	return xattrs, acls, nil
+	return xattrs, acls, errors.Join(readErrs...)
 }
 
 // WritePathMetadata attempts to set the provided xattrs and ACLs on the specified path.
-// It returns an error if the underlying xattr operations fail, but it does not halt the process if some xattrs cannot be set.
-// This is because certain filesystems may not support xattrs or may have limitations on their size,
-// and we want to allow the extraction process to continue even if some metadata cannot be preserved.
+// It returns a joined error when some attributes cannot be restored so callers
+// can surface the partial-failure to users.
 func WritePathMetadata(path string, xattrs map[string][]byte, acls map[string][]byte) error {
+	var writeErrs []error
 	for k, v := range xattrs {
-		// Ignore errors when setting xattrs, as some filesystems may not support them or may have limitations on their size.
-		_ = unix.Setxattr(path, k, v, 0)
+		if err := unix.Setxattr(path, k, v, 0); err != nil {
+			writeErrs = append(writeErrs, fmt.Errorf("set xattr %q on %q: %w", k, path, err))
+		}
 	}
 	for k, v := range acls {
-		// Ignore errors when setting ACLs, as some filesystems may not support them or may have limitations on their size.
-		_ = unix.Setxattr(path, k, v, 0)
+		if err := unix.Setxattr(path, k, v, 0); err != nil {
+			writeErrs = append(writeErrs, fmt.Errorf("set acl %q on %q: %w", k, path, err))
+		}
 	}
-	return nil
+	return errors.Join(writeErrs...)
 }
 
 func listXattr(path string) ([]string, error) {

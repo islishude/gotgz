@@ -2,6 +2,8 @@ package engine
 
 import (
 	"archive/tar"
+	"errors"
+	"fmt"
 	"os"
 	"strings"
 
@@ -59,18 +61,26 @@ func prepareMetadataForArchive(xattrs map[string][]byte, acls map[string][]byte,
 }
 
 // decodeMetadataForExtract decodes archive metadata based on extraction policy.
-func decodeMetadataForExtract(hdr *tar.Header, policy MetadataPolicy) (map[string][]byte, map[string][]byte) {
+func decodeMetadataForExtract(hdr *tar.Header, policy MetadataPolicy) (map[string][]byte, map[string][]byte, error) {
 	var xattrs map[string][]byte
+	var errs []error
 	if policy.Xattrs {
-		xattrs, _ = archive.DecodeXattrFromPAX(hdr)
-		if !policy.ACL {
+		var err error
+		xattrs, err = archive.DecodeXattrFromPAX(hdr)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("decode xattrs: %w", err))
+		} else if !policy.ACL {
 			xattrs = filterACLLikeXattrs(xattrs)
 		}
 	}
 
 	var acls map[string][]byte
 	if policy.ACL {
-		acls, _ = archive.DecodeACLFromPAX(hdr)
+		var err error
+		acls, err = archive.DecodeACLFromPAX(hdr)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("decode acls: %w", err))
+		}
 	}
-	return xattrs, acls
+	return xattrs, acls, errors.Join(errs...)
 }
