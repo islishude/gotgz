@@ -11,7 +11,7 @@ import (
 	"github.com/klauspost/compress/zstd"
 	gzip "github.com/klauspost/pgzip"
 	"github.com/pierrec/lz4/v4"
-	"github.com/ulikunitz/xz"
+	"github.com/ulikunitz/xz/v2"
 )
 
 type Type string
@@ -85,10 +85,9 @@ func NewWriter(dst io.WriteCloser, t Type, opts WriterOptions) (io.WriteCloser, 
 		}
 		return &stackedWriteCloser{writer: zw, dst: dst, closeWriterFirst: true}, nil
 	case Xz:
-		var zw *xz.Writer
+		var zw xz.WriteFlushCloser
 		if hasLevel {
-			cfg := xz.WriterConfig{DictCap: xzDictCapForLevel(level)}
-			zw, err = cfg.NewWriter(dst)
+			zw, err = xz.NewWriterOptions(dst, xz.Preset(level))
 		} else {
 			zw, err = xz.NewWriter(dst)
 		}
@@ -334,30 +333,6 @@ func (w *plainWriteCloser) Write(p []byte) (int, error) { return w.dst.Write(p) 
 func (w *plainWriteCloser) Flush() error { return nil }
 
 func (w *plainWriteCloser) Close() error { return w.dst.Close() }
-
-func xzDictCapForLevel(level int) int {
-	// Roughly aligned with common xz presets 1..9.
-	switch level {
-	case 1:
-		return 256 << 10
-	case 2:
-		return 1 << 20
-	case 3:
-		return 2 << 20
-	case 4:
-		return 4 << 20
-	case 5:
-		return 4 << 20
-	case 6:
-		return 8 << 20
-	case 7:
-		return 8 << 20
-	case 8:
-		return 16 << 20
-	default:
-		return 32 << 20
-	}
-}
 
 func lz4Level(level int) lz4.CompressionLevel {
 	switch level {

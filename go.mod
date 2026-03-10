@@ -7,11 +7,11 @@ require (
 	github.com/aws/aws-sdk-go-v2/config v1.32.10
 	github.com/aws/aws-sdk-go-v2/feature/s3/transfermanager v0.1.6
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.96.2
-	github.com/dsnet/compress v0.0.1
+	github.com/dsnet/compress v0.0.2-0.20230904184137-39efe44ab707
 	github.com/klauspost/compress v1.18.4
 	github.com/klauspost/pgzip v1.2.6
 	github.com/pierrec/lz4/v4 v4.1.25
-	github.com/ulikunitz/xz v0.5.15
+	github.com/ulikunitz/xz/v2 v2.0.0-dev.4
 	golang.org/x/sys v0.41.0
 )
 
@@ -32,4 +32,5 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/ssooidc v1.35.15 // indirect
 	github.com/aws/aws-sdk-go-v2/service/sts v1.41.7 // indirect
 	github.com/aws/smithy-go v1.24.1 // indirect
+	github.com/ulikunitz/lz v0.6.11 // indirect
 )

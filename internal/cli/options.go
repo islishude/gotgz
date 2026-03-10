@@ -529,7 +529,7 @@ func validateOptions(opts Options) (Options, error) {
 		return opts, fmt.Errorf("option --split-size does not support zip archives")
 	}
 	switch opts.Compression {
-	case CompressionBzip2, CompressionXz:
+	case CompressionBzip2:
 		return opts, fmt.Errorf("option --split-size does not support %s compression", opts.Compression)
 	}
 	if _, ok := archivepath.ParseSplit(archiveutil.NameHint(ref)); ok {
