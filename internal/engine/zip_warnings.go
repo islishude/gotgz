@@ -9,10 +9,6 @@ import (
 // warnZipCreateOptions emits warnings for create flags that do not apply to zip.
 func (r *Runner) warnZipCreateOptions(opts cli.Options, reporter *progressReporter) int {
 	warnings := 0
-	compression := normalizeCompressionHint(opts.Compression)
-	if compression != cli.CompressionAuto && compression != cli.CompressionNone {
-		warnings += r.warnf(reporter, "compression flags are ignored for zip archives")
-	}
 	if opts.Xattrs {
 		warnings += r.warnf(reporter, "--xattrs is not supported for zip archives and will be ignored")
 	}

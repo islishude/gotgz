@@ -43,7 +43,9 @@ gotgz -cvf archive.tar dir1 file1.txt
 # Local files → zip archive
 gotgz -cvf archive.zip dir1 file1.txt
 
-# Local files → compressed archive
+# Local files → compressed archive (compression inferred from filename)
+gotgz -cvf archive.tar.gz dir1 file1.txt
+# or explicitly with compression flag -z for gzip
 gotgz -cvzf archive.tar.gz dir1 file1.txt
 
 # Add suffix to generated archive filename, date format is built-in and it uses `20060102` as the layout
@@ -108,23 +110,28 @@ gotgz -tf https://example.com/backups/archive.tar.gz
 
 ### Compression options
 
-| Flag                         | Format |
-| ---------------------------- | ------ |
-| `-z`, `--gzip`, `--gunzip`   | gzip   |
-| `-j`, `--bzip`, `--bzip2`    | bzip2  |
-| `-J`, `--xz`                 | xz     |
-| `--zstd`                     | zstd   |
-| `--lz4`                      | lz4    |
+| Flag                       | Format |
+| -------------------------- | ------ |
+| `-z`, `--gzip`, `--gunzip` | gzip   |
+| `-j`, `--bzip`, `--bzip2`  | bzip2  |
+| `-J`, `--xz`               | xz     |
+| `--zstd`                   | zstd   |
+| `--lz4`                    | lz4    |
 
 You can control compression strength for create mode with `-compression-level=<1-9>` (or `--compression-level=<1-9>`).  
 If not provided, each algorithm uses its own default level.
+
+In create mode, tar-family compression is inferred from the archive name when you omit `-z/-j/-J/--zstd/--lz4`.  
+Supported suffixes are `.tar.gz/.tgz/.gz`, `.tar.bz2/.tbz2/.tbz/.bz2`, `.tar.xz/.txz/.xz`, `.tar.zst/.tzst/.zst/.zstd`, and `.tar.lz4/.tlz4/.lz4`.  
+`.tar` and `.tape` mean uncompressed tar, and unknown suffixes default to uncompressed tar.  
+If you do pass an explicit tar-family compression flag in create mode, it must match the archive suffix. The only exception is `-f -`, because stdout has no filename.
 
 Use `--split-size=<size>` in create mode to emit tar-family output as `partNNNN` volumes such as `archive.part0001.tar.gz`.  
 Split archives are discovered automatically from `part0001` during list/extract for local files and S3 objects.
 
 When extracting or listing, archive/compression format is auto-detected by magic bytes first, then filename extension, then content type.
 
-For `.zip` archives, tar-specific compression flags (`-z/-j/-J/--zstd/--lz4`) and tar metadata-owner flags (`--xattrs`, `--acl`, `--same-owner`, `--numeric-owner`) are ignored with warnings. `--compression-level` still applies and maps to zip Deflate level.
+For extract/list on `.zip` archives, tar-specific compression flags (`-z/-j/-J/--zstd/--lz4`) and tar metadata-owner flags (`--xattrs`, `--acl`, `--same-owner`, `--numeric-owner`) are ignored with warnings. `--compression-level` still applies and maps to zip Deflate level during create.
 `--split-size` currently supports uncompressed tar plus gzip/zstd/lz4 output, but not zip, bzip2, xz, `-f -`, or HTTP multi-volume input.
 
 ### S3 addressing

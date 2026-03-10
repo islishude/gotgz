@@ -223,6 +223,85 @@ func TestParseSplitSize(t *testing.T) {
 	}
 }
 
+func TestParseCreateCompressionFromArchiveName(t *testing.T) {
+	tests := []struct {
+		name string
+		args []string
+		want CompressionHint
+	}{
+		{name: "gzip from tar.gz", args: []string{"-c", "-f", "out.tar.gz", "dir"}, want: CompressionGzip},
+		{name: "gzip from tgz", args: []string{"-c", "-f", "out.tgz", "dir"}, want: CompressionGzip},
+		{name: "zstd from tar.zst", args: []string{"-c", "-f", "out.tar.zst", "dir"}, want: CompressionZstd},
+		{name: "lz4 from tar.lz4", args: []string{"-c", "-f", "out.tar.lz4", "dir"}, want: CompressionLz4},
+		{name: "none from tar", args: []string{"-c", "-f", "out.tar", "dir"}, want: CompressionNone},
+		{name: "none from unknown suffix", args: []string{"-c", "-f", "out.bin", "dir"}, want: CompressionNone},
+		{name: "none from stdio", args: []string{"-c", "-f", "-", "dir"}, want: CompressionNone},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			opts, err := Parse(tt.args)
+			if err != nil {
+				t.Fatalf("Parse() error = %v", err)
+			}
+			if opts.Compression != tt.want {
+				t.Fatalf("compression = %q, want %q", opts.Compression, tt.want)
+			}
+		})
+	}
+}
+
+func TestParseCreateCompressionRequiresMatchingArchiveName(t *testing.T) {
+	tests := []struct {
+		name   string
+		args   []string
+		errSub string
+	}{
+		{
+			name:   "tar implies none",
+			args:   []string{"-c", "-f", "out.tar", "--gzip", "dir"},
+			errSub: `compression "gzip" does not match archive name "out.tar" (implies no compression)`,
+		},
+		{
+			name:   "unknown suffix",
+			args:   []string{"-c", "-f", "out.bin", "--gzip", "dir"},
+			errSub: `compression "gzip" does not match archive name "out.bin" (implies no recognized compression suffix)`,
+		},
+		{
+			name:   "zip archive",
+			args:   []string{"-c", "-f", "out.zip", "--gzip", "dir"},
+			errSub: `compression "gzip" does not match archive name "out.zip" (implies zip archive format)`,
+		},
+		{
+			name:   "different compressed suffix",
+			args:   []string{"-c", "-f", "out.tar.xz", "--gzip", "dir"},
+			errSub: `compression "gzip" does not match archive name "out.tar.xz" (implies "xz" compression)`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := Parse(tt.args)
+			if err == nil {
+				t.Fatalf("expected parse error")
+			}
+			if !strings.Contains(err.Error(), tt.errSub) {
+				t.Fatalf("unexpected error: %v", err)
+			}
+		})
+	}
+}
+
+func TestParseCreateCompressionAllowsStdoutWithoutName(t *testing.T) {
+	opts, err := Parse([]string{"-c", "-f", "-", "--gzip", "dir"})
+	if err != nil {
+		t.Fatalf("Parse() error = %v", err)
+	}
+	if opts.Compression != CompressionGzip {
+		t.Fatalf("compression = %q, want %q", opts.Compression, CompressionGzip)
+	}
+}
+
 func TestParseLongModeAliases(t *testing.T) {
 	tests := []struct {
 		name string
@@ -441,8 +520,18 @@ func TestParseSplitSizeValidation(t *testing.T) {
 			errSub: "option --split-size does not support bzip2 compression",
 		},
 		{
+			name:   "bzip2 inferred from archive name",
+			args:   []string{"-c", "-f", "out.tar.bz2", "--split-size=1M", "dir"},
+			errSub: "option --split-size does not support bzip2 compression",
+		},
+		{
 			name:   "xz unsupported",
 			args:   []string{"-c", "-f", "out.tar.xz", "--split-size=1M", "--xz", "dir"},
+			errSub: "option --split-size does not support xz compression",
+		},
+		{
+			name:   "xz inferred from archive name",
+			args:   []string{"-c", "-f", "out.tar.xz", "--split-size=1M", "dir"},
 			errSub: "option --split-size does not support xz compression",
 		},
 		{

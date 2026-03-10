@@ -5,7 +5,6 @@ import (
 	"bytes"
 	"fmt"
 	"io"
-	"path/filepath"
 	"strings"
 
 	"github.com/dsnet/compress/bzip2"
@@ -140,7 +139,7 @@ func NewReader(src io.ReadCloser, explicit Type, hint string, contentType string
 
 	t := detected
 	if t == Auto {
-		t = detectByExt(hint)
+		t = DetectTypeByPath(hint)
 	}
 	if t == Auto {
 		t = detectByContentType(contentType)
@@ -205,19 +204,26 @@ func detectByMagic(magic []byte) Type {
 	}
 }
 
-func detectByExt(name string) Type {
-	ext := strings.ToLower(filepath.Ext(name))
-	switch ext {
-	case ".gz", ".tgz":
+// DetectTypeByPath returns the compression type implied by a path-like hint.
+//
+// It recognizes the same tar-family suffix aliases for both create-time
+// validation and read-time auto-detection. `.tar` and `.tape` explicitly mean
+// an uncompressed tar stream, while unknown suffixes return Auto.
+func DetectTypeByPath(name string) Type {
+	hint := strings.ToLower(strings.TrimSpace(name))
+	switch {
+	case strings.HasSuffix(hint, ".tar.gz"), strings.HasSuffix(hint, ".tgz"), strings.HasSuffix(hint, ".gz"):
 		return Gzip
-	case ".bz2", ".tbz2", ".tbz":
+	case strings.HasSuffix(hint, ".tar.bz2"), strings.HasSuffix(hint, ".tbz2"), strings.HasSuffix(hint, ".tbz"), strings.HasSuffix(hint, ".bz2"):
 		return Bzip2
-	case ".xz", ".txz":
+	case strings.HasSuffix(hint, ".tar.xz"), strings.HasSuffix(hint, ".txz"), strings.HasSuffix(hint, ".xz"):
 		return Xz
-	case ".zst", ".tzst", ".zstd":
+	case strings.HasSuffix(hint, ".tar.zst"), strings.HasSuffix(hint, ".tzst"), strings.HasSuffix(hint, ".zstd"), strings.HasSuffix(hint, ".zst"):
 		return Zstd
-	case ".lz4", ".tlz4":
+	case strings.HasSuffix(hint, ".tar.lz4"), strings.HasSuffix(hint, ".tlz4"), strings.HasSuffix(hint, ".lz4"):
 		return Lz4
+	case strings.HasSuffix(hint, ".tar"), strings.HasSuffix(hint, ".tape"):
+		return None
 	default:
 		return Auto
 	}

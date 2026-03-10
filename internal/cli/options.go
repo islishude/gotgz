@@ -9,6 +9,7 @@ import (
 
 	"github.com/islishude/gotgz/internal/archivepath"
 	"github.com/islishude/gotgz/internal/archiveutil"
+	"github.com/islishude/gotgz/internal/compress"
 	"github.com/islishude/gotgz/internal/locator"
 )
 
@@ -314,7 +315,8 @@ func Parse(args []string) (Options, error) {
 	if opts.Help {
 		return opts, nil
 	}
-	if err := validateOptions(opts); err != nil {
+	opts, err := validateOptions(opts)
+	if err != nil {
 		return opts, err
 	}
 	if opts.Mode == ModeNone {
@@ -406,36 +408,119 @@ var splitSizeUnits = map[string]int64{
 }
 
 // validateOptions performs cross-field validation after flag parsing.
-func validateOptions(opts Options) error {
+func validateOptions(opts Options) (Options, error) {
 	if opts.Suffix != "" && reservedSplitSuffixPattern.MatchString(opts.Suffix) {
-		return fmt.Errorf("option --suffix cannot use reserved split name %q", opts.Suffix)
+		return opts, fmt.Errorf("option --suffix cannot use reserved split name %q", opts.Suffix)
 	}
 	if opts.Mode == ModeNone || opts.Archive == "" {
-		return nil
-	}
-	if opts.SplitSizeBytes <= 0 {
-		return nil
-	}
-	if opts.Mode != ModeCreate {
-		return fmt.Errorf("option --split-size is only supported in create mode")
+		return opts, nil
 	}
 
 	ref, err := locator.ParseArchive(opts.Archive)
 	if err != nil {
-		return err
+		return opts, err
+	}
+	if opts.Mode == ModeCreate {
+		opts, err = normalizeCreateCompression(opts, ref)
+		if err != nil {
+			return opts, err
+		}
+	}
+	if opts.SplitSizeBytes <= 0 {
+		return opts, nil
+	}
+	if opts.Mode != ModeCreate {
+		return opts, fmt.Errorf("option --split-size is only supported in create mode")
 	}
 	if ref.Kind == locator.KindStdio {
-		return fmt.Errorf("option --split-size does not support -f -")
+		return opts, fmt.Errorf("option --split-size does not support -f -")
 	}
 	if archiveutil.HasZipHint(archiveutil.NameHint(ref)) {
-		return fmt.Errorf("option --split-size does not support zip archives")
+		return opts, fmt.Errorf("option --split-size does not support zip archives")
 	}
 	switch opts.Compression {
 	case CompressionBzip2, CompressionXz:
-		return fmt.Errorf("option --split-size does not support %s compression", opts.Compression)
+		return opts, fmt.Errorf("option --split-size does not support %s compression", opts.Compression)
 	}
 	if _, ok := archivepath.ParseSplit(archiveutil.NameHint(ref)); ok {
-		return fmt.Errorf("option --split-size cannot use an archive name that already contains .partNNNN")
+		return opts, fmt.Errorf("option --split-size cannot use an archive name that already contains .partNNNN")
 	}
-	return nil
+	return opts, nil
+}
+
+// normalizeCreateCompression resolves the final tar-family compression for create mode.
+func normalizeCreateCompression(opts Options, ref locator.Ref) (Options, error) {
+	if opts.Mode != ModeCreate {
+		return opts, nil
+	}
+	if ref.Kind == locator.KindStdio {
+		if opts.Compression == CompressionAuto {
+			opts.Compression = CompressionNone
+		}
+		return opts, nil
+	}
+
+	archiveName := archiveutil.NameHint(ref)
+	if archiveutil.HasZipHint(archiveName) {
+		if isExplicitCompression(opts.Compression) {
+			return opts, compressionMismatchError(opts.Compression, archiveName, "zip archive format")
+		}
+		return opts, nil
+	}
+
+	implied := compressionHintFromType(compress.DetectTypeByPath(archiveName))
+	if opts.Compression == CompressionAuto {
+		if implied == CompressionAuto {
+			opts.Compression = CompressionNone
+		} else {
+			opts.Compression = implied
+		}
+		return opts, nil
+	}
+	if opts.Compression != implied {
+		return opts, compressionMismatchError(opts.Compression, archiveName, describeCompressionHint(implied))
+	}
+	return opts, nil
+}
+
+// compressionHintFromType maps shared compression types back into CLI hints.
+func compressionHintFromType(t compress.Type) CompressionHint {
+	switch t {
+	case compress.None:
+		return CompressionNone
+	case compress.Gzip:
+		return CompressionGzip
+	case compress.Bzip2:
+		return CompressionBzip2
+	case compress.Xz:
+		return CompressionXz
+	case compress.Zstd:
+		return CompressionZstd
+	case compress.Lz4:
+		return CompressionLz4
+	default:
+		return CompressionAuto
+	}
+}
+
+// isExplicitCompression reports whether the user requested a tar-family compressor.
+func isExplicitCompression(v CompressionHint) bool {
+	return v != CompressionAuto && v != CompressionNone
+}
+
+// describeCompressionHint formats the archive name implication for user-facing errors.
+func describeCompressionHint(v CompressionHint) string {
+	switch v {
+	case CompressionNone:
+		return "no compression"
+	case CompressionAuto:
+		return "no recognized compression suffix"
+	default:
+		return fmt.Sprintf("%q compression", v)
+	}
+}
+
+// compressionMismatchError explains why an explicit compressor conflicts with the archive name.
+func compressionMismatchError(explicit CompressionHint, archiveName string, implied string) error {
+	return fmt.Errorf("compression %q does not match archive name %q (implies %s)", explicit, archiveName, implied)
 }
