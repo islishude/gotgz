@@ -2,7 +2,7 @@ name: "test"
 
 services:
   ruststack:
-    image: ghcr.io/tyrchen/ruststack:0.3.1
+    image: ghcr.io/tyrchen/ruststack:0.4.2
     environment:
       DEFAULT_REGION: us-east-1
       SERVICES: s3
