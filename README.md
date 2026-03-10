@@ -222,7 +222,7 @@ gotgz -cvf out.tar --no-progress dir/
 | `GOTGZ_S3_CONCURRENCY`    | Multipart upload concurrency                              | `4`      |
 | `GOTGZ_S3_MAX_RETRIES`    | Maximum retry attempts for S3 operations                  |          |
 | `GOTGZ_S3_USE_PATH_STYLE` | Use path-style S3 addressing (for RustStack/MinIO)        | `false`  |
-| `GOTGZ_ZIP_STAGING_LIMIT_BYTES` | Max bytes spooled for non-local ZIP list/extract staging | `1073741824` |
+| `GOTGZ_ZIP_STAGING_LIMIT_BYTES` | Max bytes spooled for non-local ZIP list/extract staging (`-`, `s3://`, `http(s)://`) | `1073741824` |
 
 Standard AWS SDK environment variables (`AWS_REGION`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_ENDPOINT_URL`, etc.) are also respected.
 

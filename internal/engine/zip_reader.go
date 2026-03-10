@@ -44,8 +44,9 @@ func (r *Runner) withZipReader(ctx context.Context, archiveRef locator.Ref, ar i
 		}
 	}
 
+	enforceStagingLimit := zipStagingLimitApplies(archiveRef)
 	stagingLimit := zipStagingLimitBytes()
-	if info.SizeKnown && info.Size > stagingLimit {
+	if enforceStagingLimit && info.SizeKnown && info.Size > stagingLimit {
 		return 0, zipStagingLimitError(archiveRef, stagingLimit)
 	}
 
@@ -62,10 +63,14 @@ func (r *Runner) withZipReader(ctx context.Context, archiveRef locator.Ref, ar i
 	if copyReporter != nil {
 		copySrc = newCountingReader(ar, copyReporter)
 	}
-	if _, err := copyWithContextLimit(ctx, tmp, copySrc, stagingLimit); err != nil {
-		if errors.Is(err, errZipStagingLimitExceeded) {
-			return 0, zipStagingLimitError(archiveRef, stagingLimit)
+	if enforceStagingLimit {
+		if _, err := copyWithContextLimit(ctx, tmp, copySrc, stagingLimit); err != nil {
+			if errors.Is(err, errZipStagingLimitExceeded) {
+				return 0, zipStagingLimitError(archiveRef, stagingLimit)
+			}
+			return 0, err
 		}
+	} else if _, err := copyWithContext(ctx, tmp, copySrc); err != nil {
 		return 0, err
 	}
 	st, err := tmp.Stat()
@@ -80,6 +85,12 @@ func (r *Runner) withZipReader(ctx context.Context, archiveRef locator.Ref, ar i
 		return 0, err
 	}
 	return fn(zr)
+}
+
+// zipStagingLimitApplies reports whether staged ZIP bytes should be capped for
+// this archive source kind.
+func zipStagingLimitApplies(ref locator.Ref) bool {
+	return ref.Kind != locator.KindLocal
 }
 
 // zipStagingLimitBytes returns the maximum number of bytes a non-local zip
