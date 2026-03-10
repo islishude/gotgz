@@ -144,7 +144,7 @@ func (w *splitTarArchiveWriter) FinishEntry() error {
 	if err := w.current.tw.Flush(); err != nil {
 		return err
 	}
-	if flusher, ok := w.current.cw.(interface{ Flush() error }); ok {
+	if flusher, ok := w.current.cw.(compress.FlushWriteCloser); ok {
 		if err := flusher.Flush(); err != nil {
 			return err
 		}
