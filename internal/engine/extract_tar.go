@@ -22,7 +22,6 @@ import (
 func (r *Runner) runListTar(ctx context.Context, opts cli.Options, reporter *progressReporter, ref locator.Ref, ar io.ReadCloser, info archiveReaderInfo) (int, error) {
 	volumes, err := r.resolveArchiveVolumes(ctx, ref, info)
 	if err != nil {
-		_ = ar.Close()
 		return 0, err
 	}
 
@@ -55,7 +54,6 @@ func (r *Runner) runListTar(ctx context.Context, opts cli.Options, reporter *pro
 func (r *Runner) runExtractTar(ctx context.Context, opts cli.Options, reporter *progressReporter, ref locator.Ref, ar io.ReadCloser, info archiveReaderInfo) (int, error) {
 	volumes, err := r.resolveArchiveVolumes(ctx, ref, info)
 	if err != nil {
-		_ = ar.Close()
 		return 0, err
 	}
 
@@ -106,7 +104,6 @@ func (r *Runner) runExtractTarReader(ctx context.Context, opts cli.Options, repo
 	}
 	parsedTarget, err := locator.ParseArchive(target)
 	if err != nil {
-		_ = ar.Close()
 		return 0, err
 	}
 	parsedTarget = applyS3CacheControl(parsedTarget, opts.S3CacheControl)
