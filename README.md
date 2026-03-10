@@ -13,7 +13,7 @@ A Linux `tar`-compatible CLI tool written in Go, with native AWS S3 support as b
 - **Exclude patterns** — `--exclude` and `--exclude-from` (glob matching)
 - **Member filtering on extract/list** — explicit member names, optionally with `--wildcards`
 - **Path stripping on extract** — `--strip-components <count>` removes leading path segments
-- **Progress + ETA** — byte-based progress and ETA on TTY (or force with `--progress`)
+- **Progress + timing** — byte-based progress with ETA and elapsed time on TTY (or force with `--progress`)
 - **S3 encryption** — configurable server-side encryption (AES256, SSE-KMS)
 
 ## Installation

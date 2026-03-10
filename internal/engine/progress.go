@@ -55,7 +55,7 @@ func newProgressReporter(writer io.Writer, mode cli.ProgressMode, totalBytes int
 	}
 }
 
-// SetTotal updates the total byte estimate used by progress and ETA.
+// SetTotal updates the total byte estimate used by progress rendering.
 func (p *progressReporter) SetTotal(total int64, known bool) {
 	if p == nil {
 		return
@@ -198,7 +198,7 @@ func (p *progressReporter) formatLine(now time.Time) string {
 
 	if p.totalKnown {
 		if p.total <= 0 {
-			return "gotgz: [####################] 100.0% 0B/0B 0B/s ETA 00:00"
+			return "gotgz: [####################] 100.0% 0B/0B 0B/s ETA 00:00 elapsed 00:00"
 		}
 
 		ratio := float64(p.done) / float64(p.total)
@@ -217,13 +217,14 @@ func (p *progressReporter) formatLine(now time.Time) string {
 			eta = time.Duration(remaining * float64(time.Second))
 		}
 		return fmt.Sprintf(
-			"gotgz: [%s] %5.1f%% %s/%s %s/s ETA %s",
+			"gotgz: [%s] %5.1f%% %s/%s %s/s ETA %s elapsed %s",
 			bar,
 			ratio*100,
 			formatBytes(p.done),
 			formatBytes(p.total),
 			formatRate(speed),
 			formatClock(eta),
+			formatClock(elapsed),
 		)
 	}
 

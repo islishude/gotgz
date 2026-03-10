@@ -42,6 +42,9 @@ func TestProgressAlwaysForCreateExtractList(t *testing.T) {
 	if !strings.Contains(createErr.String(), "gotgz:") {
 		t.Fatalf("create stderr missing progress output:\n%s", createErr.String())
 	}
+	if !strings.Contains(createErr.String(), "elapsed ") {
+		t.Fatalf("create stderr missing elapsed output:\n%s", createErr.String())
+	}
 
 	var listErr bytes.Buffer
 	rList, err := New(context.Background(), io.Discard, &listErr)
@@ -55,6 +58,7 @@ func TestProgressAlwaysForCreateExtractList(t *testing.T) {
 	for _, item := range []string{
 		"gotgz: [....................]   0.0% ",
 		"gotgz: [####################] 100.0% ",
+		"elapsed ",
 	} {
 		if !strings.Contains(listErr.String(), item) {
 			t.Errorf("list stderr missing progress output:\n%s\nitem:\n%s", listErr.String(), item)
@@ -82,6 +86,7 @@ func TestProgressAlwaysForCreateExtractList(t *testing.T) {
 	for _, item := range []string{
 		"gotgz: [....................]   0.0% ",
 		"gotgz: [####################] 100.0% ",
+		"elapsed ",
 	} {
 		if !strings.Contains(extractErr.String(), item) {
 			t.Errorf("extract stderr missing progress output:\n%s\nitem:\n%s", extractErr.String(), item)
@@ -199,6 +204,7 @@ func TestProgressDoesNotPolluteStdoutWhenExtractingToStdout(t *testing.T) {
 	for _, item := range []string{
 		"gotgz: [....................]   0.0% ",
 		"gotgz: [####################] 100.0% ",
+		"elapsed ",
 	} {
 		if !strings.Contains(stderr.String(), item) {
 			t.Fatalf("stderr missing progress output:\n%s\nitem:\n%s", stderr.String(), item)
@@ -271,5 +277,8 @@ func TestProgressAlwaysUsesCombinedTotalForSplitArchives(t *testing.T) {
 	want := formatBytes(total) + "/" + formatBytes(total)
 	if !strings.Contains(final, want) {
 		t.Fatalf("final progress line = %q, want combined total %q", final, want)
+	}
+	if !strings.Contains(final, "elapsed ") {
+		t.Fatalf("final progress line = %q, want elapsed output", final)
 	}
 }
