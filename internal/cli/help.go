@@ -23,6 +23,8 @@ Main Options:
   -f <archive>      Archive path: local file, -, s3://bucket/key, S3 ARN, or http(s):// URL (source-only for -x/-t)
   -suffix <value>, --suffix <value>
                     Add suffix to archive filename in create mode (built-in date format uses 20060102 layout)
+  --split-size <size>
+                    Split tar-family output into partNNNN volumes (create mode only)
   -C <dir|s3://...>, --cd <dir|s3://...>, --directory <dir|s3://...>
                     Change directory before create/extract
   --s3-cache-control <value>

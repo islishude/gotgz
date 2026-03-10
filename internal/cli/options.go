@@ -2,8 +2,14 @@ package cli
 
 import (
 	"fmt"
+	"math"
+	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
+
+	"github.com/islishude/gotgz/internal/archivepath"
+	"github.com/islishude/gotgz/internal/locator"
 )
 
 type Mode string
@@ -39,6 +45,7 @@ type Options struct {
 	Mode             Mode
 	Archive          string
 	Suffix           string
+	SplitSizeBytes   int64
 	ACL              bool
 	Xattrs           bool
 	Verbose          bool
@@ -105,6 +112,23 @@ func Parse(args []string) (Options, error) {
 			opts.Suffix = v
 			continue
 		}
+		if strings.HasPrefix(a, "-split-size") {
+			name, value, hasValue := strings.Cut(strings.TrimPrefix(a, "-"), "=")
+			if name != "split-size" {
+				return opts, fmt.Errorf("unsupported option %s", a)
+			}
+			v, nextI, err := resolveValue(name, value, hasValue, args, i)
+			if err != nil {
+				return opts, err
+			}
+			i = nextI
+			size, err := parseSplitSize(v)
+			if err != nil {
+				return opts, err
+			}
+			opts.SplitSizeBytes = size
+			continue
+		}
 		if !strings.HasPrefix(a, "-") || a == "-" {
 			opts.Members = append(opts.Members, args[i:]...)
 			break
@@ -160,6 +184,17 @@ func Parse(args []string) (Options, error) {
 					return opts, fmt.Errorf("option --compression-level requires an integer between 1 and 9")
 				}
 				opts.CompressionLevel = &level
+			case "split-size":
+				v, nextI, err := resolveValue(name, value, hasValue, args, i)
+				if err != nil {
+					return opts, err
+				}
+				i = nextI
+				size, err := parseSplitSize(v)
+				if err != nil {
+					return opts, err
+				}
+				opts.SplitSizeBytes = size
 			case "acl":
 				opts.ACL = true
 			case "xattrs":
@@ -279,6 +314,9 @@ func Parse(args []string) (Options, error) {
 	if opts.Help {
 		return opts, nil
 	}
+	if err := validateOptions(opts); err != nil {
+		return opts, err
+	}
 	if opts.Mode == ModeNone {
 		return opts, fmt.Errorf("no operation mode specified")
 	}
@@ -290,6 +328,8 @@ func Parse(args []string) (Options, error) {
 	}
 	return opts, nil
 }
+
+var reservedSplitSuffixPattern = regexp.MustCompile(`(?i)^part[0-9]+$`)
 
 func legacyToken(v string) bool {
 	if strings.HasPrefix(v, "-") || v == "" {
@@ -322,4 +362,101 @@ func resolveValue(name, inline string, hasInline bool, args []string, i int) (st
 		return "", i, fmt.Errorf("option --%s requires a value", name)
 	}
 	return args[i], i, nil
+}
+
+// parseSplitSize parses a positive byte size with optional binary unit suffix.
+func parseSplitSize(v string) (int64, error) {
+	value := strings.TrimSpace(v)
+	if value == "" {
+		return 0, fmt.Errorf("option --split-size requires a positive byte size")
+	}
+
+	index := 0
+	for index < len(value) && value[index] >= '0' && value[index] <= '9' {
+		index++
+	}
+	numberText := value[:index]
+	unitText := strings.ToUpper(strings.TrimSpace(value[index:]))
+	number, err := strconv.ParseInt(numberText, 10, 64)
+	if err != nil || number <= 0 {
+		return 0, fmt.Errorf("option --split-size requires a positive byte size")
+	}
+
+	multiplier, ok := splitSizeUnits[unitText]
+	if !ok {
+		return 0, fmt.Errorf("option --split-size requires a positive byte size")
+	}
+	if number > math.MaxInt64/multiplier {
+		return 0, fmt.Errorf("option --split-size value is too large")
+	}
+	return number * multiplier, nil
+}
+
+var splitSizeUnits = map[string]int64{
+	"":    1,
+	"B":   1,
+	"K":   1024,
+	"M":   1024 * 1024,
+	"G":   1024 * 1024 * 1024,
+	"T":   1024 * 1024 * 1024 * 1024,
+	"KIB": 1024,
+	"MIB": 1024 * 1024,
+	"GIB": 1024 * 1024 * 1024,
+	"TIB": 1024 * 1024 * 1024 * 1024,
+}
+
+// validateOptions performs cross-field validation after flag parsing.
+func validateOptions(opts Options) error {
+	if opts.Suffix != "" && reservedSplitSuffixPattern.MatchString(opts.Suffix) {
+		return fmt.Errorf("option --suffix cannot use reserved split name %q", opts.Suffix)
+	}
+	if opts.Mode == ModeNone || opts.Archive == "" {
+		return nil
+	}
+	if opts.SplitSizeBytes <= 0 {
+		return nil
+	}
+	if opts.Mode != ModeCreate {
+		return fmt.Errorf("option --split-size is only supported in create mode")
+	}
+
+	ref, err := locator.ParseArchive(opts.Archive)
+	if err != nil {
+		return err
+	}
+	if ref.Kind == locator.KindStdio {
+		return fmt.Errorf("option --split-size does not support -f -")
+	}
+	if isZipArchiveName(archiveNameHint(ref)) {
+		return fmt.Errorf("option --split-size does not support zip archives")
+	}
+	switch opts.Compression {
+	case CompressionBzip2, CompressionXz:
+		return fmt.Errorf("option --split-size does not support %s compression", opts.Compression)
+	}
+	if _, ok := archivepath.ParseSplit(archiveNameHint(ref)); ok {
+		return fmt.Errorf("option --split-size cannot use an archive name that already contains .partNNNN")
+	}
+	return nil
+}
+
+func archiveNameHint(ref locator.Ref) string {
+	switch ref.Kind {
+	case locator.KindS3:
+		return ref.Key
+	case locator.KindHTTP:
+		parsed, err := url.Parse(ref.URL)
+		if err != nil {
+			return ref.URL
+		}
+		return parsed.Path
+	case locator.KindLocal:
+		return ref.Path
+	default:
+		return ref.Raw
+	}
+}
+
+func isZipArchiveName(name string) bool {
+	return strings.HasSuffix(strings.ToLower(strings.TrimSpace(name)), ".zip")
 }

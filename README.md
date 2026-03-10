@@ -50,6 +50,9 @@ gotgz -cvzf archive.tar.gz dir1 file1.txt
 # You can also specify a custom suffix with `-suffix` flag, for example `-suffix backup` will generate `archive-backup.tar.gz`
 gotgz -cvzf archive.tar.gz -suffix date dir1 file1.txt
 
+# Split large tar-family output into independently extractable volumes
+gotgz -cvzf archive.tar.gz --split-size 2GiB dir1 file1.txt
+
 # Local files → S3
 gotgz -cvzf s3://my-bucket/backups/archive.tar.gz dir1 file1.txt
 
@@ -77,6 +80,9 @@ gotgz -xvf archive.zip -C /tmp/output
 
 # S3 archive → local directory
 gotgz -xvf s3://my-bucket/backups/archive.tar.gz -C /tmp/output
+
+# Split archive → local directory (pass the first volume only)
+gotgz -xvf backup.part0001.tar.gz -C /tmp/output
 
 # HTTP archive → local directory
 gotgz -xvf https://example.com/backups/archive.tar.gz -C /tmp/output
@@ -113,9 +119,13 @@ gotgz -tf https://example.com/backups/archive.tar.gz
 You can control compression strength for create mode with `-compression-level=<1-9>` (or `--compression-level=<1-9>`).  
 If not provided, each algorithm uses its own default level.
 
+Use `--split-size=<size>` in create mode to emit tar-family output as `partNNNN` volumes such as `archive.part0001.tar.gz`.  
+Split archives are discovered automatically from `part0001` during list/extract for local files and S3 objects.
+
 When extracting or listing, archive/compression format is auto-detected by magic bytes first, then filename extension, then content type.
 
 For `.zip` archives, tar-specific compression flags (`-z/-j/-J/--zstd/--lz4`) and tar metadata-owner flags (`--xattrs`, `--acl`, `--same-owner`, `--numeric-owner`) are ignored with warnings. `--compression-level` still applies and maps to zip Deflate level.
+`--split-size` currently supports uncompressed tar plus gzip/zstd/lz4 output, but not zip, bzip2, xz, `-f -`, or HTTP multi-volume input.
 
 ### S3 addressing
 
@@ -157,6 +167,10 @@ gotgz -xOf archive.tar path/to/file.txt
 
 # Exclude patterns
 gotgz -cvf archive.tar --exclude='*.log' --exclude-from=excludes.txt dir/
+
+# Split local or S3 tar output into 512 MiB volumes
+gotgz -cvf archive.tar --split-size 512MiB dir/
+gotgz -cvzf s3://my-bucket/backups/archive.tar.gz --split-size 512MiB dir/
 
 # Wildcard member filtering for list/extract
 gotgz -tf archive.tar --wildcards 'src/*.go'

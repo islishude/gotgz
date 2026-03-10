@@ -31,6 +31,12 @@ type WriterOptions struct {
 	Level *int
 }
 
+// FlushWriteCloser exposes stream flush support when the compression format has it.
+type FlushWriteCloser interface {
+	io.WriteCloser
+	Flush() error
+}
+
 func FromString(v string) Type {
 	switch strings.ToLower(v) {
 	case "none":
@@ -57,7 +63,7 @@ func NewWriter(dst io.WriteCloser, t Type, opts WriterOptions) (io.WriteCloser, 
 	}
 	switch t {
 	case Auto, None:
-		return dst, nil
+		return &plainWriteCloser{dst: dst}, nil
 	case Gzip:
 		var zw *gzip.Writer
 		if hasLevel {
@@ -276,6 +282,13 @@ type stackedWriteCloser struct {
 
 func (w *stackedWriteCloser) Write(p []byte) (int, error) { return w.writer.Write(p) }
 
+func (w *stackedWriteCloser) Flush() error {
+	if flusher, ok := w.writer.(interface{ Flush() error }); ok {
+		return flusher.Flush()
+	}
+	return nil
+}
+
 func (w *stackedWriteCloser) Close() error {
 	var first error
 	if w.closeWriterFirst {
@@ -305,6 +318,16 @@ func normalizeLevel(level *int) (int, bool, error) {
 	}
 	return *level, true, nil
 }
+
+type plainWriteCloser struct {
+	dst io.WriteCloser
+}
+
+func (w *plainWriteCloser) Write(p []byte) (int, error) { return w.dst.Write(p) }
+
+func (w *plainWriteCloser) Flush() error { return nil }
+
+func (w *plainWriteCloser) Close() error { return w.dst.Close() }
 
 func xzDictCapForLevel(level int) int {
 	// Roughly aligned with common xz presets 1..9.

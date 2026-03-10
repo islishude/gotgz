@@ -13,7 +13,6 @@ import (
 
 	"github.com/islishude/gotgz/internal/archive"
 	"github.com/islishude/gotgz/internal/cli"
-	"github.com/islishude/gotgz/internal/compress"
 	"github.com/islishude/gotgz/internal/locator"
 )
 
@@ -34,27 +33,13 @@ func (r *Runner) runCreateTar(ctx context.Context, opts cli.Options, archiveRef 
 			return 0, fmt.Errorf("cannot use -suffix with -f -")
 		}
 	}
-	aw, err := r.openArchiveWriter(ctx, archiveRef)
+	tw, err := r.newTarArchiveWriter(ctx, opts, archiveRef)
 	if err != nil {
 		return 0, err
 	}
-
-	cw, err := compress.NewWriter(aw, compress.FromString(string(opts.Compression)), compress.WriterOptions{Level: opts.CompressionLevel})
-	if err != nil {
-		_ = aw.Close()
-		return 0, err
-	}
-	defer func() {
-		// cw.Close() also closes the underlying archive writer.
-		if cerr := cw.Close(); cerr != nil && retErr == nil {
-			retErr = fmt.Errorf("closing archive: %w", cerr)
-		}
-	}()
-
-	tw := tar.NewWriter(cw)
 	defer func() {
 		if cerr := tw.Close(); cerr != nil && retErr == nil {
-			retErr = fmt.Errorf("closing tar writer: %w", cerr)
+			retErr = cerr
 		}
 	}()
 
@@ -184,7 +169,7 @@ func (r *Runner) estimateLocalPathBytes(ctx context.Context, member, chdir strin
 }
 
 // addS3Member writes one S3 object to the tar stream as a regular file member.
-func (r *Runner) addS3Member(ctx context.Context, tw *tar.Writer, ref locator.Ref, verbose bool, reporter *progressReporter) (err error) {
+func (r *Runner) addS3Member(ctx context.Context, tw tarArchiveWriter, ref locator.Ref, verbose bool, reporter *progressReporter) (err error) {
 	if strings.TrimSpace(ref.Key) == "" {
 		return fmt.Errorf("s3 member key cannot be empty: %q", ref.Raw)
 	}
@@ -212,6 +197,9 @@ func (r *Runner) addS3Member(ctx context.Context, tw *tar.Writer, ref locator.Re
 	if _, err := copyWithContext(ctx, tw, newCountingReader(body, reporter)); err != nil {
 		return err
 	}
+	if err := tw.FinishEntry(); err != nil {
+		return err
+	}
 	if verbose {
 		reporter.beforeExternalLineOutput()
 		_, _ = fmt.Fprintln(r.stdout, hdr.Name)
@@ -221,7 +209,7 @@ func (r *Runner) addS3Member(ctx context.Context, tw *tar.Writer, ref locator.Re
 }
 
 // addLocalPath walks one local member path and writes entries into the tar stream.
-func (r *Runner) addLocalPath(ctx context.Context, tw *tar.Writer, member, chdir string, excludes []string, verbose bool, metadataPolicy MetadataPolicy, reporter *progressReporter) error {
+func (r *Runner) addLocalPath(ctx context.Context, tw tarArchiveWriter, member, chdir string, excludes []string, verbose bool, metadataPolicy MetadataPolicy, reporter *progressReporter) error {
 	basePath := member
 	if chdir != "" {
 		basePath = filepath.Join(chdir, member)
@@ -288,6 +276,9 @@ func (r *Runner) addLocalPath(ctx context.Context, tw *tar.Writer, member, chdir
 			if cerr != nil {
 				return cerr
 			}
+		}
+		if err := tw.FinishEntry(); err != nil {
+			return err
 		}
 		if verbose {
 			reporter.beforeExternalLineOutput()

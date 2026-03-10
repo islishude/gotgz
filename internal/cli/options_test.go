@@ -199,6 +199,30 @@ func TestParseLongOptions(t *testing.T) {
 	}
 }
 
+func TestParseSplitSize(t *testing.T) {
+	tests := []struct {
+		name string
+		arg  string
+		want int64
+	}{
+		{name: "bytes", arg: "2048", want: 2048},
+		{name: "short unit", arg: "2K", want: 2 * 1024},
+		{name: "binary unit", arg: "3MiB", want: 3 * 1024 * 1024},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			opts, err := Parse([]string{"-c", "-f", "out.tar", "--split-size", tt.arg, "dir"})
+			if err != nil {
+				t.Fatalf("Parse() error = %v", err)
+			}
+			if opts.SplitSizeBytes != tt.want {
+				t.Fatalf("split-size = %d, want %d", opts.SplitSizeBytes, tt.want)
+			}
+		})
+	}
+}
+
 func TestParseLongModeAliases(t *testing.T) {
 	tests := []struct {
 		name string
@@ -366,6 +390,7 @@ func TestParseLongOptionsMissingValues(t *testing.T) {
 		{name: "exclude-from missing value", arg: "--exclude-from", errSub: "option --exclude-from requires a value"},
 		{name: "strip-components missing value", arg: "--strip-components", errSub: "option --strip-components requires a value"},
 		{name: "compression-level missing value", arg: "--compression-level", errSub: "option --compression-level requires a value"},
+		{name: "split-size missing value", arg: "--split-size", errSub: "option --split-size requires a value"},
 		{name: "suffix missing value", arg: "--suffix", errSub: "option --suffix requires a value"},
 		{name: "directory missing value", arg: "--directory", errSub: "option --directory requires a value"},
 		{name: "cd missing value", arg: "--cd", errSub: "option --cd requires a value"},
@@ -381,6 +406,82 @@ func TestParseLongOptionsMissingValues(t *testing.T) {
 				t.Fatalf("unexpected error: %v", err)
 			}
 		})
+	}
+}
+
+func TestParseSplitSizeValidation(t *testing.T) {
+	tests := []struct {
+		name   string
+		args   []string
+		errSub string
+	}{
+		{
+			name:   "invalid size",
+			args:   []string{"-c", "-f", "out.tar", "--split-size=0", "dir"},
+			errSub: "option --split-size requires a positive byte size",
+		},
+		{
+			name:   "extract mode unsupported",
+			args:   []string{"-x", "-f", "in.tar", "--split-size=1M"},
+			errSub: "option --split-size is only supported in create mode",
+		},
+		{
+			name:   "stdio unsupported",
+			args:   []string{"-c", "-f", "-", "--split-size=1M", "dir"},
+			errSub: "option --split-size does not support -f -",
+		},
+		{
+			name:   "zip unsupported",
+			args:   []string{"-c", "-f", "out.zip", "--split-size=1M", "dir"},
+			errSub: "option --split-size does not support zip archives",
+		},
+		{
+			name:   "bzip2 unsupported",
+			args:   []string{"-c", "-f", "out.tar.bz2", "--split-size=1M", "--bzip2", "dir"},
+			errSub: "option --split-size does not support bzip2 compression",
+		},
+		{
+			name:   "xz unsupported",
+			args:   []string{"-c", "-f", "out.tar.xz", "--split-size=1M", "--xz", "dir"},
+			errSub: "option --split-size does not support xz compression",
+		},
+		{
+			name:   "reserved archive name",
+			args:   []string{"-c", "-f", "out.part0001.tar.gz", "--split-size=1M", "dir"},
+			errSub: "option --split-size cannot use an archive name that already contains .partNNNN",
+		},
+		{
+			name:   "reserved suffix lowercase",
+			args:   []string{"-c", "-f", "out.tar", "--suffix=part0001", "dir"},
+			errSub: "option --suffix cannot use reserved split name",
+		},
+		{
+			name:   "reserved suffix uppercase",
+			args:   []string{"-c", "-f", "out.tar", "--suffix=PART1", "dir"},
+			errSub: "option --suffix cannot use reserved split name",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := Parse(tt.args)
+			if err == nil {
+				t.Fatalf("expected parse error")
+			}
+			if !strings.Contains(err.Error(), tt.errSub) {
+				t.Fatalf("unexpected error: %v", err)
+			}
+		})
+	}
+}
+
+func TestParseSuffixAllowsNonReservedSplitText(t *testing.T) {
+	opts, err := Parse([]string{"-c", "-f", "out.tar", "--suffix=my-part0001", "dir"})
+	if err != nil {
+		t.Fatalf("Parse() error = %v", err)
+	}
+	if opts.Suffix != "my-part0001" {
+		t.Fatalf("suffix = %q, want %q", opts.Suffix, "my-part0001")
 	}
 }
 
