@@ -274,7 +274,7 @@ func (r *Runner) scanTarArchiveFromReader(ctx context.Context, opts cli.Options,
 }
 
 // scanTarArchiveFromVolumes scans a discovered split archive volume-by-volume.
-func (r *Runner) scanTarArchiveFromVolumes(ctx context.Context, opts cli.Options, reporter *progressReporter, volumes []archiveVolume, first io.ReadCloser, scan func(io.ReadCloser, archiveReaderInfo) (int, error)) (int, error) {
+func (r *Runner) scanTarArchiveFromVolumes(ctx context.Context, _ cli.Options, reporter *progressReporter, volumes []archiveVolume, first io.ReadCloser, scan func(io.ReadCloser, archiveReaderInfo) (int, error)) (int, error) {
 	var total int64
 	totalKnown := true
 	for _, volume := range volumes {
