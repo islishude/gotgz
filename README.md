@@ -7,7 +7,7 @@ A Linux `tar`-compatible CLI tool written in Go, with native AWS S3 support as b
 - **Drop-in tar replacement** — supports common `tar` flags (`-c`, `-x`, `-t`, `-v`, `-f`, `-C`, `-O`) and long forms such as `--create`, `--extract`, `--list`, `--cd`/`--directory`, `--to-stdout`
 - **AWS S3 integration** — use `s3://bucket/key` URIs or S3 ARNs directly in `-f` and member arguments
 - **HTTP archive source** — use `http://` or `https://` URLs directly in `-f` for list/extract
-- **Multiple archive/compression formats** — native `.zip` plus tar-family compression: gzip (`-z`/`--gzip`/`--gunzip`), bzip2 (`-j`/`--bzip`/`--bzip2`), xz (`-J`/`--xz`), zstd (`--zstd`), lz4 (`--lz4`), with auto-detection on extract/list
+- **Multiple archive/compression formats** — native `.zip` plus tar-family compression: gzip (`-z`/`--gzip`/`--gunzip`), bzip2 (`-j`/`--bzip`/`--bzip2`), xz (`-J`/`--xz`), zstd (`--zstd`), lz4 (`--lz4`), with auto-detection on create/extract/list
 - **PAX format** — preserves metadata on demand: `--xattrs` for extended attributes, `--acl` for ACLs
 - **Permission control** — `--same-owner`, `--same-permissions` (`--numeric-owner` accepted for tar compatibility)
 - **Exclude patterns** — `--exclude` and `--exclude-from` (glob matching)
@@ -45,21 +45,23 @@ gotgz -cvf archive.zip dir1 file1.txt
 
 # Local files → compressed archive (compression inferred from filename)
 gotgz -cvf archive.tar.gz dir1 file1.txt
-# or explicitly with compression flag -z for gzip
+gotgz -cvf archive.tar.zst dir1 file1.txt
+# or explicitly with compression flags
 gotgz -cvzf archive.tar.gz dir1 file1.txt
+gotgz --zstd -cvf archive.tar.zst dir1 file1.txt
 
 # Add suffix to generated archive filename, date format is built-in and it uses `20060102` as the layout
 # You can also specify a custom suffix with `-suffix` flag, for example `-suffix backup` will generate `archive-backup.tar.gz`
-gotgz -cvzf archive.tar.gz -suffix date dir1 file1.txt
+gotgz -cvf archive.tar.gz -suffix date dir1 file1.txt
 
 # Split large tar-family output into independently extractable volumes
-gotgz -cvzf archive.tar.gz --split-size 2GiB dir1 file1.txt
+gotgz -cvf archive.tar.gz --split-size 2GiB dir1 file1.txt
 
 # Local files → S3
-gotgz -cvzf s3://my-bucket/backups/archive.tar.gz dir1 file1.txt
+gotgz -cvf s3://my-bucket/backups/archive.tar.gz dir1 file1.txt
 
 # Local files → S3 with Cache-Control
-gotgz -cvzf s3://my-bucket/backups/archive.tar.gz --s3-cache-control "max-age=3600,public" dir1 file1.txt
+gotgz -cvf s3://my-bucket/backups/archive.tar.gz --s3-cache-control "max-age=3600,public" dir1 file1.txt
 
 # S3 objects → local archive
 gotgz -cvf archive.tar s3://my-bucket/data/file1.txt s3://my-bucket/data/file2.txt
@@ -214,14 +216,14 @@ gotgz -cvf out.tar --no-progress dir/
 
 ## Environment Variables
 
-| Variable                  | Description                                               | Default  |
-| ------------------------- | --------------------------------------------------------- | -------- |
-| `GOTGZ_S3_SSE`            | Server-side encryption type (`AES256`, `aws:kms`, `none`) | `AES256` |
-| `GOTGZ_S3_SSE_KMS_KEY_ID` | KMS key ID for SSE-KMS encryption                         |          |
-| `GOTGZ_S3_PART_SIZE_MB`   | Multipart upload part size in MB                          | `16`     |
-| `GOTGZ_S3_CONCURRENCY`    | Multipart upload concurrency                              | `4`      |
-| `GOTGZ_S3_MAX_RETRIES`    | Maximum retry attempts for S3 operations                  |          |
-| `GOTGZ_S3_USE_PATH_STYLE` | Use path-style S3 addressing (for RustStack/MinIO)        | `false`  |
+| Variable                        | Description                                                                           | Default      |
+| ------------------------------- | ------------------------------------------------------------------------------------- | ------------ |
+| `GOTGZ_S3_SSE`                  | Server-side encryption type (`AES256`, `aws:kms`, `none`)                             | `AES256`     |
+| `GOTGZ_S3_SSE_KMS_KEY_ID`       | KMS key ID for SSE-KMS encryption                                                     |              |
+| `GOTGZ_S3_PART_SIZE_MB`         | Multipart upload part size in MB                                                      | `16`         |
+| `GOTGZ_S3_CONCURRENCY`          | Multipart upload concurrency                                                          | `4`          |
+| `GOTGZ_S3_MAX_RETRIES`          | Maximum retry attempts for S3 operations                                              |              |
+| `GOTGZ_S3_USE_PATH_STYLE`       | Use path-style S3 addressing (for RustStack/MinIO)                                    | `false`      |
 | `GOTGZ_ZIP_STAGING_LIMIT_BYTES` | Max bytes spooled for non-local ZIP list/extract staging (`-`, `s3://`, `http(s)://`) | `1073741824` |
 
 Standard AWS SDK environment variables (`AWS_REGION`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_ENDPOINT_URL`, etc.) are also respected.
