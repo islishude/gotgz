@@ -17,16 +17,9 @@ func (r *Runner) runCreateZip(ctx context.Context, opts cli.Options, archiveRef 
 	reporter := newProgressReporter(r.stderr, opts.Progress, 0, false, time.Now(), opts.Verbose)
 	defer reporter.Finish()
 
-	if opts.Suffix != "" {
-		switch archiveRef.Kind {
-		case locator.KindLocal:
-			archiveRef.Path = AddArchiveSuffix(archiveRef.Path, opts.Suffix)
-			archiveRef.Raw = archiveRef.Path
-		case locator.KindS3:
-			archiveRef.Key = AddArchiveSuffix(archiveRef.Key, opts.Suffix)
-		case locator.KindStdio:
-			return 0, fmt.Errorf("cannot use -suffix with -f -")
-		}
+	archiveRef, err := applyArchiveSuffix(archiveRef, opts.Suffix)
+	if err != nil {
+		return 0, err
 	}
 
 	warnings += r.warnZipCreateOptions(opts, reporter)
@@ -65,35 +58,18 @@ func (r *Runner) runCreateZip(ctx context.Context, opts cli.Options, archiveRef 
 	}
 	reporter.SetTotal(totalBytes, known)
 
-	for _, member := range opts.Members {
-		select {
-		case <-ctx.Done():
-			return warnings, ctx.Err()
-		default:
-		}
-		ref, err := locator.ParseMember(member)
-		if err != nil {
-			return warnings, err
-		}
-		switch ref.Kind {
-		case locator.KindS3:
-			if matchExclude(excludes, ref.Key) {
-				continue
-			}
-			if err := r.addS3MemberZip(ctx, zw, ref, opts.Verbose, reporter); err != nil {
-				return warnings, err
-			}
-		case locator.KindLocal:
-			w, err := r.addLocalPathZip(ctx, zw, member, opts.Chdir, excludes, opts.Verbose, reporter)
-			warnings += w
-			if err != nil {
-				return warnings, err
-			}
-		default:
-			return warnings, fmt.Errorf("unsupported member reference %q", member)
-		}
-	}
-	return warnings, nil
+	createWarnings, err := r.processCreateMembers(
+		ctx,
+		opts,
+		excludes,
+		func(ref locator.Ref) error {
+			return r.addS3MemberZip(ctx, zw, ref, opts.Verbose, reporter)
+		},
+		func(member string) (int, error) {
+			return r.addLocalPathZip(ctx, zw, member, opts.Chdir, excludes, opts.Verbose, reporter)
+		},
+	)
+	return warnings + createWarnings, err
 }
 
 // runListZip lists archive members from a zip input stream.
@@ -143,15 +119,14 @@ func (r *Runner) runExtractZip(ctx context.Context, opts cli.Options, reporter *
 		return warnings + zipWarnings, err
 	}
 
+	parsedTarget, err := parseExtractTarget(opts.Chdir, opts.S3CacheControl)
+	if err != nil {
+		return warnings, err
+	}
 	target := opts.Chdir
 	if target == "" {
 		target = "."
 	}
-	parsedTarget, err := locator.ParseArchive(target)
-	if err != nil {
-		return warnings, err
-	}
-	parsedTarget = applyS3CacheControl(parsedTarget, opts.S3CacheControl)
 
 	zipWarnings, err := r.withZipReader(ctx, archiveRef, ar, info, nil, func(zr *zip.Reader) (int, error) {
 		total := totalZipPayloadBytes(zr, func(zf *zip.File) bool {
@@ -183,21 +158,19 @@ func (r *Runner) runExtractZip(ctx context.Context, opts cli.Options, reporter *
 				reporter.afterExternalLineOutput()
 			}
 
-			switch parsedTarget.Kind {
-			case locator.KindS3:
-				w, err := r.extractZipEntryToS3(ctx, parsedTarget, zf, extractName, reporter)
-				innerWarnings += w
-				if err != nil {
-					return innerWarnings, err
-				}
-			case locator.KindLocal, locator.KindStdio:
-				w, err := r.extractZipEntryToLocal(ctx, parsedTarget.Path, zf, extractName, policy, reporter)
-				innerWarnings += w
-				if err != nil {
-					return innerWarnings, err
-				}
-			default:
-				return innerWarnings, fmt.Errorf("unsupported extract target %q", target)
+			w, err := r.dispatchExtractTarget(
+				parsedTarget,
+				target,
+				func(target locator.Ref) (int, error) {
+					return r.extractZipEntryToS3(ctx, target, zf, extractName, reporter)
+				},
+				func(base string) (int, error) {
+					return r.extractZipEntryToLocal(ctx, base, zf, extractName, policy, reporter)
+				},
+			)
+			innerWarnings += w
+			if err != nil {
+				return innerWarnings, err
 			}
 		}
 		return innerWarnings, nil

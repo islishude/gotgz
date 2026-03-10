@@ -5,28 +5,27 @@ import (
 	"io"
 
 	"github.com/islishude/gotgz/internal/locator"
+	httpstore "github.com/islishude/gotgz/internal/storage/http"
+	localstore "github.com/islishude/gotgz/internal/storage/local"
+	s3store "github.com/islishude/gotgz/internal/storage/s3"
 )
 
-type Metadata struct {
-	Size int64
+// localArchiveStore reads and writes archives on the local filesystem or stdio.
+type localArchiveStore interface {
+	OpenReader(ref locator.Ref) (io.ReadCloser, localstore.Metadata, error)
+	OpenWriter(ref locator.Ref) (io.WriteCloser, error)
 }
 
-type ObjectReader interface {
-	Open(ctx context.Context, ref locator.Ref) (io.ReadCloser, Metadata, error)
+// s3ArchiveStore reads, writes, and enumerates archive objects in S3.
+type s3ArchiveStore interface {
+	OpenReader(ctx context.Context, ref locator.Ref) (io.ReadCloser, s3store.Metadata, error)
+	Stat(ctx context.Context, ref locator.Ref) (s3store.Metadata, error)
+	OpenWriter(ctx context.Context, ref locator.Ref, metadata map[string]string) (io.WriteCloser, error)
+	UploadStream(ctx context.Context, ref locator.Ref, body io.Reader, metadata map[string]string) error
+	ListPrefix(ctx context.Context, bucket string, prefix string) ([]s3store.ListedObject, error)
 }
 
-type ObjectWriter interface {
-	Create(ctx context.Context, ref locator.Ref, metadata map[string]string) (io.WriteCloser, error)
-}
-
-type MemberSource interface {
-	Stat(ctx context.Context, ref locator.Ref) (Metadata, error)
-	Open(ctx context.Context, ref locator.Ref) (io.ReadCloser, error)
-}
-
-type MemberSink interface {
-	Mkdir(ctx context.Context, ref locator.Ref, mode uint32) error
-	WriteFile(ctx context.Context, ref locator.Ref, body io.Reader, metadata map[string]string) error
-	Symlink(ctx context.Context, ref locator.Ref, target string, metadata map[string]string) error
-	Hardlink(ctx context.Context, ref locator.Ref, target locator.Ref, metadata map[string]string) error
+// httpArchiveStore opens archive sources over HTTP(S).
+type httpArchiveStore interface {
+	OpenReader(ctx context.Context, ref locator.Ref) (io.ReadCloser, httpstore.Metadata, error)
 }

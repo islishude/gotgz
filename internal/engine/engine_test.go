@@ -2,6 +2,8 @@ package engine
 
 import (
 	"archive/tar"
+	"context"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -10,7 +12,27 @@ import (
 	"github.com/islishude/gotgz/internal/archive"
 	"github.com/islishude/gotgz/internal/cli"
 	"github.com/islishude/gotgz/internal/locator"
+	localstore "github.com/islishude/gotgz/internal/storage/local"
 )
+
+type fakeLocalArchiveStore struct {
+	openReader func(ref locator.Ref) (io.ReadCloser, localstore.Metadata, error)
+	openWriter func(ref locator.Ref) (io.WriteCloser, error)
+}
+
+func (f fakeLocalArchiveStore) OpenReader(ref locator.Ref) (io.ReadCloser, localstore.Metadata, error) {
+	if f.openReader == nil {
+		return nil, localstore.Metadata{}, nil
+	}
+	return f.openReader(ref)
+}
+
+func (f fakeLocalArchiveStore) OpenWriter(ref locator.Ref) (io.WriteCloser, error) {
+	if f.openWriter == nil {
+		return nil, nil
+	}
+	return f.openWriter(ref)
+}
 
 func TestResolvePolicyOverrides(t *testing.T) {
 	so := false
@@ -41,6 +63,132 @@ func TestApplyS3CacheControlNonS3Ignored(t *testing.T) {
 	if got.CacheControl != "" {
 		t.Fatalf("non-s3 ref should ignore cache-control, got %q", got.CacheControl)
 	}
+}
+
+func TestApplyArchiveSuffix(t *testing.T) {
+	t.Run("local", func(t *testing.T) {
+		got, err := applyArchiveSuffix(locator.Ref{Kind: locator.KindLocal, Path: "/tmp/out.tar.gz", Raw: "/tmp/out.tar.gz"}, "daily")
+		if err != nil {
+			t.Fatalf("applyArchiveSuffix() error = %v", err)
+		}
+		if got.Path != "/tmp/out-daily.tar.gz" || got.Raw != got.Path {
+			t.Fatalf("local suffix result = %+v", got)
+		}
+	})
+
+	t.Run("s3", func(t *testing.T) {
+		got, err := applyArchiveSuffix(locator.Ref{Kind: locator.KindS3, Bucket: "bucket", Key: "out.tar.gz"}, "daily")
+		if err != nil {
+			t.Fatalf("applyArchiveSuffix() error = %v", err)
+		}
+		if got.Key != "out-daily.tar.gz" {
+			t.Fatalf("s3 key = %q, want %q", got.Key, "out-daily.tar.gz")
+		}
+	})
+
+	t.Run("stdio rejected", func(t *testing.T) {
+		_, err := applyArchiveSuffix(locator.Ref{Kind: locator.KindStdio, Raw: "-"}, "daily")
+		if err == nil || !strings.Contains(err.Error(), "cannot use -suffix") {
+			t.Fatalf("applyArchiveSuffix() err = %v, want stdio error", err)
+		}
+	})
+}
+
+func TestParseExtractTarget(t *testing.T) {
+	got, err := parseExtractTarget("s3://bucket/prefix", " max-age=60 ")
+	if err != nil {
+		t.Fatalf("parseExtractTarget() error = %v", err)
+	}
+	if got.Kind != locator.KindS3 || got.Bucket != "bucket" || got.Key != "prefix" {
+		t.Fatalf("parsed target = %+v", got)
+	}
+	if got.CacheControl != "max-age=60" {
+		t.Fatalf("cache-control = %q, want %q", got.CacheControl, "max-age=60")
+	}
+}
+
+func TestProcessCreateMembers(t *testing.T) {
+	ctx := context.Background()
+	opts := cli.Options{Members: []string{"src/file.txt", "s3://bucket/object.txt", "s3://bucket/skip.txt"}}
+	var seen []string
+
+	warnings, err := (&Runner{}).processCreateMembers(
+		ctx,
+		opts,
+		[]string{"skip.txt"},
+		func(ref locator.Ref) error {
+			seen = append(seen, "s3:"+ref.Key)
+			return nil
+		},
+		func(member string) (int, error) {
+			seen = append(seen, "local:"+member)
+			return 2, nil
+		},
+	)
+	if err != nil {
+		t.Fatalf("processCreateMembers() error = %v", err)
+	}
+	if warnings != 2 {
+		t.Fatalf("warnings = %d, want 2", warnings)
+	}
+	if strings.Join(seen, ",") != "local:src/file.txt,s3:object.txt" {
+		t.Fatalf("seen = %v", seen)
+	}
+}
+
+func TestDispatchExtractTarget(t *testing.T) {
+	r := &Runner{}
+
+	t.Run("local", func(t *testing.T) {
+		warnings, err := r.dispatchExtractTarget(
+			locator.Ref{Kind: locator.KindLocal, Path: "/tmp/out"},
+			"/tmp/out",
+			func(target locator.Ref) (int, error) {
+				t.Fatalf("unexpected s3 dispatch: %+v", target)
+				return 0, nil
+			},
+			func(base string) (int, error) {
+				if base != "/tmp/out" {
+					t.Fatalf("base = %q", base)
+				}
+				return 3, nil
+			},
+		)
+		if err != nil || warnings != 3 {
+			t.Fatalf("dispatchExtractTarget() = (%d, %v), want (3, nil)", warnings, err)
+		}
+	})
+
+	t.Run("s3", func(t *testing.T) {
+		warnings, err := r.dispatchExtractTarget(
+			locator.Ref{Kind: locator.KindS3, Bucket: "bucket", Key: "prefix"},
+			"s3://bucket/prefix",
+			func(target locator.Ref) (int, error) {
+				if target.Key != "prefix" {
+					t.Fatalf("target = %+v", target)
+				}
+				return 1, nil
+			},
+			func(base string) (int, error) {
+				t.Fatalf("unexpected local dispatch: %s", base)
+				return 0, nil
+			},
+		)
+		if err != nil || warnings != 1 {
+			t.Fatalf("dispatchExtractTarget() = (%d, %v), want (1, nil)", warnings, err)
+		}
+	})
+
+	t.Run("unsupported", func(t *testing.T) {
+		_, err := r.dispatchExtractTarget(locator.Ref{}, "bad-target", func(target locator.Ref) (int, error) {
+			return 0, nil
+		}, func(base string) (int, error) {
+			return 0, nil
+		})
+		if err == nil || !strings.Contains(err.Error(), "unsupported extract target") {
+			t.Fatalf("dispatchExtractTarget() err = %v", err)
+		}
+	})
 }
 
 func TestSafeJoinBlocksTraversal(t *testing.T) {
@@ -243,5 +391,43 @@ func TestLoadExcludePatternsRejectsInvalidPatternInFile(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "exclude.txt:2") {
 		t.Fatalf("error should include file and line: %v", err)
+	}
+}
+
+func TestOpenArchiveReaderUsesInjectedLocalStore(t *testing.T) {
+	t.Helper()
+
+	var opened locator.Ref
+	r := newRunner(
+		fakeLocalArchiveStore{
+			openReader: func(ref locator.Ref) (io.ReadCloser, localstore.Metadata, error) {
+				opened = ref
+				return io.NopCloser(strings.NewReader("payload")), localstore.Metadata{Size: 7}, nil
+			},
+		},
+		nil,
+		nil,
+		io.Discard,
+		io.Discard,
+	)
+
+	rc, info, err := r.openArchiveReader(context.Background(), locator.Ref{Kind: locator.KindLocal, Raw: "archive.tar", Path: "archive.tar"})
+	if err != nil {
+		t.Fatalf("openArchiveReader() error = %v", err)
+	}
+	defer rc.Close() //nolint:errcheck
+
+	b, err := io.ReadAll(rc)
+	if err != nil {
+		t.Fatalf("ReadAll() error = %v", err)
+	}
+	if string(b) != "payload" {
+		t.Fatalf("payload = %q, want %q", string(b), "payload")
+	}
+	if info.Size != 7 || !info.SizeKnown {
+		t.Fatalf("archiveReaderInfo = %+v, want size=7 and known=true", info)
+	}
+	if opened.Path != "archive.tar" {
+		t.Fatalf("opened ref = %+v, want path archive.tar", opened)
 	}
 }

@@ -3,9 +3,6 @@ package engine
 import (
 	"archive/zip"
 	"context"
-	"errors"
-	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/islishude/gotgz/internal/locator"
@@ -23,17 +20,7 @@ func (r *Runner) extractZipEntryToLocal(ctx context.Context, base string, zf *zi
 
 	switch {
 	case isZipDir(zf):
-		if err := ensureSymlinkFreePath(base, target); err != nil {
-			return warnings, err
-		}
-		perm := mode.Perm()
-		if perm == 0 {
-			perm = 0o755
-		}
-		if !policy.SamePerms {
-			perm = perm &^ currentUmask()
-		}
-		if err := os.MkdirAll(target, perm); err != nil {
+		if err := ensureLocalDirTarget(base, target, computeExtractPerm(mode, 0o755, policy.SamePerms)); err != nil {
 			return warnings, err
 		}
 	case isZipSymlink(zf):
@@ -53,19 +40,7 @@ func (r *Runner) extractZipEntryToLocal(ctx context.Context, base string, zf *zi
 		if cerr != nil {
 			return warnings, cerr
 		}
-		if err := ensureSymlinkFreeParentPath(base, target); err != nil {
-			return warnings, err
-		}
-		if err := safeSymlinkTarget(base, target, linkTarget); err != nil {
-			return warnings, err
-		}
-		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
-			return warnings, err
-		}
-		if err := os.Remove(target); err != nil && !errors.Is(err, os.ErrNotExist) {
-			return warnings, err
-		}
-		if err := os.Symlink(linkTarget, target); err != nil {
+		if err := replaceLocalSymlinkTarget(base, target, linkTarget); err != nil {
 			return warnings, err
 		}
 	case isZipRegular(zf):
@@ -77,53 +52,20 @@ func (r *Runner) extractZipEntryToLocal(ctx context.Context, base string, zf *zi
 		if rc == nil {
 			return warnings, nil
 		}
-		if err := ensureSymlinkFreePath(base, target); err != nil {
-			_ = rc.Close()
-			return warnings, err
-		}
-
-		perm := mode.Perm()
-		if perm == 0 {
-			perm = 0o644
-		}
-		if !policy.SamePerms {
-			perm = perm &^ currentUmask()
-		}
-		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
-			_ = rc.Close()
-			return warnings, err
-		}
-		out, err := os.OpenFile(target, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, perm)
-		if err != nil {
-			_ = rc.Close()
-			return warnings, err
-		}
-		_, err = copyWithContext(ctx, out, newCountingReader(rc, reporter))
+		err = writeLocalRegularTarget(ctx, base, target, computeExtractPerm(mode, 0o644, policy.SamePerms), newCountingReader(rc, reporter))
 		rerr := rc.Close()
-		cerr := out.Close()
 		if err != nil {
 			return warnings, err
 		}
 		if rerr != nil {
 			return warnings, rerr
 		}
-		if cerr != nil {
-			return warnings, cerr
-		}
 	default:
 		warnings += r.warnf(reporter, "zip entry %s has unsupported type %s; skipping", zf.Name, mode.String())
 		return warnings, nil
 	}
 
-	if policy.SamePerms && !isZipSymlink(zf) {
-		perm := mode.Perm()
-		if perm != 0 {
-			_ = os.Chmod(target, perm)
-		}
-	}
-	if !modTime.IsZero() && !isZipSymlink(zf) {
-		_ = os.Chtimes(target, modTime, modTime)
-	}
+	applyLocalExtractMetadata(target, mode, modTime, policy.SamePerms, isZipSymlink(zf))
 	return warnings, nil
 }
 
@@ -137,14 +79,6 @@ func (r *Runner) extractZipEntryToS3(ctx context.Context, target locator.Ref, zf
 		return 0, nil
 	}
 
-	obj := locator.Ref{
-		Kind:         locator.KindS3,
-		Bucket:       target.Bucket,
-		Key:          locator.JoinS3Prefix(target.Key, name),
-		Metadata:     target.Metadata,
-		CacheControl: target.CacheControl,
-	}
-
 	if isZipRegular(zf) {
 		rc, w, err := r.openZipEntry(zf, reporter)
 		if err != nil {
@@ -154,7 +88,7 @@ func (r *Runner) extractZipEntryToS3(ctx context.Context, target locator.Ref, zf
 			return w, nil
 		}
 		defer rc.Close() //nolint:errcheck
-		if err := r.s3.UploadStream(ctx, obj, newCountingReader(rc, reporter), target.Metadata); err != nil {
+		if err := r.uploadToS3Target(ctx, target, name, newCountingReader(rc, reporter), target.Metadata); err != nil {
 			return w, err
 		}
 		return w, nil
@@ -169,7 +103,7 @@ func (r *Runner) extractZipEntryToS3(ctx context.Context, target locator.Ref, zf
 			return w, nil
 		}
 		w += r.warnf(reporter, "zip symlink %s extracted to S3 as regular object", zf.Name)
-		err = r.s3.UploadStream(ctx, obj, newCountingReader(rc, reporter), target.Metadata)
+		err = r.uploadToS3Target(ctx, target, name, newCountingReader(rc, reporter), target.Metadata)
 		cerr := rc.Close()
 		if err != nil {
 			return w, err

@@ -8,7 +8,6 @@ import (
 	"io"
 	"io/fs"
 	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/islishude/gotgz/internal/archive"
@@ -98,15 +97,14 @@ func (r *Runner) runExtractTarReader(ctx context.Context, opts cli.Options, repo
 		})
 	}
 
+	parsedTarget, err := parseExtractTarget(opts.Chdir, opts.S3CacheControl)
+	if err != nil {
+		return 0, err
+	}
 	target := opts.Chdir
 	if target == "" {
 		target = "."
 	}
-	parsedTarget, err := locator.ParseArchive(target)
-	if err != nil {
-		return 0, err
-	}
-	parsedTarget = applyS3CacheControl(parsedTarget, opts.S3CacheControl)
 
 	return r.scanTarArchiveFromReader(ctx, opts, reporter, info, opts.Archive, ar, func(hdr *tar.Header, tr *tar.Reader) (int, error) {
 		if shouldSkipMember(opts, hdr.Name) {
@@ -129,14 +127,16 @@ func (r *Runner) runExtractTarReader(ctx context.Context, opts cli.Options, repo
 			_, _ = fmt.Fprintln(r.stdout, effectiveHdr.Name)
 			reporter.afterExternalLineOutput()
 		}
-		switch parsedTarget.Kind {
-		case locator.KindS3:
-			return r.extractToS3(ctx, parsedTarget, &effectiveHdr, tr, reporter)
-		case locator.KindLocal, locator.KindStdio:
-			return r.extractToLocal(ctx, parsedTarget.Path, &effectiveHdr, tr, policy, metadataPolicy, reporter)
-		default:
-			return 0, fmt.Errorf("unsupported extract target %q", target)
-		}
+		return r.dispatchExtractTarget(
+			parsedTarget,
+			target,
+			func(target locator.Ref) (int, error) {
+				return r.extractToS3(ctx, target, &effectiveHdr, tr, reporter)
+			},
+			func(base string) (int, error) {
+				return r.extractToLocal(ctx, base, &effectiveHdr, tr, policy, metadataPolicy, reporter)
+			},
+		)
 	})
 }
 
@@ -153,12 +153,6 @@ func (r *Runner) extractToS3(ctx context.Context, target locator.Ref, hdr *tar.H
 		// Do not create an S3 object when the entry name is empty.
 		return warnings, nil
 	}
-	obj := locator.Ref{
-		Kind:         locator.KindS3,
-		Bucket:       target.Bucket,
-		Key:          locator.JoinS3Prefix(target.Key, name),
-		CacheControl: target.CacheControl,
-	}
 	meta, ok := archive.HeaderToS3Metadata(hdr)
 	meta = mergeMetadata(target.Metadata, meta)
 	if !ok {
@@ -170,7 +164,7 @@ func (r *Runner) extractToS3(ctx context.Context, target locator.Ref, hdr *tar.H
 
 	switch hdr.Typeflag {
 	case tar.TypeReg:
-		if err := r.s3.UploadStream(ctx, obj, io.LimitReader(tr, hdr.Size), meta); err != nil {
+		if err := r.uploadToS3Target(ctx, target, name, io.LimitReader(tr, hdr.Size), meta); err != nil {
 			return warnings, err
 		}
 	case tar.TypeDir:
@@ -181,7 +175,7 @@ func (r *Runner) extractToS3(ctx context.Context, target locator.Ref, hdr *tar.H
 	default:
 		empty := strings.NewReader("")
 		meta["gotgz-type"] = fmt.Sprintf("%d", hdr.Typeflag)
-		if err := r.s3.UploadStream(ctx, obj, empty, meta); err != nil {
+		if err := r.uploadToS3Target(ctx, target, name, empty, meta); err != nil {
 			return warnings, err
 		}
 	}
@@ -195,70 +189,24 @@ func (r *Runner) extractToLocal(ctx context.Context, base string, hdr *tar.Heade
 		return 0, err
 	}
 	mode := fs.FileMode(hdr.Mode)
-	if !policy.SamePerms {
-		mode = mode &^ currentUmask()
-	}
+	extractPerm := computeExtractPerm(mode, 0, policy.SamePerms)
 	warnings := 0
 
 	switch hdr.Typeflag {
 	case tar.TypeDir:
-		if err := ensureSymlinkFreePath(base, target); err != nil {
-			return warnings, err
-		}
-		if err := os.MkdirAll(target, mode.Perm()); err != nil {
+		if err := ensureLocalDirTarget(base, target, extractPerm); err != nil {
 			return warnings, err
 		}
 	case tar.TypeReg:
-		if err := ensureSymlinkFreePath(base, target); err != nil {
+		if err := writeLocalRegularTarget(ctx, base, target, extractPerm, io.LimitReader(tr, hdr.Size)); err != nil {
 			return warnings, err
-		}
-		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
-			return warnings, err
-		}
-		f, err := os.OpenFile(target, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, mode.Perm())
-		if err != nil {
-			return warnings, err
-		}
-		_, err = copyWithContext(ctx, f, io.LimitReader(tr, hdr.Size))
-		cerr := f.Close()
-		if err != nil {
-			return warnings, err
-		}
-		if cerr != nil {
-			return warnings, cerr
 		}
 	case tar.TypeSymlink:
-		if err := ensureSymlinkFreeParentPath(base, target); err != nil {
-			return warnings, err
-		}
-		if err := safeSymlinkTarget(base, target, hdr.Linkname); err != nil {
-			return warnings, err
-		}
-		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
-			return warnings, err
-		}
-		if err := os.Remove(target); err != nil && !errors.Is(err, os.ErrNotExist) {
-			return warnings, err
-		}
-		if err := os.Symlink(hdr.Linkname, target); err != nil {
+		if err := replaceLocalSymlinkTarget(base, target, hdr.Linkname); err != nil {
 			return warnings, err
 		}
 	case tar.TypeLink:
-		if err := ensureSymlinkFreeParentPath(base, target); err != nil {
-			return warnings, err
-		}
-		linkTarget, err := safeJoin(base, hdr.Linkname)
-		if err != nil {
-			return warnings, err
-		}
-		if err := ensureSymlinkFreePath(base, linkTarget); err != nil {
-			return warnings, err
-		}
-		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
-			return warnings, err
-		}
-		_ = os.Remove(target)
-		if err := os.Link(linkTarget, target); err != nil {
+		if err := replaceLocalHardlinkTarget(base, target, hdr.Linkname); err != nil {
 			return warnings, err
 		}
 	default:
@@ -268,14 +216,9 @@ func (r *Runner) extractToLocal(ctx context.Context, base string, hdr *tar.Heade
 		return warnings, nil
 	}
 
-	if policy.SamePerms {
-		_ = os.Chmod(target, fs.FileMode(hdr.Mode).Perm())
-	}
+	applyLocalExtractMetadata(target, mode, hdr.ModTime, policy.SamePerms, hdr.Typeflag == tar.TypeSymlink)
 	if policy.SameOwner {
 		_ = os.Lchown(target, hdr.Uid, hdr.Gid)
-	}
-	if !hdr.ModTime.IsZero() {
-		_ = os.Chtimes(target, hdr.ModTime, hdr.ModTime)
 	}
 
 	xattrs, acls, err := decodeMetadataForExtract(hdr, metadataPolicy)

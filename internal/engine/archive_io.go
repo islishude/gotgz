@@ -2,10 +2,8 @@ package engine
 
 import (
 	"context"
-	"fmt"
 	"io"
 	"maps"
-	"strings"
 
 	"github.com/islishude/gotgz/internal/locator"
 )
@@ -33,51 +31,12 @@ func (r *Runner) openArchiveForRead(ctx context.Context, archive string) (locato
 // with metadata about the archive (size, whether the size is known, and the
 // content type).
 func (r *Runner) openArchiveReader(ctx context.Context, ref locator.Ref) (io.ReadCloser, archiveReaderInfo, error) {
-	switch ref.Kind {
-	case locator.KindLocal, locator.KindStdio:
-		rc, meta, err := r.local.OpenReader(ref)
-		if err != nil {
-			return nil, archiveReaderInfo{}, err
-		}
-		return rc, archiveReaderInfo{Size: meta.Size, SizeKnown: ref.Kind == locator.KindLocal}, nil
-	case locator.KindS3:
-		if strings.TrimSpace(ref.Key) == "" {
-			return nil, archiveReaderInfo{}, fmt.Errorf("archive object key cannot be empty for -f")
-		}
-		rc, meta, err := r.s3.OpenReader(ctx, ref)
-		if err != nil {
-			return nil, archiveReaderInfo{}, err
-		}
-		return rc, archiveReaderInfo{Size: meta.Size, SizeKnown: true, ContentType: strings.TrimSpace(meta.ContentType)}, nil
-	case locator.KindHTTP:
-		rc, meta, err := r.http.OpenReader(ctx, ref)
-		if err != nil {
-			return nil, archiveReaderInfo{}, err
-		}
-		if meta.Size >= 0 {
-			return rc, archiveReaderInfo{Size: meta.Size, SizeKnown: true, ContentType: meta.ContentType}, nil
-		}
-		return rc, archiveReaderInfo{ContentType: meta.ContentType}, nil
-	default:
-		return nil, archiveReaderInfo{}, fmt.Errorf("unsupported archive source %q", ref.Raw)
-	}
+	return r.storage.openArchiveReader(ctx, ref)
 }
 
 // openArchiveWriter opens a write target for archive creation.
 func (r *Runner) openArchiveWriter(ctx context.Context, ref locator.Ref) (io.WriteCloser, error) {
-	switch ref.Kind {
-	case locator.KindLocal, locator.KindStdio:
-		return r.local.OpenWriter(ref)
-	case locator.KindS3:
-		if strings.TrimSpace(ref.Key) == "" {
-			return nil, fmt.Errorf("archive object key cannot be empty for -f")
-		}
-		return r.s3.OpenWriter(ctx, ref, ref.Metadata)
-	case locator.KindHTTP:
-		return nil, fmt.Errorf("unsupported archive target %q: http(s) archives are source-only", ref.Raw)
-	default:
-		return nil, fmt.Errorf("unsupported archive target %q", ref.Raw)
-	}
+	return r.storage.openArchiveWriter(ctx, ref)
 }
 
 // mergeMetadata copies metadata maps with overlay keys taking precedence.

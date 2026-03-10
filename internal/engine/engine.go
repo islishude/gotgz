@@ -33,11 +33,9 @@ type MetadataPolicy struct {
 }
 
 type Runner struct {
-	local  *localstore.ArchiveStore
-	s3     *s3store.Store
-	http   *httpstore.Store
-	stderr io.Writer
-	stdout io.Writer
+	storage *storageRouter
+	stderr  io.Writer
+	stdout  io.Writer
 }
 
 type RunResult struct {
@@ -58,13 +56,22 @@ func New(ctx context.Context, stdout io.Writer, stderr io.Writer) (*Runner, erro
 	if err != nil {
 		return nil, fmt.Errorf("init s3: %w", err)
 	}
+	return newRunner(
+		&localstore.ArchiveStore{},
+		s3s,
+		httpstore.New(),
+		stdout,
+		stderr,
+	), nil
+}
+
+// newRunner wires a Runner from injected storage backends.
+func newRunner(local localArchiveStore, s3 s3ArchiveStore, http httpArchiveStore, stdout io.Writer, stderr io.Writer) *Runner {
 	return &Runner{
-		local:  &localstore.ArchiveStore{},
-		s3:     s3s,
-		http:   httpstore.New(),
-		stdout: stdout,
-		stderr: stderr,
-	}, nil
+		storage: &storageRouter{local: local, s3: s3, http: http},
+		stdout:  stdout,
+		stderr:  stderr,
+	}
 }
 
 // Run executes one CLI mode and maps warnings/errors to a process exit code.
@@ -145,6 +152,85 @@ func (r *Runner) runExtract(ctx context.Context, opts cli.Options) (int, error) 
 	default:
 		return r.runExtractTar(ctx, opts, reporter, ref, ar, info)
 	}
+}
+
+// processCreateMembers parses create-mode members once and dispatches them by backend kind.
+func (r *Runner) processCreateMembers(ctx context.Context, opts cli.Options, excludes []string, handleS3 func(ref locator.Ref) error, handleLocal func(member string) (int, error)) (int, error) {
+	warnings := 0
+	for _, member := range opts.Members {
+		select {
+		case <-ctx.Done():
+			return warnings, ctx.Err()
+		default:
+		}
+
+		ref, err := locator.ParseMember(member)
+		if err != nil {
+			return warnings, err
+		}
+
+		switch ref.Kind {
+		case locator.KindS3:
+			if matchExclude(excludes, ref.Key) {
+				continue
+			}
+			if err := handleS3(ref); err != nil {
+				return warnings, err
+			}
+		case locator.KindLocal:
+			w, err := handleLocal(member)
+			warnings += w
+			if err != nil {
+				return warnings, err
+			}
+		default:
+			return warnings, fmt.Errorf("unsupported member reference %q", member)
+		}
+	}
+	return warnings, nil
+}
+
+// dispatchExtractTarget routes one normalized archive entry to the resolved extract target.
+func (r *Runner) dispatchExtractTarget(target locator.Ref, targetArg string, extractToS3 func(target locator.Ref) (int, error), extractToLocal func(base string) (int, error)) (int, error) {
+	switch target.Kind {
+	case locator.KindS3:
+		return extractToS3(target)
+	case locator.KindLocal, locator.KindStdio:
+		return extractToLocal(target.Path)
+	default:
+		return 0, fmt.Errorf("unsupported extract target %q", targetArg)
+	}
+}
+
+// applyArchiveSuffix rewrites archive destinations when create mode uses -suffix.
+func applyArchiveSuffix(ref locator.Ref, suffix string) (locator.Ref, error) {
+	if suffix == "" {
+		return ref, nil
+	}
+
+	switch ref.Kind {
+	case locator.KindLocal:
+		ref.Path = AddArchiveSuffix(ref.Path, suffix)
+		ref.Raw = ref.Path
+	case locator.KindS3:
+		ref.Key = AddArchiveSuffix(ref.Key, suffix)
+	case locator.KindStdio:
+		return locator.Ref{}, fmt.Errorf("cannot use -suffix with -f -")
+	}
+	return ref, nil
+}
+
+// parseExtractTarget resolves the output target for extract mode and applies S3 options.
+func parseExtractTarget(chdir string, cacheControl string) (locator.Ref, error) {
+	target := chdir
+	if target == "" {
+		target = "."
+	}
+	ref, err := locator.ParseArchive(target)
+	if err != nil {
+		return locator.Ref{}, err
+	}
+	return applyS3CacheControl(ref, cacheControl), nil
 }
 
 // applyS3CacheControl sets Cache-Control on S3 refs when the option is provided.

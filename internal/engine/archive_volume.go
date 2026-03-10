@@ -93,7 +93,7 @@ func (r *Runner) resolveLocalArchiveVolumes(ref locator.Ref, split archivepath.S
 // resolveS3ArchiveVolumes lists matching objects under the first volume's prefix.
 func (r *Runner) resolveS3ArchiveVolumes(ctx context.Context, ref locator.Ref, split archivepath.SplitInfo, firstInfo archiveReaderInfo) ([]archiveVolume, error) {
 	prefix := split.DirPrefix + split.Stem + ".part"
-	objects, err := r.s3.ListPrefix(ctx, ref.Bucket, prefix)
+	objects, err := r.storage.listS3Prefix(ctx, ref.Bucket, prefix)
 	if err != nil {
 		return nil, err
 	}
