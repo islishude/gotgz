@@ -3,12 +3,12 @@ package cli
 import (
 	"fmt"
 	"math"
-	"net/url"
 	"regexp"
 	"strconv"
 	"strings"
 
 	"github.com/islishude/gotgz/internal/archivepath"
+	"github.com/islishude/gotgz/internal/archiveutil"
 	"github.com/islishude/gotgz/internal/locator"
 )
 
@@ -427,36 +427,15 @@ func validateOptions(opts Options) error {
 	if ref.Kind == locator.KindStdio {
 		return fmt.Errorf("option --split-size does not support -f -")
 	}
-	if isZipArchiveName(archiveNameHint(ref)) {
+	if archiveutil.HasZipHint(archiveutil.NameHint(ref)) {
 		return fmt.Errorf("option --split-size does not support zip archives")
 	}
 	switch opts.Compression {
 	case CompressionBzip2, CompressionXz:
 		return fmt.Errorf("option --split-size does not support %s compression", opts.Compression)
 	}
-	if _, ok := archivepath.ParseSplit(archiveNameHint(ref)); ok {
+	if _, ok := archivepath.ParseSplit(archiveutil.NameHint(ref)); ok {
 		return fmt.Errorf("option --split-size cannot use an archive name that already contains .partNNNN")
 	}
 	return nil
-}
-
-func archiveNameHint(ref locator.Ref) string {
-	switch ref.Kind {
-	case locator.KindS3:
-		return ref.Key
-	case locator.KindHTTP:
-		parsed, err := url.Parse(ref.URL)
-		if err != nil {
-			return ref.URL
-		}
-		return parsed.Path
-	case locator.KindLocal:
-		return ref.Path
-	default:
-		return ref.Raw
-	}
-}
-
-func isZipArchiveName(name string) bool {
-	return strings.HasSuffix(strings.ToLower(strings.TrimSpace(name)), ".zip")
 }

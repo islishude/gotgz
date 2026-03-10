@@ -1,9 +1,9 @@
 package engine
 
 import (
-	"net/url"
 	"strings"
 
+	"github.com/islishude/gotgz/internal/archiveutil"
 	"github.com/islishude/gotgz/internal/locator"
 )
 
@@ -16,7 +16,7 @@ const (
 
 // detectCreateArchiveFormat resolves output archive format from destination hint.
 func detectCreateArchiveFormat(ref locator.Ref) archiveFormat {
-	if hasZipHint(archiveNameHint(ref)) {
+	if archiveutil.HasZipHint(archiveutil.NameHint(ref)) {
 		return archiveFormatZip
 	}
 	return archiveFormatTar
@@ -28,43 +28,13 @@ func detectReadArchiveFormat(magic []byte, hint string, contentType string) arch
 	if isZipMagic(magic) {
 		return archiveFormatZip
 	}
-	if hasZipHint(hint) {
+	if archiveutil.HasZipHint(hint) {
 		return archiveFormatZip
 	}
 	if isZipContentType(contentType) {
 		return archiveFormatZip
 	}
 	return archiveFormatTar
-}
-
-// archiveNameHint returns the best-effort filename/path hint for format detection.
-func archiveNameHint(ref locator.Ref) string {
-	switch ref.Kind {
-	case locator.KindS3:
-		return ref.Key
-	case locator.KindHTTP:
-		u, err := url.Parse(ref.URL)
-		if err != nil {
-			return ref.URL
-		}
-		return u.Path
-	case locator.KindLocal:
-		return ref.Path
-	default:
-		return ref.Raw
-	}
-}
-
-// hasZipHint reports whether the provided path-like hint implies zip format.
-func hasZipHint(v string) bool {
-	hint := strings.TrimSpace(v)
-	if hint == "" {
-		return false
-	}
-	if u, err := url.Parse(hint); err == nil && u.Scheme != "" {
-		hint = u.Path
-	}
-	return strings.HasSuffix(strings.ToLower(hint), ".zip")
 }
 
 // isZipMagic reports whether the provided bytes match ZIP local/central signatures.

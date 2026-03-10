@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/islishude/gotgz/internal/archiveutil"
 	"github.com/islishude/gotgz/internal/cli"
 	"github.com/islishude/gotgz/internal/locator"
 	httpstore "github.com/islishude/gotgz/internal/storage/http"
@@ -119,7 +120,7 @@ func (r *Runner) runList(ctx context.Context, opts cli.Options) (int, error) {
 		return 0, err
 	}
 
-	switch detectReadArchiveFormat(magic, archiveNameHint(ref), info.ContentType) {
+	switch detectReadArchiveFormat(magic, archiveutil.NameHint(ref), info.ContentType) {
 	case archiveFormatZip:
 		defer ar.Close() //nolint:errcheck
 		return r.runListZip(ctx, opts, reporter, ref, ar, info)
@@ -137,7 +138,7 @@ func (r *Runner) runExtract(ctx context.Context, opts cli.Options) (int, error) 
 		return 0, err
 	}
 
-	switch detectReadArchiveFormat(magic, archiveNameHint(ref), info.ContentType) {
+	switch detectReadArchiveFormat(magic, archiveutil.NameHint(ref), info.ContentType) {
 	case archiveFormatZip:
 		defer ar.Close() //nolint:errcheck
 		return r.runExtractZip(ctx, opts, reporter, ref, ar, info)

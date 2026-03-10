@@ -8,6 +8,7 @@ import (
 	"sort"
 
 	"github.com/islishude/gotgz/internal/archivepath"
+	"github.com/islishude/gotgz/internal/archiveutil"
 	"github.com/islishude/gotgz/internal/locator"
 )
 
@@ -19,12 +20,12 @@ type archiveVolume struct {
 
 // resolveArchiveVolumes discovers all sibling parts when the input uses `.part0001`.
 func (r *Runner) resolveArchiveVolumes(ctx context.Context, ref locator.Ref, firstInfo archiveReaderInfo) ([]archiveVolume, error) {
-	split, ok := archivepath.ParseSplit(archiveNameHint(ref))
+	split, ok := archivepath.ParseSplit(archiveutil.NameHint(ref))
 	if !ok {
 		return []archiveVolume{{ref: ref, info: firstInfo}}, nil
 	}
 	if split.Part != 1 {
-		return nil, fmt.Errorf("split archives must be opened with part0001, got %s", archiveNameHint(ref))
+		return nil, fmt.Errorf("split archives must be opened with part0001, got %s", archiveutil.NameHint(ref))
 	}
 
 	switch ref.Kind {

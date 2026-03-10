@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/islishude/gotgz/internal/archive"
+	"github.com/islishude/gotgz/internal/archiveutil"
 	"github.com/islishude/gotgz/internal/cli"
 	"github.com/islishude/gotgz/internal/compress"
 	"github.com/islishude/gotgz/internal/locator"
@@ -26,7 +27,7 @@ func (r *Runner) runListTar(ctx context.Context, opts cli.Options, reporter *pro
 	}
 
 	scan := func(scanReader io.ReadCloser, scanInfo archiveReaderInfo) (int, error) {
-		return r.scanTarArchiveFromReader(ctx, opts, reporter, scanInfo, archiveNameHint(ref), scanReader, func(hdr *tar.Header, tr *tar.Reader) (int, error) {
+		return r.scanTarArchiveFromReader(ctx, opts, reporter, scanInfo, archiveutil.NameHint(ref), scanReader, func(hdr *tar.Header, tr *tar.Reader) (int, error) {
 			if shouldSkipMember(opts, hdr.Name) {
 				if _, err := copyWithContext(ctx, io.Discard, tr); err != nil {
 					return 0, err

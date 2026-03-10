@@ -7,6 +7,7 @@ import (
 	"io"
 
 	"github.com/islishude/gotgz/internal/archivepath"
+	"github.com/islishude/gotgz/internal/archiveutil"
 	"github.com/islishude/gotgz/internal/cli"
 	"github.com/islishude/gotgz/internal/compress"
 	"github.com/islishude/gotgz/internal/locator"
@@ -210,10 +211,10 @@ func (w *splitTarArchiveWriter) closeCurrentVolume() error {
 
 	var first error
 	if err := w.current.tw.Close(); err != nil {
-		first = fmt.Errorf("closing tar writer for %s: %w", archiveNameHint(w.current.ref), err)
+		first = fmt.Errorf("closing tar writer for %s: %w", archiveutil.NameHint(w.current.ref), err)
 	}
 	if err := w.current.cw.Close(); err != nil && first == nil {
-		first = fmt.Errorf("closing archive for %s: %w", archiveNameHint(w.current.ref), err)
+		first = fmt.Errorf("closing archive for %s: %w", archiveutil.NameHint(w.current.ref), err)
 	}
 	w.current = nil
 	w.rotateOnEntry = false
