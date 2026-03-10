@@ -42,12 +42,21 @@ func (r *Runner) resolveArchiveVolumes(ctx context.Context, ref locator.Ref, fir
 
 // resolveLocalArchiveVolumes lists matching files beside the first local volume.
 func (r *Runner) resolveLocalArchiveVolumes(ref locator.Ref, split archivepath.SplitInfo, firstInfo archiveReaderInfo) ([]archiveVolume, error) {
-	dir := filepath.Dir(ref.Path)
-	if dir == "." && !filepath.IsAbs(ref.Path) {
-		dir = ""
+	cleanPath := filepath.Clean(ref.Path)
+	if normalizedSplit, ok := archivepath.ParseSplit(cleanPath); ok {
+		split = normalizedSplit
 	}
 
-	entries, err := os.ReadDir(filepath.Dir(ref.Path))
+	dir := filepath.Dir(cleanPath)
+	if dir == "." && !filepath.IsAbs(cleanPath) {
+		dir = ""
+	}
+	listDir := dir
+	if listDir == "" {
+		listDir = "."
+	}
+
+	entries, err := os.ReadDir(listDir)
 	if err != nil {
 		return nil, err
 	}

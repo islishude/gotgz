@@ -205,3 +205,71 @@ func TestProgressDoesNotPolluteStdoutWhenExtractingToStdout(t *testing.T) {
 		}
 	}
 }
+
+func TestProgressAlwaysUsesCombinedTotalForSplitArchives(t *testing.T) {
+	root := t.TempDir()
+	archive := filepath.Join(root, "bundle.tar")
+	for _, tc := range []struct {
+		name string
+		body string
+	}{
+		{name: "one.txt", body: "one"},
+		{name: "two.txt", body: "two"},
+	} {
+		if err := os.WriteFile(filepath.Join(root, tc.name), []byte(tc.body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	rCreate, err := New(context.Background(), io.Discard, io.Discard)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	create := cli.Options{
+		Mode:           cli.ModeCreate,
+		Archive:        archive,
+		Chdir:          root,
+		SplitSizeBytes: 1,
+		Members:        []string{"one.txt", "two.txt"},
+	}
+	if got := rCreate.Run(context.Background(), create); got.ExitCode != ExitSuccess {
+		t.Fatalf("create exit=%d err=%v", got.ExitCode, got.Err)
+	}
+
+	var total int64
+	for _, path := range []string{
+		filepath.Join(root, "bundle.part0001.tar"),
+		filepath.Join(root, "bundle.part0002.tar"),
+	} {
+		info, err := os.Stat(path)
+		if err != nil {
+			t.Fatalf("Stat(%s) error = %v", path, err)
+		}
+		total += info.Size()
+	}
+
+	var stderr bytes.Buffer
+	rList, err := New(context.Background(), io.Discard, &stderr)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	list := cli.Options{
+		Mode:     cli.ModeList,
+		Archive:  filepath.Join(root, "bundle.part0001.tar"),
+		Progress: cli.ProgressAlways,
+	}
+	if got := rList.Run(context.Background(), list); got.ExitCode != ExitSuccess {
+		t.Fatalf("list exit=%d err=%v", got.ExitCode, got.Err)
+	}
+
+	final := stderr.String()
+	index := strings.LastIndex(final, "gotgz:")
+	if index < 0 {
+		t.Fatalf("stderr missing progress output:\n%s", final)
+	}
+	final = final[index:]
+	want := formatBytes(total) + "/" + formatBytes(total)
+	if !strings.Contains(final, want) {
+		t.Fatalf("final progress line = %q, want combined total %q", final, want)
+	}
+}

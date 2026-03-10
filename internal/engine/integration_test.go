@@ -220,6 +220,92 @@ func TestListSplitArchiveFailsWhenVolumeMissing(t *testing.T) {
 	}
 }
 
+func TestSplitArchiveDiscoveryWithDotRelativePath(t *testing.T) {
+	root := t.TempDir()
+	archive := filepath.Join(root, "bundle.tar")
+	out := filepath.Join(root, "out")
+
+	for _, tc := range []struct {
+		name string
+		body string
+	}{
+		{name: "one.txt", body: "one"},
+		{name: "two.txt", body: "two"},
+	} {
+		if err := os.WriteFile(filepath.Join(root, tc.name), []byte(tc.body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	r, err := New(context.Background(), io.Discard, io.Discard)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	create := cli.Options{
+		Mode:           cli.ModeCreate,
+		Archive:        archive,
+		Chdir:          root,
+		SplitSizeBytes: 1,
+		Members:        []string{"one.txt", "two.txt"},
+	}
+	if got := r.Run(context.Background(), create); got.ExitCode != ExitSuccess {
+		t.Fatalf("create exit=%d err=%v", got.ExitCode, got.Err)
+	}
+
+	firstPart := filepath.Join(root, "bundle.part0001.tar")
+	wd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Getwd() error = %v", err)
+	}
+	relFirstPart, err := filepath.Rel(wd, firstPart)
+	if err != nil {
+		t.Fatalf("Rel() error = %v", err)
+	}
+	archiveArg := "." + string(filepath.Separator) + relFirstPart
+
+	var listBuf bytes.Buffer
+	rList, err := New(context.Background(), &listBuf, io.Discard)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	list := cli.Options{Mode: cli.ModeList, Archive: archiveArg}
+	if got := rList.Run(context.Background(), list); got.ExitCode != ExitSuccess {
+		t.Fatalf("list exit=%d err=%v", got.ExitCode, got.Err)
+	}
+	for _, want := range []string{"one.txt", "two.txt"} {
+		if !strings.Contains(listBuf.String(), want) {
+			t.Fatalf("relative split listing missing %q:\n%s", want, listBuf.String())
+		}
+	}
+
+	if err := os.MkdirAll(out, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	rExtract, err := New(context.Background(), io.Discard, io.Discard)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	extract := cli.Options{Mode: cli.ModeExtract, Archive: archiveArg, Chdir: out}
+	if got := rExtract.Run(context.Background(), extract); got.ExitCode != ExitSuccess {
+		t.Fatalf("extract exit=%d err=%v", got.ExitCode, got.Err)
+	}
+	for _, tc := range []struct {
+		name string
+		want string
+	}{
+		{name: "one.txt", want: "one"},
+		{name: "two.txt", want: "two"},
+	} {
+		b, err := os.ReadFile(filepath.Join(out, tc.name))
+		if err != nil {
+			t.Fatalf("read %s: %v", tc.name, err)
+		}
+		if string(b) != tc.want {
+			t.Fatalf("%s = %q, want %q", tc.name, string(b), tc.want)
+		}
+	}
+}
+
 func TestExtractStripComponents(t *testing.T) {
 	root := t.TempDir()
 	srcRoot := filepath.Join(root, "src")

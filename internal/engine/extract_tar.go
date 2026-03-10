@@ -45,6 +45,7 @@ func (r *Runner) runListTar(ctx context.Context, opts cli.Options, reporter *pro
 	}
 
 	if len(volumes) == 1 {
+		reporter.SetTotal(info.Size, info.SizeKnown)
 		return scan(ar, info)
 	}
 	return r.scanTarArchiveFromVolumes(ctx, opts, reporter, volumes, ar, scan)
@@ -63,6 +64,7 @@ func (r *Runner) runExtractTar(ctx context.Context, opts cli.Options, reporter *
 	}
 
 	if len(volumes) == 1 {
+		reporter.SetTotal(info.Size, info.SizeKnown)
 		return scan(ar, info)
 	}
 	return r.scanTarArchiveFromVolumes(ctx, opts, reporter, volumes, ar, scan)
@@ -270,7 +272,6 @@ func (r *Runner) extractToLocal(ctx context.Context, base string, hdr *tar.Heade
 
 // scanTarArchiveFromReader scans a tar stream with optional compression.
 func (r *Runner) scanTarArchiveFromReader(ctx context.Context, opts cli.Options, reporter *progressReporter, info archiveReaderInfo, hint string, ar io.ReadCloser, fn func(hdr *tar.Header, tr *tar.Reader) (int, error)) (int, error) {
-	reporter.SetTotal(info.Size, info.SizeKnown)
 	return r.scanTarArchiveStream(ctx, opts, reporter, info, hint, ar, fn)
 }
 
