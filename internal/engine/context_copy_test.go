@@ -281,6 +281,118 @@ func TestCopyWithContext_LimitedReaderLargeLimit(t *testing.T) {
 	}
 }
 
+// TestCopyWithContextLimit_WithinLimit ensures the bounded copy succeeds when
+// the source fits under the configured limit.
+func TestCopyWithContextLimit_WithinLimit(t *testing.T) {
+	src := strings.NewReader("hello")
+	var dst bytes.Buffer
+
+	n, err := copyWithContextLimit(context.Background(), &dst, src, 10)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if n != 5 {
+		t.Fatalf("expected 5 bytes written, got %d", n)
+	}
+	if dst.String() != "hello" {
+		t.Fatalf("expected %q, got %q", "hello", dst.String())
+	}
+}
+
+// TestCopyWithContextLimit_ExactLimit ensures hitting the limit exactly does
+// not report an overflow.
+func TestCopyWithContextLimit_ExactLimit(t *testing.T) {
+	data := []byte("exact")
+	src := bytes.NewReader(data)
+	var dst bytes.Buffer
+
+	n, err := copyWithContextLimit(context.Background(), &dst, src, int64(len(data)))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if n != int64(len(data)) {
+		t.Fatalf("expected %d bytes written, got %d", len(data), n)
+	}
+	if !bytes.Equal(dst.Bytes(), data) {
+		t.Fatal("copied data does not match source")
+	}
+}
+
+// TestCopyWithContextLimit_Exceeded ensures the bounded copy writes only the
+// allowed bytes before reporting the staging limit error.
+func TestCopyWithContextLimit_Exceeded(t *testing.T) {
+	src := strings.NewReader("overflow")
+	var dst bytes.Buffer
+
+	n, err := copyWithContextLimit(context.Background(), &dst, src, 5)
+	if !errors.Is(err, errCopyLimitExceeded) {
+		t.Fatalf("expected %v, got %v", errCopyLimitExceeded, err)
+	}
+	if n != 5 {
+		t.Fatalf("expected 5 bytes written, got %d", n)
+	}
+	if dst.String() != "overf" {
+		t.Fatalf("expected %q, got %q", "overf", dst.String())
+	}
+}
+
+// TestCopyWithContextLimit_MinimalOverread ensures the bounded copy reads at
+// most one byte past the limit when detecting an overflow.
+func TestCopyWithContextLimit_MinimalOverread(t *testing.T) {
+	src := &trackingReader{data: bytes.Repeat([]byte("Z"), 1024)}
+	var dst bytes.Buffer
+
+	n, err := copyWithContextLimit(context.Background(), &dst, src, 7)
+	if !errors.Is(err, errCopyLimitExceeded) {
+		t.Fatalf("expected %v, got %v", errCopyLimitExceeded, err)
+	}
+	if n != 7 {
+		t.Fatalf("expected 7 bytes written, got %d", n)
+	}
+	if src.totalRead != 8 {
+		t.Fatalf("expected 8 bytes read, got %d", src.totalRead)
+	}
+}
+
+// TestCopyWithContextLimit_ZeroLimit ensures a zero-byte limit rejects any
+// non-empty source without writing data while still probing only one byte.
+func TestCopyWithContextLimit_ZeroLimit(t *testing.T) {
+	src := &trackingReader{data: []byte("blocked")}
+	var dst bytes.Buffer
+
+	n, err := copyWithContextLimit(context.Background(), &dst, src, 0)
+	if !errors.Is(err, errCopyLimitExceeded) {
+		t.Fatalf("expected %v, got %v", errCopyLimitExceeded, err)
+	}
+	if n != 0 {
+		t.Fatalf("expected 0 bytes written, got %d", n)
+	}
+	if dst.Len() != 0 {
+		t.Fatalf("expected destination to stay empty, got %q", dst.String())
+	}
+	if src.totalRead != 1 {
+		t.Fatalf("expected a 1-byte overflow probe, got %d bytes read", src.totalRead)
+	}
+}
+
+// TestCopyWithContextLimit_NegativeLimitDisablesBound ensures copyWithContext's
+// negative sentinel continues to behave as an unbounded copy.
+func TestCopyWithContextLimit_NegativeLimitDisablesBound(t *testing.T) {
+	src := strings.NewReader("unbounded")
+	var dst bytes.Buffer
+
+	n, err := copyWithContextLimit(context.Background(), &dst, src, -1)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if n != int64(len("unbounded")) {
+		t.Fatalf("expected %d bytes written, got %d", len("unbounded"), n)
+	}
+	if dst.String() != "unbounded" {
+		t.Fatalf("expected %q, got %q", "unbounded", dst.String())
+	}
+}
+
 // --- test helpers ---
 
 // slowReader returns data in small chunks and calls afterFirst after delivering
@@ -373,4 +485,22 @@ type overreportWriter struct{}
 // Write implements io.Writer for overreportWriter.
 func (w *overreportWriter) Write(p []byte) (int, error) {
 	return len(p) + 1, nil
+}
+
+// trackingReader records how many bytes the copy loop pulled from the source.
+type trackingReader struct {
+	data      []byte
+	offset    int
+	totalRead int
+}
+
+// Read implements io.Reader for trackingReader.
+func (r *trackingReader) Read(p []byte) (int, error) {
+	if r.offset >= len(r.data) {
+		return 0, io.EOF
+	}
+	n := copy(p, r.data[r.offset:])
+	r.offset += n
+	r.totalRead += n
+	return n, nil
 }
