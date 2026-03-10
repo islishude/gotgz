@@ -47,6 +47,18 @@ func TestParseArchiveRejectsMissingS3Bucket(t *testing.T) {
 	}
 }
 
+// TestParseArchiveObjectARNBucketNamedBucket verifies that object ARNs are
+// parsed correctly even when the bucket name itself is "bucket".
+func TestParseArchiveObjectARNBucketNamedBucket(t *testing.T) {
+	ref, err := ParseArchive("arn:aws:s3:::bucket/path/to/file.txt")
+	if err != nil {
+		t.Fatalf("ParseArchive() error = %v", err)
+	}
+	if ref.Kind != KindS3 || ref.Bucket != "bucket" || ref.Key != "path/to/file.txt" {
+		t.Fatalf("ParseArchive() = %+v, want bucket=%q key=%q", ref, "bucket", "path/to/file.txt")
+	}
+}
+
 // TestParseMemberParsesSupportedRefs verifies that member inputs accept local
 // paths and S3 object references.
 func TestParseMemberParsesSupportedRefs(t *testing.T) {
@@ -105,6 +117,15 @@ func TestJoinS3Prefix(t *testing.T) {
 				t.Fatalf("JoinS3Prefix(%q, %q) = %q, want %q", tt.prefix, tt.member, got, tt.want)
 			}
 		})
+	}
+}
+
+// TestParseArchiveRejectsAccessPointARNWithoutObjectKey verifies that access
+// point ARNs without an object path are rejected.
+func TestParseArchiveRejectsAccessPointARNWithoutObjectKey(t *testing.T) {
+	_, err := ParseArchive("arn:aws:s3:us-west-2:123456789012:accesspoint/myap/object/")
+	if err == nil {
+		t.Fatalf("ParseArchive() error = nil, want non-nil")
 	}
 }
 
