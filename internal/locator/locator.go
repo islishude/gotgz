@@ -94,9 +94,6 @@ func parseS3ARN(v string) (Ref, error) {
 	if after, ok := strings.CutPrefix(resource, ":::"); ok {
 		resource = after
 	}
-	if after, ok := strings.CutPrefix(resource, "bucket/"); ok {
-		resource = after
-	}
 	parts := strings.SplitN(resource, "/", 2)
 	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
 		return Ref{}, fmt.Errorf("unsupported s3 arn, expected object arn with bucket and key")

@@ -535,6 +535,116 @@ func TestExtractTarHardLinkTargetEscapesExtractionDir(t *testing.T) {
 	}
 }
 
+func TestExtractTarRejectsPreexistingSymlinkTraversal(t *testing.T) {
+	cases := []struct {
+		name        string
+		build       func(t *testing.T) []byte
+		blockedPath string
+	}{
+		{
+			name: "regular file",
+			build: func(t *testing.T) []byte {
+				return tarArchiveBytes(t, map[string]string{"dir/file.txt": "payload"})
+			},
+			blockedPath: "file.txt",
+		},
+		{
+			name: "directory",
+			build: func(t *testing.T) []byte {
+				t.Helper()
+
+				var buf bytes.Buffer
+				tw := tar.NewWriter(&buf)
+				if err := tw.WriteHeader(&tar.Header{
+					Name:     "dir/sub",
+					Mode:     0o755,
+					Typeflag: tar.TypeDir,
+					Format:   tar.FormatPAX,
+				}); err != nil {
+					t.Fatalf("WriteHeader(dir/sub): %v", err)
+				}
+				if err := tw.Close(); err != nil {
+					t.Fatalf("close tar writer: %v", err)
+				}
+				return buf.Bytes()
+			},
+			blockedPath: "sub",
+		},
+		{
+			name: "symlink entry",
+			build: func(t *testing.T) []byte {
+				t.Helper()
+
+				var buf bytes.Buffer
+				tw := tar.NewWriter(&buf)
+				if err := tw.WriteHeader(&tar.Header{
+					Name:     "dir/link",
+					Mode:     0o777,
+					Typeflag: tar.TypeSymlink,
+					Linkname: "safe.txt",
+					Format:   tar.FormatPAX,
+				}); err != nil {
+					t.Fatalf("WriteHeader(dir/link): %v", err)
+				}
+				if err := tw.Close(); err != nil {
+					t.Fatalf("close tar writer: %v", err)
+				}
+				return buf.Bytes()
+			},
+			blockedPath: "link",
+		},
+		{
+			name: "hard link entry",
+			build: func(t *testing.T) []byte {
+				return tarArchiveBytesWithHardLink(t, "src/original.txt", "payload", "dir/alias.txt")
+			},
+			blockedPath: "alias.txt",
+		},
+	}
+
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			root := t.TempDir()
+			archive := filepath.Join(root, "preexisting-symlink.tar")
+			out := filepath.Join(root, "out")
+			outside := filepath.Join(root, "outside")
+
+			if err := os.MkdirAll(out, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.MkdirAll(outside, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Symlink(outside, filepath.Join(out, "dir")); err != nil {
+				t.Fatalf("symlink output dir: %v", err)
+			}
+			if err := os.WriteFile(archive, tt.build(t), 0o644); err != nil {
+				t.Fatalf("write tar: %v", err)
+			}
+
+			r, err := New(context.Background(), io.Discard, io.Discard)
+			if err != nil {
+				t.Fatalf("New() error = %v", err)
+			}
+
+			got := r.Run(context.Background(), cli.Options{
+				Mode:    cli.ModeExtract,
+				Archive: archive,
+				Chdir:   out,
+			})
+			if got.ExitCode != ExitFatal {
+				t.Fatalf("extract exit=%d err=%v, want fatal", got.ExitCode, got.Err)
+			}
+			if got.Err == nil || !strings.Contains(got.Err.Error(), "follow symlink") {
+				t.Fatalf("extract err=%v, want symlink traversal error", got.Err)
+			}
+			if _, err := os.Lstat(filepath.Join(outside, tt.blockedPath)); !os.IsNotExist(err) {
+				t.Fatalf("outside path should remain absent, lstat err=%v", err)
+			}
+		})
+	}
+}
+
 func TestExtractTarSameOwnerDoesNotFail(t *testing.T) {
 	root := t.TempDir()
 	archive := filepath.Join(root, "same-owner.tar")
@@ -1791,5 +1901,89 @@ func TestExtractZipSymlinkTargetEscapesExtractionDir(t *testing.T) {
 
 	if _, err := os.Lstat(filepath.Join(out, "link")); !os.IsNotExist(err) {
 		t.Fatalf("escaping symlink entry should not create output file, lstat err=%v", err)
+	}
+}
+
+func TestExtractZipRejectsPreexistingSymlinkTraversal(t *testing.T) {
+	cases := []struct {
+		name        string
+		build       func(t *testing.T) []byte
+		blockedPath string
+	}{
+		{
+			name: "regular file",
+			build: func(t *testing.T) []byte {
+				return zipArchiveBytes(t, map[string]string{"dir/file.txt": "payload"})
+			},
+			blockedPath: "file.txt",
+		},
+		{
+			name: "directory",
+			build: func(t *testing.T) []byte {
+				t.Helper()
+
+				var buf bytes.Buffer
+				zw := zip.NewWriter(&buf)
+				hdr := &zip.FileHeader{Name: "dir/sub/", Method: zip.Store}
+				hdr.SetMode(fs.ModeDir | 0o755)
+				if _, err := zw.CreateHeader(hdr); err != nil {
+					t.Fatalf("CreateHeader(dir/sub/): %v", err)
+				}
+				if err := zw.Close(); err != nil {
+					t.Fatalf("close zip writer: %v", err)
+				}
+				return buf.Bytes()
+			},
+			blockedPath: "sub",
+		},
+		{
+			name: "symlink entry",
+			build: func(t *testing.T) []byte {
+				return zipArchiveSymlinkBytes(t, "dir/link", "safe.txt")
+			},
+			blockedPath: "link",
+		},
+	}
+
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			root := t.TempDir()
+			archive := filepath.Join(root, "preexisting-symlink.zip")
+			out := filepath.Join(root, "out")
+			outside := filepath.Join(root, "outside")
+
+			if err := os.MkdirAll(out, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.MkdirAll(outside, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Symlink(outside, filepath.Join(out, "dir")); err != nil {
+				t.Fatalf("symlink output dir: %v", err)
+			}
+			if err := os.WriteFile(archive, tt.build(t), 0o644); err != nil {
+				t.Fatalf("write zip: %v", err)
+			}
+
+			r, err := New(context.Background(), io.Discard, io.Discard)
+			if err != nil {
+				t.Fatalf("New() error = %v", err)
+			}
+
+			got := r.Run(context.Background(), cli.Options{
+				Mode:    cli.ModeExtract,
+				Archive: archive,
+				Chdir:   out,
+			})
+			if got.ExitCode != ExitFatal {
+				t.Fatalf("extract exit=%d err=%v, want fatal", got.ExitCode, got.Err)
+			}
+			if got.Err == nil || !strings.Contains(got.Err.Error(), "follow symlink") {
+				t.Fatalf("extract err=%v, want symlink traversal error", got.Err)
+			}
+			if _, err := os.Lstat(filepath.Join(outside, tt.blockedPath)); !os.IsNotExist(err) {
+				t.Fatalf("outside path should remain absent, lstat err=%v", err)
+			}
+		})
 	}
 }

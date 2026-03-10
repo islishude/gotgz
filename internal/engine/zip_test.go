@@ -6,6 +6,8 @@ import (
 	"context"
 	"errors"
 	"io"
+	"os"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -42,6 +44,117 @@ func TestWithZipReaderRespectsContextDuringTempCopy(t *testing.T) {
 		}
 	case <-time.After(1500 * time.Millisecond):
 		t.Fatal("withZipReader() did not stop after context cancellation")
+	}
+}
+
+func TestWithZipReaderRejectsKnownOversizeBeforeCopy(t *testing.T) {
+	t.Setenv(zipStagingLimitEnv, "64")
+
+	called := false
+	_, err := (&Runner{}).withZipReader(
+		context.Background(),
+		locator.Ref{Kind: locator.KindStdio, Raw: "-"},
+		io.NopCloser(strings.NewReader("ignored")),
+		archiveReaderInfo{Size: 65, SizeKnown: true},
+		nil,
+		func(_ *zip.Reader) (int, error) {
+			called = true
+			return 0, nil
+		},
+	)
+	if err == nil || !strings.Contains(err.Error(), "staging limit") {
+		t.Fatalf("withZipReader() err = %v, want staging limit error", err)
+	}
+	if called {
+		t.Fatal("zip callback should not run for oversized input")
+	}
+}
+
+func TestWithZipReaderRejectsUnknownOversizeDuringCopy(t *testing.T) {
+	t.Setenv(zipStagingLimitEnv, "64")
+
+	payload := zipArchiveBytes(t, map[string]string{
+		"file.txt": strings.Repeat("x", 256),
+	})
+	called := false
+	_, err := (&Runner{}).withZipReader(
+		context.Background(),
+		locator.Ref{Kind: locator.KindStdio, Raw: "-"},
+		io.NopCloser(bytes.NewReader(payload)),
+		archiveReaderInfo{},
+		nil,
+		func(_ *zip.Reader) (int, error) {
+			called = true
+			return 0, nil
+		},
+	)
+	if err == nil || !strings.Contains(err.Error(), "staging limit") {
+		t.Fatalf("withZipReader() err = %v, want staging limit error", err)
+	}
+	if called {
+		t.Fatal("zip callback should not run for oversized staged input")
+	}
+}
+
+func TestWithZipReaderPreservesLocalZipParseErrorWhenStagingFallbackIsUsed(t *testing.T) {
+	t.Setenv(zipStagingLimitEnv, "64")
+
+	path := t.TempDir() + "/invalid.zip"
+	payload := bytes.Repeat([]byte("not-a-zip"), 32)
+	if err := os.WriteFile(path, payload, 0o644); err != nil {
+		t.Fatalf("os.WriteFile() error = %v", err)
+	}
+
+	f, err := os.Open(path)
+	if err != nil {
+		t.Fatalf("os.Open() error = %v", err)
+	}
+	defer func() {
+		if err := f.Close(); err != nil {
+			t.Fatalf("f.Close() error = %v", err)
+		}
+	}()
+
+	st, err := f.Stat()
+	if err != nil {
+		t.Fatalf("f.Stat() error = %v", err)
+	}
+	expectedReader, err := os.Open(path)
+	if err != nil {
+		t.Fatalf("os.Open() expectedReader error = %v", err)
+	}
+	defer func() {
+		if err := expectedReader.Close(); err != nil {
+			t.Fatalf("expectedReader.Close() error = %v", err)
+		}
+	}()
+	if _, expectedErr := zip.NewReader(expectedReader, st.Size()); expectedErr == nil {
+		t.Fatal("zip.NewReader() unexpectedly accepted invalid local zip")
+	} else {
+		called := false
+		_, err = (&Runner{}).withZipReader(
+			context.Background(),
+			locator.Ref{Kind: locator.KindLocal, Raw: path, Path: path},
+			f,
+			archiveReaderInfo{Size: st.Size(), SizeKnown: true},
+			nil,
+			func(_ *zip.Reader) (int, error) {
+				called = true
+				return 0, nil
+			},
+		)
+		if err == nil {
+			t.Fatal("withZipReader() error = nil, want invalid zip error")
+		}
+		if called {
+			t.Fatal("zip callback should not run for invalid local zip")
+		}
+		if strings.Contains(err.Error(), "staging limit") {
+			t.Fatalf("withZipReader() err = %v, want original zip parse error", err)
+		}
+		if err.Error() != expectedErr.Error() {
+			t.Fatalf("withZipReader() err = %v, want %v", err, expectedErr)
+		}
 	}
 }
 
