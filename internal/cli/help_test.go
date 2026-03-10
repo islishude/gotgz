@@ -35,12 +35,15 @@ func TestHelpTextMentionsZipAutoDetectAndWarnings(t *testing.T) {
 		"--cd <dir|s3://...>",
 		"--directory <dir|s3://...>",
 		"for .zip output it maps to Deflate level",
+		"create infers archive output from the archive suffix: .zip creates zip",
+		"create requires explicit tar compression flags to match the archive suffix, except with -f -",
 		"auto-detect archive type by magic bytes, then file extension, then content-type",
-		".zip archives ignore tar-only compression flags and metadata owner/xattr/acl options with warnings",
+		"extract/list on .zip archives ignore tar-only compression flags and metadata owner/xattr/acl options with warnings",
 		"-z, --gzip, --gunzip",
 		"-j, --bzip, --bzip2",
 		"-J, --xz",
 		"--s3-cache-control <value>",
+		"--split-size <size>",
 	}
 	for _, want := range wantContains {
 		if !strings.Contains(got, want) {

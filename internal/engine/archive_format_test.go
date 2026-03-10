@@ -3,6 +3,7 @@ package engine
 import (
 	"testing"
 
+	"github.com/islishude/gotgz/internal/archiveutil"
 	"github.com/islishude/gotgz/internal/locator"
 )
 
@@ -93,7 +94,7 @@ func TestArchiveNameHint(t *testing.T) {
 		Kind: locator.KindHTTP,
 		URL:  "https://example.com/path/to/archive.zip?token=abc",
 	}
-	if got := archiveNameHint(httpRef); got != "/path/to/archive.zip" {
+	if got := archiveutil.NameHint(httpRef); got != "/path/to/archive.zip" {
 		t.Fatalf("archiveNameHint(http) = %q", got)
 	}
 
@@ -101,7 +102,7 @@ func TestArchiveNameHint(t *testing.T) {
 		Kind: locator.KindS3,
 		Key:  "path/to/archive.zip",
 	}
-	if got := archiveNameHint(s3Ref); got != "path/to/archive.zip" {
+	if got := archiveutil.NameHint(s3Ref); got != "path/to/archive.zip" {
 		t.Fatalf("archiveNameHint(s3) = %q", got)
 	}
 }

@@ -23,6 +23,8 @@ Main Options:
   -f <archive>      Archive path: local file, -, s3://bucket/key, S3 ARN, or http(s):// URL (source-only for -x/-t)
   -suffix <value>, --suffix <value>
                     Add suffix to archive filename in create mode (built-in date format uses 20060102 layout)
+  --split-size <size>
+                    Split tar-family output into partNNNN volumes (create mode only)
   -C <dir|s3://...>, --cd <dir|s3://...>, --directory <dir|s3://...>
                     Change directory before create/extract
   --s3-cache-control <value>
@@ -43,10 +45,12 @@ Compression:
   -J, --xz          xz
   --zstd            zstd
   --lz4             lz4
+  (create infers archive output from the archive suffix: .zip creates zip; tar suffixes such as .tar.gz/.tgz/.gz, .tar.bz2/.tbz2/.tbz/.bz2, .tar.xz/.txz/.xz, .tar.zst/.tzst/.zst/.zstd, and .tar.lz4/.tlz4/.lz4 select tar compression; .tar/.tape mean no compression)
+  (create requires explicit tar compression flags to match the archive suffix, except with -f -)
   -compression-level <1-9>, --compression-level <1-9>
                     Compression level for create mode; for .zip output it maps to Deflate level
   (extract/list auto-detect archive type by magic bytes, then file extension, then content-type)
-  (.zip archives ignore tar-only compression flags and metadata owner/xattr/acl options with warnings)
+  (extract/list on .zip archives ignore tar-only compression flags and metadata owner/xattr/acl options with warnings)
 
 Ownership & Permissions:
   --same-owner

@@ -11,7 +11,7 @@ import (
 	"github.com/islishude/gotgz/internal/cli"
 )
 
-func TestProgressReporterKnownTotalIncludesETA(t *testing.T) {
+func TestProgressReporterKnownTotalIncludesETAAndElapsed(t *testing.T) {
 	var buf bytes.Buffer
 	p := newProgressReporter(&buf, cli.ProgressAlways, 100, true, time.Now().Add(-2*time.Second), false)
 	p.AddDone(50)
@@ -26,6 +26,9 @@ func TestProgressReporterKnownTotalIncludesETA(t *testing.T) {
 	}
 	if !strings.Contains(out, "ETA") {
 		t.Fatalf("expected ETA output, got %q", out)
+	}
+	if !strings.Contains(out, "elapsed") {
+		t.Fatalf("expected elapsed output, got %q", out)
 	}
 	if !strings.HasSuffix(out, "\n") {
 		t.Fatalf("expected trailing newline, got %q", out)

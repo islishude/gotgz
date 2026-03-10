@@ -38,6 +38,12 @@ type Metadata struct {
 	ContentType string
 }
 
+// ListedObject describes an object discovered while enumerating a prefix.
+type ListedObject struct {
+	Key  string
+	Size int64
+}
+
 func New(ctx context.Context) (*Store, error) {
 	retryMax, ok := intFromEnv("GOTGZ_S3_MAX_RETRIES")
 	var cfg aws.Config
@@ -155,6 +161,29 @@ func (s *Store) UploadStream(ctx context.Context, ref locator.Ref, body io.Reade
 	s.applyEncryption(in)
 	_, err := s.tm.UploadObject(ctx, in)
 	return err
+}
+
+// ListPrefix returns all objects whose keys start with prefix.
+func (s *Store) ListPrefix(ctx context.Context, bucket string, prefix string) ([]ListedObject, error) {
+	pager := awss3.NewListObjectsV2Paginator(s.client, &awss3.ListObjectsV2Input{
+		Bucket: new(bucket),
+		Prefix: new(prefix),
+	})
+
+	var out []ListedObject
+	for pager.HasMorePages() {
+		page, err := pager.NextPage(ctx)
+		if err != nil {
+			return nil, err
+		}
+		for _, obj := range page.Contents {
+			out = append(out, ListedObject{
+				Key:  aws.ToString(obj.Key),
+				Size: aws.ToInt64(obj.Size),
+			})
+		}
+	}
+	return out, nil
 }
 
 func (s *Store) applyEncryption(in *transfermanager.UploadObjectInput) {
