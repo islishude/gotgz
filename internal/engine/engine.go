@@ -119,10 +119,10 @@ func (r *Runner) runList(ctx context.Context, opts cli.Options) (int, error) {
 	if err != nil {
 		return 0, err
 	}
+	defer ar.Close() //nolint:errcheck
 
 	switch detectReadArchiveFormat(magic, archiveutil.NameHint(ref), info.ContentType) {
 	case archiveFormatZip:
-		defer ar.Close() //nolint:errcheck
 		return r.runListZip(ctx, opts, reporter, ref, ar, info)
 	default:
 		return r.runListTar(ctx, opts, reporter, ref, ar, info)
@@ -137,10 +137,10 @@ func (r *Runner) runExtract(ctx context.Context, opts cli.Options) (int, error) 
 	if err != nil {
 		return 0, err
 	}
+	defer ar.Close() //nolint:errcheck
 
 	switch detectReadArchiveFormat(magic, archiveutil.NameHint(ref), info.ContentType) {
 	case archiveFormatZip:
-		defer ar.Close() //nolint:errcheck
 		return r.runExtractZip(ctx, opts, reporter, ref, ar, info)
 	default:
 		return r.runExtractTar(ctx, opts, reporter, ref, ar, info)
