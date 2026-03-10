@@ -67,268 +67,358 @@ type Options struct {
 	Members          []string
 }
 
+// optionParser incrementally parses CLI arguments into Options.
+type optionParser struct {
+	args []string
+	opts Options
+}
+
+// Parse converts argv-style CLI arguments into validated Options.
 func Parse(args []string) (Options, error) {
-	opts := Options{Compression: CompressionAuto, Progress: ProgressAuto}
+	opts := defaultOptions()
 	if len(args) == 0 {
 		return opts, fmt.Errorf("no operation mode specified")
 	}
 
-	if legacyToken(args[0]) {
-		args = append([]string{"-" + args[0]}, args[1:]...)
+	parser := optionParser{args: normalizeLegacyArgs(args), opts: opts}
+	if err := parser.parse(); err != nil {
+		return opts, err
 	}
+	return finalizeOptions(parser.opts)
+}
 
-	for i := 0; i < len(args); i++ {
-		a := args[i]
+// defaultOptions returns parser defaults before argv overrides are applied.
+func defaultOptions() Options {
+	return Options{Compression: CompressionAuto, Progress: ProgressAuto}
+}
+
+// normalizeLegacyArgs rewrites bundled GNU tar-style mode tokens into short flags.
+func normalizeLegacyArgs(args []string) []string {
+	if len(args) == 0 || !legacyToken(args[0]) {
+		return args
+	}
+	return append([]string{"-" + args[0]}, args[1:]...)
+}
+
+// parse walks all argv tokens until options are exhausted or member parsing begins.
+func (p *optionParser) parse() error {
+	for i := 0; i < len(p.args); i++ {
+		a := p.args[i]
 		if a == "--" {
-			opts.Members = append(opts.Members, args[i+1:]...)
-			break
+			p.opts.Members = append(p.opts.Members, p.args[i+1:]...)
+			return nil
 		}
-		if strings.HasPrefix(a, "-compression-level") {
-			name, value, hasValue := strings.Cut(strings.TrimPrefix(a, "-"), "=")
-			if name != "compression-level" {
-				return opts, fmt.Errorf("unsupported option %s", a)
-			}
-			v, nextI, err := resolveValue(name, value, hasValue, args, i)
-			if err != nil {
-				return opts, err
-			}
-			i = nextI
-			level, err := strconv.Atoi(v)
-			if err != nil || level < 1 || level > 9 {
-				return opts, fmt.Errorf("option --compression-level requires an integer between 1 and 9")
-			}
-			opts.CompressionLevel = &level
-			continue
-		}
-		if strings.HasPrefix(a, "-suffix") {
-			name, value, hasValue := strings.Cut(strings.TrimPrefix(a, "-"), "=")
-			if name != "suffix" {
-				return opts, fmt.Errorf("unsupported option %s", a)
-			}
-			v, nextI, err := resolveValue(name, value, hasValue, args, i)
-			if err != nil {
-				return opts, err
-			}
-			i = nextI
-			opts.Suffix = v
-			continue
-		}
-		if strings.HasPrefix(a, "-split-size") {
-			name, value, hasValue := strings.Cut(strings.TrimPrefix(a, "-"), "=")
-			if name != "split-size" {
-				return opts, fmt.Errorf("unsupported option %s", a)
-			}
-			v, nextI, err := resolveValue(name, value, hasValue, args, i)
-			if err != nil {
-				return opts, err
-			}
-			i = nextI
-			size, err := parseSplitSize(v)
-			if err != nil {
-				return opts, err
-			}
-			opts.SplitSizeBytes = size
+		if consumed, err := p.parseCompatLongOption(i, a); err != nil {
+			return err
+		} else if consumed {
+			i = p.nextIndex(i)
 			continue
 		}
 		if !strings.HasPrefix(a, "-") || a == "-" {
-			opts.Members = append(opts.Members, args[i:]...)
-			break
+			p.opts.Members = append(p.opts.Members, p.args[i:]...)
+			return nil
 		}
 		if strings.HasPrefix(a, "--") {
-			name, value, hasValue := strings.Cut(a[2:], "=")
-			switch name {
-			case "create":
-				if err := setMode(&opts, ModeCreate); err != nil {
-					return opts, err
-				}
-			case "extract":
-				if err := setMode(&opts, ModeExtract); err != nil {
-					return opts, err
-				}
-			case "list":
-				if err := setMode(&opts, ModeList); err != nil {
-					return opts, err
-				}
-			case "exclude":
-				v, nextI, err := resolveValue(name, value, hasValue, args, i)
-				if err != nil {
-					return opts, err
-				}
-				i = nextI
-				opts.Exclude = append(opts.Exclude, v)
-			case "exclude-from":
-				v, nextI, err := resolveValue(name, value, hasValue, args, i)
-				if err != nil {
-					return opts, err
-				}
-				i = nextI
-				opts.ExcludeFrom = append(opts.ExcludeFrom, v)
-			case "strip-components":
-				v, nextI, err := resolveValue(name, value, hasValue, args, i)
-				if err != nil {
-					return opts, err
-				}
-				i = nextI
-				n, err := strconv.Atoi(v)
-				if err != nil || n < 0 {
-					return opts, fmt.Errorf("option --strip-components requires a non-negative integer")
-				}
-				opts.StripComponents = n
-			case "compression-level":
-				v, nextI, err := resolveValue(name, value, hasValue, args, i)
-				if err != nil {
-					return opts, err
-				}
-				i = nextI
-				level, err := strconv.Atoi(v)
-				if err != nil || level < 1 || level > 9 {
-					return opts, fmt.Errorf("option --compression-level requires an integer between 1 and 9")
-				}
-				opts.CompressionLevel = &level
-			case "split-size":
-				v, nextI, err := resolveValue(name, value, hasValue, args, i)
-				if err != nil {
-					return opts, err
-				}
-				i = nextI
-				size, err := parseSplitSize(v)
-				if err != nil {
-					return opts, err
-				}
-				opts.SplitSizeBytes = size
-			case "acl":
-				opts.ACL = true
-			case "xattrs":
-				opts.Xattrs = true
-			case "suffix":
-				v, nextI, err := resolveValue(name, value, hasValue, args, i)
-				if err != nil {
-					return opts, err
-				}
-				i = nextI
-				opts.Suffix = v
-			case "cd", "directory":
-				v, nextI, err := resolveValue(name, value, hasValue, args, i)
-				if err != nil {
-					return opts, err
-				}
-				i = nextI
-				opts.Chdir = v
-			case "s3-cache-control":
-				v, nextI, err := resolveValue(name, value, hasValue, args, i)
-				if err != nil {
-					return opts, err
-				}
-				i = nextI
-				opts.S3CacheControl = strings.TrimSpace(v)
-			case "wildcards":
-				opts.Wildcards = true
-			case "numeric-owner":
-				opts.NumericOwner = true
-			case "same-owner":
-				b := true
-				opts.SameOwner = &b
-			case "no-same-owner":
-				b := false
-				opts.SameOwner = &b
-			case "same-permissions":
-				b := true
-				opts.SamePermissions = &b
-			case "no-same-permissions":
-				b := false
-				opts.SamePermissions = &b
-			case "zstd":
-				opts.Compression = CompressionZstd
-			case "lz4":
-				opts.Compression = CompressionLz4
-			case "gzip", "gunzip":
-				opts.Compression = CompressionGzip
-			case "bzip", "bzip2":
-				opts.Compression = CompressionBzip2
-			case "xz":
-				opts.Compression = CompressionXz
-			case "to-stdout":
-				opts.ToStdout = true
-			case "help":
-				opts.Help = true
-			case "progress":
-				opts.Progress = ProgressAlways
-			case "no-progress":
-				opts.Progress = ProgressNever
-			default:
-				return opts, fmt.Errorf("unsupported option --%s", name)
+			nextIndex, err := p.parseLongOption(i, a)
+			if err != nil {
+				return err
 			}
+			i = nextIndex
 			continue
 		}
+		nextIndex, err := p.parseShortOptions(i, a)
+		if err != nil {
+			return err
+		}
+		i = nextIndex
+	}
+	return nil
+}
 
-		shorts := a[1:]
-		for j := 0; j < len(shorts); j++ {
-			s := shorts[j]
-			switch s {
-			case 'c':
-				if err := setMode(&opts, ModeCreate); err != nil {
-					return opts, err
-				}
-			case 'x':
-				if err := setMode(&opts, ModeExtract); err != nil {
-					return opts, err
-				}
-			case 't':
-				if err := setMode(&opts, ModeList); err != nil {
-					return opts, err
-				}
-			case 'v':
-				opts.Verbose = true
-			case 'h':
-				opts.Help = true
-			case 'O':
-				opts.ToStdout = true
-			case 'z':
-				opts.Compression = CompressionGzip
-			case 'j':
-				opts.Compression = CompressionBzip2
-			case 'J':
-				opts.Compression = CompressionXz
-			case 'f', 'C':
-				var val string
-				if j+1 < len(shorts) {
-					val = shorts[j+1:]
-				} else {
-					i++
-					if i >= len(args) {
-						return opts, fmt.Errorf("option -%c requires an argument", s)
-					}
-					val = args[i]
-				}
-				if s == 'f' {
-					opts.Archive = val
-				} else {
-					opts.Chdir = val
-				}
-				j = len(shorts)
-			default:
-				return opts, fmt.Errorf("unsupported option -%c", s)
-			}
+// nextIndex advances the current argument index when a helper consumed an extra argv token.
+func (p *optionParser) nextIndex(current int) int {
+	return current + p.consumedValueArgs(current)
+}
+
+// consumedValueArgs reports whether the current token consumed the following argv entry as its value.
+func (p *optionParser) consumedValueArgs(current int) int {
+	if current < 0 || current >= len(p.args) {
+		return 0
+	}
+	arg := p.args[current]
+	if strings.Contains(arg, "=") {
+		return 0
+	}
+	if strings.HasPrefix(arg, "--") {
+		switch arg {
+		case "--exclude", "--exclude-from", "--strip-components", "--compression-level", "--split-size", "--suffix", "--cd", "--directory", "--s3-cache-control":
+			return 1
+		default:
+			return 0
 		}
 	}
+	singleDashLong := strings.TrimPrefix(arg, "-")
+	switch singleDashLong {
+	case "compression-level", "suffix", "split-size":
+		return 1
+	default:
+		return 0
+	}
+}
 
+// parseCompatLongOption handles the historical single-dash long options kept for tar compatibility.
+func (p *optionParser) parseCompatLongOption(i int, arg string) (bool, error) {
+	if !strings.HasPrefix(arg, "-") || strings.HasPrefix(arg, "--") {
+		return false, nil
+	}
+	for _, name := range []string{"compression-level", "suffix", "split-size"} {
+		if !strings.HasPrefix(arg, "-"+name) {
+			continue
+		}
+		parsedName, value, hasValue := strings.Cut(strings.TrimPrefix(arg, "-"), "=")
+		if parsedName != name {
+			return false, fmt.Errorf("unsupported option %s", arg)
+		}
+		_, err := p.applyLongOption(name, value, hasValue, i)
+		return true, err
+	}
+	return false, nil
+}
+
+// parseLongOption parses one double-dash option and returns the next argv index to continue from.
+func (p *optionParser) parseLongOption(i int, arg string) (int, error) {
+	name, value, hasValue := strings.Cut(arg[2:], "=")
+	nextIndex, err := p.applyLongOption(name, value, hasValue, i)
+	if err != nil {
+		return i, err
+	}
+	return nextIndex, nil
+}
+
+// applyLongOption updates parser state for one normalized long option name.
+func (p *optionParser) applyLongOption(name, value string, hasValue bool, i int) (int, error) {
+	switch name {
+	case "create":
+		return i, setMode(&p.opts, ModeCreate)
+	case "extract":
+		return i, setMode(&p.opts, ModeExtract)
+	case "list":
+		return i, setMode(&p.opts, ModeList)
+	case "exclude":
+		v, nextI, err := resolveValue(name, value, hasValue, p.args, i)
+		if err != nil {
+			return i, err
+		}
+		p.opts.Exclude = append(p.opts.Exclude, v)
+		return nextI, nil
+	case "exclude-from":
+		v, nextI, err := resolveValue(name, value, hasValue, p.args, i)
+		if err != nil {
+			return i, err
+		}
+		p.opts.ExcludeFrom = append(p.opts.ExcludeFrom, v)
+		return nextI, nil
+	case "strip-components":
+		v, nextI, err := resolveValue(name, value, hasValue, p.args, i)
+		if err != nil {
+			return i, err
+		}
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 0 {
+			return i, fmt.Errorf("option --strip-components requires a non-negative integer")
+		}
+		p.opts.StripComponents = n
+		return nextI, nil
+	case "compression-level":
+		level, nextI, err := p.parseCompressionLevel(name, value, hasValue, i)
+		if err != nil {
+			return i, err
+		}
+		p.opts.CompressionLevel = &level
+		return nextI, nil
+	case "split-size":
+		size, nextI, err := p.parseSplitSizeOption(name, value, hasValue, i)
+		if err != nil {
+			return i, err
+		}
+		p.opts.SplitSizeBytes = size
+		return nextI, nil
+	case "acl":
+		p.opts.ACL = true
+	case "xattrs":
+		p.opts.Xattrs = true
+	case "suffix":
+		v, nextI, err := resolveValue(name, value, hasValue, p.args, i)
+		if err != nil {
+			return i, err
+		}
+		p.opts.Suffix = v
+		return nextI, nil
+	case "cd", "directory":
+		v, nextI, err := resolveValue(name, value, hasValue, p.args, i)
+		if err != nil {
+			return i, err
+		}
+		p.opts.Chdir = v
+		return nextI, nil
+	case "s3-cache-control":
+		v, nextI, err := resolveValue(name, value, hasValue, p.args, i)
+		if err != nil {
+			return i, err
+		}
+		p.opts.S3CacheControl = strings.TrimSpace(v)
+		return nextI, nil
+	case "wildcards":
+		p.opts.Wildcards = true
+	case "numeric-owner":
+		p.opts.NumericOwner = true
+	case "same-owner":
+		p.setSameOwner(true)
+	case "no-same-owner":
+		p.setSameOwner(false)
+	case "same-permissions":
+		p.setSamePermissions(true)
+	case "no-same-permissions":
+		p.setSamePermissions(false)
+	case "zstd":
+		p.opts.Compression = CompressionZstd
+	case "lz4":
+		p.opts.Compression = CompressionLz4
+	case "gzip", "gunzip":
+		p.opts.Compression = CompressionGzip
+	case "bzip", "bzip2":
+		p.opts.Compression = CompressionBzip2
+	case "xz":
+		p.opts.Compression = CompressionXz
+	case "to-stdout":
+		p.opts.ToStdout = true
+	case "help":
+		p.opts.Help = true
+	case "progress":
+		p.opts.Progress = ProgressAlways
+	case "no-progress":
+		p.opts.Progress = ProgressNever
+	default:
+		return i, fmt.Errorf("unsupported option --%s", name)
+	}
+	return i, nil
+}
+
+// parseShortOptions parses a single bundled short-option token.
+func (p *optionParser) parseShortOptions(i int, arg string) (int, error) {
+	shorts := arg[1:]
+	for j := 0; j < len(shorts); j++ {
+		s := shorts[j]
+		switch s {
+		case 'c':
+			if err := setMode(&p.opts, ModeCreate); err != nil {
+				return i, err
+			}
+		case 'x':
+			if err := setMode(&p.opts, ModeExtract); err != nil {
+				return i, err
+			}
+		case 't':
+			if err := setMode(&p.opts, ModeList); err != nil {
+				return i, err
+			}
+		case 'v':
+			p.opts.Verbose = true
+		case 'h':
+			p.opts.Help = true
+		case 'O':
+			p.opts.ToStdout = true
+		case 'z':
+			p.opts.Compression = CompressionGzip
+		case 'j':
+			p.opts.Compression = CompressionBzip2
+		case 'J':
+			p.opts.Compression = CompressionXz
+		case 'f', 'C':
+			val, nextIndex, err := p.resolveShortValue(i, shorts, j, s)
+			if err != nil {
+				return i, err
+			}
+			if s == 'f' {
+				p.opts.Archive = val
+			} else {
+				p.opts.Chdir = val
+			}
+			return nextIndex, nil
+		default:
+			return i, fmt.Errorf("unsupported option -%c", s)
+		}
+	}
+	return i, nil
+}
+
+// resolveShortValue resolves short option values from inline suffixes or the next argv token.
+func (p *optionParser) resolveShortValue(i int, shorts string, j int, option byte) (string, int, error) {
+	if j+1 < len(shorts) {
+		return shorts[j+1:], i, nil
+	}
+	nextIndex := i + 1
+	if nextIndex >= len(p.args) {
+		return "", i, fmt.Errorf("option -%c requires an argument", option)
+	}
+	return p.args[nextIndex], nextIndex, nil
+}
+
+// parseCompressionLevel validates one compression-level option value.
+func (p *optionParser) parseCompressionLevel(name, value string, hasValue bool, i int) (int, int, error) {
+	v, nextI, err := resolveValue(name, value, hasValue, p.args, i)
+	if err != nil {
+		return 0, i, err
+	}
+	level, err := strconv.Atoi(v)
+	if err != nil || level < 1 || level > 9 {
+		return 0, i, fmt.Errorf("option --compression-level requires an integer between 1 and 9")
+	}
+	return level, nextI, nil
+}
+
+// parseSplitSizeOption validates one split-size option value.
+func (p *optionParser) parseSplitSizeOption(name, value string, hasValue bool, i int) (int64, int, error) {
+	v, nextI, err := resolveValue(name, value, hasValue, p.args, i)
+	if err != nil {
+		return 0, i, err
+	}
+	size, err := parseSplitSize(v)
+	if err != nil {
+		return 0, i, err
+	}
+	return size, nextI, nil
+}
+
+// setSameOwner stores an explicit same-owner choice.
+func (p *optionParser) setSameOwner(v bool) {
+	p.opts.SameOwner = &v
+}
+
+// setSamePermissions stores an explicit same-permissions choice.
+func (p *optionParser) setSamePermissions(v bool) {
+	p.opts.SamePermissions = &v
+}
+
+// finalizeOptions applies post-parse validation and required-field checks.
+func finalizeOptions(opts Options) (Options, error) {
 	if opts.Help {
 		return opts, nil
 	}
-	opts, err := validateOptions(opts)
+	validated, err := validateOptions(opts)
 	if err != nil {
 		return opts, err
 	}
-	if opts.Mode == ModeNone {
-		return opts, fmt.Errorf("no operation mode specified")
+	if validated.Mode == ModeNone {
+		return validated, fmt.Errorf("no operation mode specified")
 	}
-	if opts.Archive == "" {
-		return opts, fmt.Errorf("option -f is required")
+	if validated.Archive == "" {
+		return validated, fmt.Errorf("option -f is required")
 	}
-	if opts.Mode == ModeCreate && len(opts.Members) == 0 {
-		return opts, fmt.Errorf("cowardly refusing to create an empty archive")
+	if validated.Mode == ModeCreate && len(validated.Members) == 0 {
+		return validated, fmt.Errorf("cowardly refusing to create an empty archive")
 	}
-	return opts, nil
+	return validated, nil
 }
 
 var reservedSplitSuffixPattern = regexp.MustCompile(`(?i)^part[0-9]+$`)
