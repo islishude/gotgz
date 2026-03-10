@@ -35,7 +35,7 @@ func TestHelpTextMentionsZipAutoDetectAndWarnings(t *testing.T) {
 		"--cd <dir|s3://...>",
 		"--directory <dir|s3://...>",
 		"for .zip output it maps to Deflate level",
-		"create infers tar compression from archive suffixes",
+		"create infers archive output from the archive suffix: .zip creates zip",
 		"create requires explicit tar compression flags to match the archive suffix, except with -f -",
 		"auto-detect archive type by magic bytes, then file extension, then content-type",
 		"extract/list on .zip archives ignore tar-only compression flags and metadata owner/xattr/acl options with warnings",

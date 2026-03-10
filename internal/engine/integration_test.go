@@ -108,6 +108,55 @@ func TestCreateExtractLocalRoundTripUsesArchiveSuffixCompression(t *testing.T) {
 	}
 }
 
+func TestCreateExtractLocalZipRoundTripUsesArchiveSuffixFormat(t *testing.T) {
+	root := t.TempDir()
+	src := filepath.Join(root, "src")
+	out := filepath.Join(root, "out")
+	archive := filepath.Join(root, "a.zip")
+
+	if err := os.MkdirAll(src, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(src, "hello.txt"), []byte("zip-world"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	r, err := New(context.Background(), io.Discard, io.Discard)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	create, err := cli.Parse([]string{"-c", "-f", archive, "-C", root, "src"})
+	if err != nil {
+		t.Fatalf("Parse(create) error = %v", err)
+	}
+	if create.Compression != cli.CompressionAuto {
+		t.Fatalf("compression = %q, want %q", create.Compression, cli.CompressionAuto)
+	}
+	if got := r.Run(context.Background(), create); got.ExitCode != ExitSuccess {
+		t.Fatalf("create exit=%d err=%v", got.ExitCode, got.Err)
+	}
+
+	if err := os.MkdirAll(out, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	extract, err := cli.Parse([]string{"-x", "-f", archive, "-C", out})
+	if err != nil {
+		t.Fatalf("Parse(extract) error = %v", err)
+	}
+	if got := r.Run(context.Background(), extract); got.ExitCode != ExitSuccess {
+		t.Fatalf("extract exit=%d err=%v", got.ExitCode, got.Err)
+	}
+
+	b, err := os.ReadFile(filepath.Join(out, filepath.Base(src), "hello.txt"))
+	if err != nil {
+		t.Fatalf("read extracted file: %v", err)
+	}
+	if string(b) != "zip-world" {
+		t.Fatalf("content mismatch = %q", string(b))
+	}
+}
+
 func TestCreateExtractLocalSplitRoundTrip(t *testing.T) {
 	root := t.TempDir()
 	archive := filepath.Join(root, "bundle.tar")

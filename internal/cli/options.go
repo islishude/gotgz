@@ -421,7 +421,7 @@ func validateOptions(opts Options) (Options, error) {
 		return opts, err
 	}
 	if opts.Mode == ModeCreate {
-		opts, err = normalizeCreateCompression(opts, ref)
+		opts, err = normalizeCreateArchiveOutput(opts, ref)
 		if err != nil {
 			return opts, err
 		}
@@ -448,8 +448,11 @@ func validateOptions(opts Options) (Options, error) {
 	return opts, nil
 }
 
-// normalizeCreateCompression resolves the final tar-family compression for create mode.
-func normalizeCreateCompression(opts Options, ref locator.Ref) (Options, error) {
+// normalizeCreateArchiveOutput resolves create-mode archive selection from the archive name.
+//
+// `.zip` selects zip output, while tar-family suffixes resolve the final
+// compressor for tar output. Unknown suffixes fall back to uncompressed tar.
+func normalizeCreateArchiveOutput(opts Options, ref locator.Ref) (Options, error) {
 	if opts.Mode != ModeCreate {
 		return opts, nil
 	}

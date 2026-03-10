@@ -40,7 +40,7 @@ go build -o gotgz ./cmd/gotgz
 # Local files → local archive
 gotgz -cvf archive.tar dir1 file1.txt
 
-# Local files → zip archive
+# Local files → zip archive (format inferred from filename)
 gotgz -cvf archive.zip dir1 file1.txt
 
 # Local files → compressed archive (compression inferred from filename)
@@ -121,7 +121,8 @@ gotgz -tf https://example.com/backups/archive.tar.gz
 You can control compression strength for create mode with `-compression-level=<1-9>` (or `--compression-level=<1-9>`).  
 If not provided, each algorithm uses its own default level.
 
-In create mode, tar-family compression is inferred from the archive name when you omit `-z/-j/-J/--zstd/--lz4`.  
+In create mode, archive output is inferred from the archive name. `.zip` creates a zip archive.  
+For tar-family output, compression is inferred from the archive name when you omit `-z/-j/-J/--zstd/--lz4`.  
 Supported suffixes are `.tar.gz/.tgz/.gz`, `.tar.bz2/.tbz2/.tbz/.bz2`, `.tar.xz/.txz/.xz`, `.tar.zst/.tzst/.zst/.zstd`, and `.tar.lz4/.tlz4/.lz4`.  
 `.tar` and `.tape` mean uncompressed tar, and unknown suffixes default to uncompressed tar.  
 If you do pass an explicit tar-family compression flag in create mode, it must match the archive suffix. The only exception is `-f -`, because stdout has no filename.

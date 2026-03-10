@@ -45,7 +45,7 @@ Compression:
   -J, --xz          xz
   --zstd            zstd
   --lz4             lz4
-  (create infers tar compression from archive suffixes such as .tar.gz/.tgz/.gz, .tar.bz2/.tbz2/.tbz/.bz2, .tar.xz/.txz/.xz, .tar.zst/.tzst/.zst/.zstd, .tar.lz4/.tlz4/.lz4; .tar/.tape mean no compression)
+  (create infers archive output from the archive suffix: .zip creates zip; tar suffixes such as .tar.gz/.tgz/.gz, .tar.bz2/.tbz2/.tbz/.bz2, .tar.xz/.txz/.xz, .tar.zst/.tzst/.zst/.zstd, and .tar.lz4/.tlz4/.lz4 select tar compression; .tar/.tape mean no compression)
   (create requires explicit tar compression flags to match the archive suffix, except with -f -)
   -compression-level <1-9>, --compression-level <1-9>
                     Compression level for create mode; for .zip output it maps to Deflate level
