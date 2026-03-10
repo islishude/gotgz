@@ -41,6 +41,7 @@ func TestHelpTextMentionsZipAutoDetectAndWarnings(t *testing.T) {
 		"-j, --bzip, --bzip2",
 		"-J, --xz",
 		"--s3-cache-control <value>",
+		"--split-size <size>",
 	}
 	for _, want := range wantContains {
 		if !strings.Contains(got, want) {
