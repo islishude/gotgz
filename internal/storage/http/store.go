@@ -6,10 +6,9 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"strings"
-
-	"math"
 
 	"github.com/islishude/gotgz/internal/locator"
 )
