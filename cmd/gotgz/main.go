@@ -8,8 +8,8 @@ import (
 	"path/filepath"
 	"syscall"
 
-	"github.com/islishude/gotgz/internal/cli"
-	"github.com/islishude/gotgz/internal/engine"
+	"github.com/islishude/gotgz/packages/cli"
+	"github.com/islishude/gotgz/packages/engine"
 )
 
 func main() {
