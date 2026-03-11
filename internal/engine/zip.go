@@ -52,11 +52,9 @@ func (r *Runner) runCreateZip(ctx context.Context, opts cli.Options, archiveRef 
 	if err != nil {
 		return warnings, err
 	}
-	totalBytes, known, err := r.estimateCreateInputBytes(ctx, opts, excludes)
-	if err != nil {
+	if err := r.configureCreateProgressReporter(ctx, opts, excludes, reporter); err != nil {
 		return warnings, err
 	}
-	reporter.SetTotal(totalBytes, known)
 
 	createWarnings, err := r.processCreateMembers(
 		ctx,

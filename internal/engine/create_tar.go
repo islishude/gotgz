@@ -38,11 +38,9 @@ func (r *Runner) runCreateTar(ctx context.Context, opts cli.Options, archiveRef 
 	if err != nil {
 		return 0, err
 	}
-	totalBytes, known, err := r.estimateCreateInputBytes(ctx, opts, excludes)
-	if err != nil {
+	if err := r.configureCreateProgressReporter(ctx, opts, excludes, reporter); err != nil {
 		return 0, err
 	}
-	reporter.SetTotal(totalBytes, known)
 
 	return r.processCreateMembers(
 		ctx,
@@ -55,6 +53,21 @@ func (r *Runner) runCreateTar(ctx context.Context, opts cli.Options, archiveRef 
 			return r.addLocalPath(ctx, tw, member, opts.Chdir, excludes, opts.Verbose, metadataPolicy, reporter)
 		},
 	)
+}
+
+// configureCreateProgressReporter populates create-mode totals only when
+// progress output is active for the current run.
+func (r *Runner) configureCreateProgressReporter(ctx context.Context, opts cli.Options, excludes []string, reporter *progressReporter) error {
+	if reporter == nil || !reporter.enabled {
+		return nil
+	}
+
+	totalBytes, known, err := r.estimateCreateInputBytes(ctx, opts, excludes)
+	if err != nil {
+		return err
+	}
+	reporter.SetTotal(totalBytes, known)
+	return nil
 }
 
 // estimateCreateInputBytes pre-computes input bytes for create mode progress and ETA.
