@@ -8,10 +8,12 @@ import (
 	"maps"
 	"math"
 	"mime"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
@@ -44,6 +46,8 @@ type ListedObject struct {
 	Key  string
 	Size int64
 }
+
+const createdAtObjectTagKey = "gotgz-created-at"
 
 func New(ctx context.Context) (*Store, error) {
 	retryMax, ok := intFromEnv("GOTGZ_S3_MAX_RETRIES")
@@ -162,6 +166,9 @@ func (s *Store) OpenWriter(ctx context.Context, ref locator.Ref, metadata map[st
 	if cacheControl := strings.TrimSpace(ref.CacheControl); cacheControl != "" {
 		in.CacheControl = new(cacheControl)
 	}
+	if tagging := encodeObjectTagging(ref.ObjectTags, time.Now().UTC()); tagging != "" {
+		in.Tagging = new(tagging)
+	}
 	s.applyEncryption(in)
 	go func() {
 		_, err := s.tm.UploadObject(ctx, in)
@@ -187,6 +194,9 @@ func (s *Store) UploadStream(ctx context.Context, ref locator.Ref, body io.Reade
 	}
 	if cacheControl := strings.TrimSpace(ref.CacheControl); cacheControl != "" {
 		in.CacheControl = new(cacheControl)
+	}
+	if tagging := encodeObjectTagging(ref.ObjectTags, time.Now().UTC()); tagging != "" {
+		in.Tagging = new(tagging)
 	}
 	s.applyEncryption(in)
 	_, err := s.tm.UploadObject(ctx, in)
@@ -290,6 +300,29 @@ func mergeMetadata(base, overlay map[string]string) map[string]string {
 	maps.Copy(out, base)
 	maps.Copy(out, overlay)
 	return out
+}
+
+// encodeObjectTagging builds the S3 object tagging header string for one upload.
+func encodeObjectTagging(tags map[string]string, createdAt time.Time) string {
+	values := make(url.Values, len(tags))
+	for key, value := range tags {
+		trimmedKey := strings.TrimSpace(key)
+		if trimmedKey == "" || trimmedKey == createdAtObjectTagKey {
+			continue
+		}
+		trimmedValue := strings.TrimSpace(value)
+		values.Set(trimmedKey, trimmedValue)
+	}
+
+	// Keep the built-in created-at tag at the end while still relying on the
+	// standard library for query escaping and key ordering.
+	createdAtValues := url.Values{
+		createdAtObjectTagKey: []string{createdAt.UTC().Format(time.RFC3339)},
+	}
+	if encoded := values.Encode(); encoded != "" {
+		return encoded + "&" + createdAtValues.Encode()
+	}
+	return createdAtValues.Encode()
 }
 
 func contentTypeForKey(key string) string {

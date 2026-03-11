@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -156,7 +157,7 @@ func TestParseShortCompressionFlags(t *testing.T) {
 
 func TestParseLongOptions(t *testing.T) {
 	opts, err := Parse([]string{
-		"-x", "-f", "in.tar", "--exclude=*.tmp", "--exclude-from", "ex.txt", "--wildcards", "--numeric-owner", "--no-same-owner", "--same-permissions", "--lz4", "--strip-components=1", "--compression-level=9", "--suffix=custom", "--s3-cache-control=max-age=3600,public", "--acl", "--xattrs", "--progress",
+		"-x", "-f", "in.tar", "--exclude=*.tmp", "--exclude-from", "ex.txt", "--wildcards", "--numeric-owner", "--no-same-owner", "--same-permissions", "--lz4", "--strip-components=1", "--compression-level=9", "--suffix=custom", "--s3-cache-control=max-age=3600,public", "--s3-tag=team=archive", "--acl", "--xattrs", "--progress",
 	})
 	if err != nil {
 		t.Fatalf("Parse() error = %v", err)
@@ -187,6 +188,9 @@ func TestParseLongOptions(t *testing.T) {
 	}
 	if opts.S3CacheControl != "max-age=3600,public" {
 		t.Fatalf("s3-cache-control = %q, want %q", opts.S3CacheControl, "max-age=3600,public")
+	}
+	if !reflect.DeepEqual(opts.S3ObjectTags, map[string]string{"team": "archive"}) {
+		t.Fatalf("s3 object tags = %#v", opts.S3ObjectTags)
 	}
 	if !opts.ACL {
 		t.Fatalf("acl expected true")
@@ -716,6 +720,58 @@ func TestParseS3CacheControlMissingValue(t *testing.T) {
 	_, err := Parse([]string{"-x", "-f", "in.tar", "--s3-cache-control"})
 	if err == nil {
 		t.Fatalf("expected parse error")
+	}
+}
+
+func TestParseS3TagValueArg(t *testing.T) {
+	opts, err := Parse([]string{"-x", "-f", "in.tar", "--s3-tag", " team = archive "})
+	if err != nil {
+		t.Fatalf("Parse() error = %v", err)
+	}
+	if !reflect.DeepEqual(opts.S3ObjectTags, map[string]string{"team": "archive"}) {
+		t.Fatalf("s3 object tags = %#v", opts.S3ObjectTags)
+	}
+}
+
+func TestParseS3TagInlineRepeatedLastWins(t *testing.T) {
+	opts, err := Parse([]string{"-x", "-f", "in.tar", "--s3-tag=team=archive", "--s3-tag", "trace=enabled", "--s3-tag=team=platform"})
+	if err != nil {
+		t.Fatalf("Parse() error = %v", err)
+	}
+	want := map[string]string{"team": "platform", "trace": "enabled"}
+	if !reflect.DeepEqual(opts.S3ObjectTags, want) {
+		t.Fatalf("s3 object tags = %#v, want %#v", opts.S3ObjectTags, want)
+	}
+}
+
+func TestParseS3TagAllowsEmptyValue(t *testing.T) {
+	opts, err := Parse([]string{"-x", "-f", "in.tar", "--s3-tag=team="})
+	if err != nil {
+		t.Fatalf("Parse() error = %v", err)
+	}
+	if got := opts.S3ObjectTags["team"]; got != "" {
+		t.Fatalf("s3 object tag value = %q, want empty string", got)
+	}
+}
+
+func TestParseS3TagMissingValue(t *testing.T) {
+	_, err := Parse([]string{"-x", "-f", "in.tar", "--s3-tag"})
+	if err == nil {
+		t.Fatalf("expected parse error")
+	}
+}
+
+func TestParseS3TagRequiresEquals(t *testing.T) {
+	_, err := Parse([]string{"-x", "-f", "in.tar", "--s3-tag", "team"})
+	if err == nil || !strings.Contains(err.Error(), "key=value") {
+		t.Fatalf("err = %v, want key=value error", err)
+	}
+}
+
+func TestParseS3TagRequiresNonEmptyKey(t *testing.T) {
+	_, err := Parse([]string{"-x", "-f", "in.tar", "--s3-tag", "=archive"})
+	if err == nil || !strings.Contains(err.Error(), "non-empty key") {
+		t.Fatalf("err = %v, want non-empty key error", err)
 	}
 }
 

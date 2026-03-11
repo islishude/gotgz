@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -65,6 +66,28 @@ func TestApplyS3CacheControlNonS3Ignored(t *testing.T) {
 	}
 }
 
+func TestApplyS3ObjectTags(t *testing.T) {
+	ref := locator.Ref{Kind: locator.KindS3, Bucket: "bucket", Key: "out.tar"}
+	tags := map[string]string{"team": "archive"}
+	got := applyS3ObjectTags(ref, tags)
+	if !reflect.DeepEqual(got.ObjectTags, tags) {
+		t.Fatalf("object tags = %#v, want %#v", got.ObjectTags, tags)
+	}
+
+	tags["team"] = "changed"
+	if got.ObjectTags["team"] != "archive" {
+		t.Fatalf("object tags should be cloned, got %#v", got.ObjectTags)
+	}
+}
+
+func TestApplyS3ObjectTagsNonS3Ignored(t *testing.T) {
+	ref := locator.Ref{Kind: locator.KindLocal, Path: "/tmp/out.tar"}
+	got := applyS3ObjectTags(ref, map[string]string{"team": "archive"})
+	if got.ObjectTags != nil {
+		t.Fatalf("non-s3 ref should ignore object tags, got %#v", got.ObjectTags)
+	}
+}
+
 func TestApplyArchiveSuffix(t *testing.T) {
 	t.Run("local", func(t *testing.T) {
 		got, err := applyArchiveSuffix(locator.Ref{Kind: locator.KindLocal, Path: "/tmp/out.tar.gz", Raw: "/tmp/out.tar.gz"}, "daily")
@@ -95,7 +118,7 @@ func TestApplyArchiveSuffix(t *testing.T) {
 }
 
 func TestParseExtractTarget(t *testing.T) {
-	got, err := parseExtractTarget("s3://bucket/prefix", " max-age=60 ")
+	got, err := parseExtractTarget("s3://bucket/prefix", " max-age=60 ", map[string]string{"team": "archive"})
 	if err != nil {
 		t.Fatalf("parseExtractTarget() error = %v", err)
 	}
@@ -104,6 +127,9 @@ func TestParseExtractTarget(t *testing.T) {
 	}
 	if got.CacheControl != "max-age=60" {
 		t.Fatalf("cache-control = %q, want %q", got.CacheControl, "max-age=60")
+	}
+	if !reflect.DeepEqual(got.ObjectTags, map[string]string{"team": "archive"}) {
+		t.Fatalf("object tags = %#v", got.ObjectTags)
 	}
 }
 
@@ -189,6 +215,54 @@ func TestDispatchExtractTarget(t *testing.T) {
 			t.Fatalf("dispatchExtractTarget() err = %v", err)
 		}
 	})
+}
+
+func TestUploadToS3TargetPropagatesS3Options(t *testing.T) {
+	r := &Runner{
+		storage: &storageRouter{
+			s3: fakeS3ArchiveStore{
+				uploadStream: func(_ context.Context, ref locator.Ref, body io.Reader, metadata map[string]string) error {
+					if ref.Bucket != "bucket" || ref.Key != "prefix/file.txt" {
+						t.Fatalf("ref = %+v", ref)
+					}
+					if ref.CacheControl != "no-store" {
+						t.Fatalf("cache-control = %q", ref.CacheControl)
+					}
+					if !reflect.DeepEqual(ref.ObjectTags, map[string]string{"team": "archive"}) {
+						t.Fatalf("object tags = %#v", ref.ObjectTags)
+					}
+					if !reflect.DeepEqual(metadata, map[string]string{"m": "1"}) {
+						t.Fatalf("metadata = %#v", metadata)
+					}
+					payload, err := io.ReadAll(body)
+					if err != nil {
+						return err
+					}
+					if string(payload) != "payload" {
+						t.Fatalf("payload = %q", payload)
+					}
+					return nil
+				},
+			},
+		},
+	}
+
+	err := r.uploadToS3Target(
+		context.Background(),
+		locator.Ref{
+			Kind:         locator.KindS3,
+			Bucket:       "bucket",
+			Key:          "prefix",
+			CacheControl: "no-store",
+			ObjectTags:   map[string]string{"team": "archive"},
+		},
+		"file.txt",
+		strings.NewReader("payload"),
+		map[string]string{"m": "1"},
+	)
+	if err != nil {
+		t.Fatalf("uploadToS3Target() error = %v", err)
+	}
 }
 
 func TestSafeJoinBlocksTraversal(t *testing.T) {

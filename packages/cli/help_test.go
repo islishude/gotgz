@@ -43,6 +43,8 @@ func TestHelpTextMentionsZipAutoDetectAndWarnings(t *testing.T) {
 		"-j, --bzip, --bzip2",
 		"-J, --xz",
 		"--s3-cache-control <value>",
+		"--s3-tag <key=value>",
+		"gotgz-created-at",
 		"--split-size <size>",
 	}
 	for _, want := range wantContains {

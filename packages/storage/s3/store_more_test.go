@@ -5,10 +5,13 @@ import (
 	"errors"
 	"io"
 	"math"
+	"net/url"
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/feature/s3/transfermanager"
 	tmtypes "github.com/aws/aws-sdk-go-v2/feature/s3/transfermanager/types"
 	"github.com/islishude/gotgz/packages/locator"
@@ -90,7 +93,7 @@ func TestStoreApplyEncryption(t *testing.T) {
 			if in.ServerSideEncryption != tt.wantSSE {
 				t.Fatalf("applyEncryption() SSE = %q, want %q", in.ServerSideEncryption, tt.wantSSE)
 			}
-			if got := derefString(in.SSEKMSKeyID); got != tt.wantKMS {
+			if got := aws.ToString(in.SSEKMSKeyID); got != tt.wantKMS {
 				t.Fatalf("applyEncryption() SSEKMSKeyID = %q, want %q", got, tt.wantKMS)
 			}
 		})
@@ -215,10 +218,46 @@ func TestDefaultStringAndMergeMetadata(t *testing.T) {
 	}
 }
 
-// derefString returns the pointed-to string or an empty string when nil.
-func derefString(v *string) string {
-	if v == nil {
-		return ""
+// TestEncodeObjectTagging verifies that user-provided tags are encoded in a
+// stable order and that the built-in created-at tag always wins.
+func TestEncodeObjectTagging(t *testing.T) {
+	createdAt := time.Date(2026, time.March, 11, 9, 30, 0, 0, time.UTC)
+	got := encodeObjectTagging(map[string]string{
+		"team":             "archive ops",
+		"gotgz-created-at": "user-overridden",
+		"component":        "s3/upload",
+	}, createdAt)
+
+	want := "component=s3%2Fupload&team=archive+ops&gotgz-created-at=2026-03-11T09%3A30%3A00Z"
+	if got != want {
+		t.Fatalf("encodeObjectTagging() = %q, want %q", got, want)
 	}
-	return *v
+}
+
+// TestEncodeObjectTaggingWithoutUserTags verifies that S3 writes still receive
+// the built-in created-at tag when callers do not provide custom tags.
+func TestEncodeObjectTaggingWithoutUserTags(t *testing.T) {
+	createdAt := time.Date(2026, time.March, 11, 9, 30, 0, 0, time.UTC)
+	got := encodeObjectTagging(nil, createdAt)
+	if got != "gotgz-created-at=2026-03-11T09%3A30%3A00Z" {
+		t.Fatalf("encodeObjectTagging(nil) = %q", got)
+	}
+}
+
+// TestEncodeObjectTaggingRoundTrip verifies that special characters survive the
+// URL-query encoding required by the S3 tagging header.
+func TestEncodeObjectTaggingRoundTrip(t *testing.T) {
+	createdAt := time.Date(2026, time.March, 11, 9, 30, 0, 0, time.UTC)
+	got := encodeObjectTagging(map[string]string{"trace": "a=b&c"}, createdAt)
+
+	values, err := url.ParseQuery(got)
+	if err != nil {
+		t.Fatalf("ParseQuery() error = %v", err)
+	}
+	if values.Get("trace") != "a=b&c" {
+		t.Fatalf("trace = %q", values.Get("trace"))
+	}
+	if values.Get(createdAtObjectTagKey) != createdAt.Format(time.RFC3339) {
+		t.Fatalf("created-at = %q", values.Get(createdAtObjectTagKey))
+	}
 }

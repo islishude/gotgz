@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
@@ -95,6 +96,40 @@ func getObject(t *testing.T, ctx context.Context, client *awss3.Client, bucket, 
 		t.Fatalf("read s3://%s/%s: %v", bucket, key, err)
 	}
 	return string(b)
+}
+
+// getObjectTags reads the tag set for one S3 object into a key-value map.
+func getObjectTags(t *testing.T, ctx context.Context, client *awss3.Client, bucket, key string) map[string]string {
+	t.Helper()
+	out, err := client.GetObjectTagging(ctx, &awss3.GetObjectTaggingInput{
+		Bucket: new(bucket),
+		Key:    new(key),
+	})
+	if err != nil {
+		t.Fatalf("get tags for s3://%s/%s: %v", bucket, key, err)
+	}
+	tags := make(map[string]string, len(out.TagSet))
+	for _, tag := range out.TagSet {
+		tags[aws.ToString(tag.Key)] = aws.ToString(tag.Value)
+	}
+	return tags
+}
+
+// assertCreatedAtTag verifies that the built-in gotgz-created-at tag is present
+// and encoded as an RFC3339 UTC timestamp.
+func assertCreatedAtTag(t *testing.T, tags map[string]string) {
+	t.Helper()
+	value, ok := tags["gotgz-created-at"]
+	if !ok {
+		t.Fatalf("missing gotgz-created-at tag in %#v", tags)
+	}
+	parsed, err := time.Parse(time.RFC3339, value)
+	if err != nil {
+		t.Fatalf("gotgz-created-at = %q, want RFC3339 time: %v", value, err)
+	}
+	if parsed.Location() != time.UTC {
+		t.Fatalf("gotgz-created-at location = %v, want UTC", parsed.Location())
+	}
 }
 
 // newRunnerWithEndpoint creates a Runner pointing at the given S3 endpoint.
@@ -786,6 +821,72 @@ func TestS3ArchiveUploadCacheControlFromFlag(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
+// Test: archive uploads to S3 apply object tags, cache-control, and metadata
+// together on the same object upload.
+// ---------------------------------------------------------------------------
+func TestS3ArchiveUploadObjectTagsFromFlag(t *testing.T) {
+	ctx := context.Background()
+	ep := s3Endpoint(t)
+	client, bucket := setupS3Bucket(t, ctx, ep)
+
+	root := t.TempDir()
+	srcDir := filepath.Join(root, "data")
+	if err := os.MkdirAll(srcDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(srcDir, "msg.txt"), []byte("tagged-archive"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	archiveURI := fmt.Sprintf("s3://%s/archives/with-tags.tgz?env=prod&owner=platform", bucket)
+	r := newRunnerWithEndpoint(t, ep, io.Discard, io.Discard)
+	create := cli.Options{
+		Mode:           cli.ModeCreate,
+		Archive:        archiveURI,
+		Compression:    cli.CompressionGzip,
+		Chdir:          root,
+		S3CacheControl: "max-age=300,public",
+		S3ObjectTags: map[string]string{
+			"team":             "archive",
+			"gotgz-created-at": "user-value-ignored",
+		},
+		Members: []string{"data"},
+	}
+	res := r.Run(ctx, create)
+	if res.ExitCode != ExitSuccess {
+		t.Fatalf("create exit=%d err=%v", res.ExitCode, res.Err)
+	}
+
+	out, err := client.GetObject(ctx, &awss3.GetObjectInput{
+		Bucket: new(bucket),
+		Key:    new("archives/with-tags.tgz"),
+	})
+	if err != nil {
+		t.Fatalf("get uploaded archive: %v", err)
+	}
+	defer out.Body.Close() // nolint: errcheck
+
+	if got := aws.ToString(out.CacheControl); got != "max-age=300,public" {
+		t.Fatalf("cache-control=%q, want %q", got, "max-age=300,public")
+	}
+	if got := out.Metadata["env"]; got != "prod" {
+		t.Fatalf("metadata[env]=%q, want %q", got, "prod")
+	}
+	if got := out.Metadata["owner"]; got != "platform" {
+		t.Fatalf("metadata[owner]=%q, want %q", got, "platform")
+	}
+
+	tags := getObjectTags(t, ctx, client, bucket, "archives/with-tags.tgz")
+	if tags["team"] != "archive" {
+		t.Fatalf("tags[team]=%q, want %q", tags["team"], "archive")
+	}
+	assertCreatedAtTag(t, tags)
+	if tags["gotgz-created-at"] == "user-value-ignored" {
+		t.Fatalf("built-in created-at tag should override user value")
+	}
+}
+
+// ---------------------------------------------------------------------------
 // Test: extract a local archive to S3
 // ---------------------------------------------------------------------------
 func TestS3ExtractToS3(t *testing.T) {
@@ -900,6 +1001,56 @@ func TestS3ExtractToS3CacheControlFromFlag(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
+// Test: extracting a local tar archive to S3 applies object tags from flag
+// ---------------------------------------------------------------------------
+func TestS3ExtractToS3ObjectTagsFromFlag(t *testing.T) {
+	ctx := context.Background()
+	ep := s3Endpoint(t)
+	client, bucket := setupS3Bucket(t, ctx, ep)
+
+	root := t.TempDir()
+	srcDir := filepath.Join(root, "src")
+	if err := os.MkdirAll(srcDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(srcDir, "x.txt"), []byte("x-value"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	localArchive := filepath.Join(root, "test.tar")
+	r := newRunnerWithEndpoint(t, ep, io.Discard, io.Discard)
+	create := cli.Options{
+		Mode:    cli.ModeCreate,
+		Archive: localArchive,
+		Chdir:   root,
+		Members: []string{"src"},
+	}
+	res := r.Run(ctx, create)
+	if res.ExitCode != ExitSuccess {
+		t.Fatalf("create exit=%d err=%v", res.ExitCode, res.Err)
+	}
+
+	s3Target := fmt.Sprintf("s3://%s/extracted/", bucket)
+	r2 := newRunnerWithEndpoint(t, ep, io.Discard, io.Discard)
+	extract := cli.Options{
+		Mode:         cli.ModeExtract,
+		Archive:      localArchive,
+		Chdir:        s3Target,
+		S3ObjectTags: map[string]string{"team": "restore"},
+	}
+	res = r2.Run(ctx, extract)
+	if res.ExitCode != ExitSuccess {
+		t.Fatalf("extract-to-s3 exit=%d err=%v", res.ExitCode, res.Err)
+	}
+
+	tags := getObjectTags(t, ctx, client, bucket, "extracted/src/x.txt")
+	if tags["team"] != "restore" {
+		t.Fatalf("tags[team]=%q, want %q", tags["team"], "restore")
+	}
+	assertCreatedAtTag(t, tags)
+}
+
+// ---------------------------------------------------------------------------
 // Test: extracting a local zip archive to S3 applies Cache-Control from flag
 // ---------------------------------------------------------------------------
 func TestS3ExtractZipToS3CacheControlFromFlag(t *testing.T) {
@@ -954,6 +1105,56 @@ func TestS3ExtractZipToS3CacheControlFromFlag(t *testing.T) {
 	if got := aws.ToString(out.CacheControl); got != "max-age=120" {
 		t.Fatalf("cache-control=%q, want %q", got, "max-age=120")
 	}
+}
+
+// ---------------------------------------------------------------------------
+// Test: extracting a local zip archive to S3 applies object tags from flag
+// ---------------------------------------------------------------------------
+func TestS3ExtractZipToS3ObjectTagsFromFlag(t *testing.T) {
+	ctx := context.Background()
+	ep := s3Endpoint(t)
+	client, bucket := setupS3Bucket(t, ctx, ep)
+
+	root := t.TempDir()
+	srcDir := filepath.Join(root, "src")
+	if err := os.MkdirAll(srcDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(srcDir, "z.txt"), []byte("zip-value"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	localArchive := filepath.Join(root, "test.zip")
+	r := newRunnerWithEndpoint(t, ep, io.Discard, io.Discard)
+	create := cli.Options{
+		Mode:    cli.ModeCreate,
+		Archive: localArchive,
+		Chdir:   root,
+		Members: []string{"src"},
+	}
+	res := r.Run(ctx, create)
+	if res.ExitCode != ExitSuccess {
+		t.Fatalf("create zip exit=%d err=%v", res.ExitCode, res.Err)
+	}
+
+	s3Target := fmt.Sprintf("s3://%s/extracted-zip/", bucket)
+	r2 := newRunnerWithEndpoint(t, ep, io.Discard, io.Discard)
+	extract := cli.Options{
+		Mode:         cli.ModeExtract,
+		Archive:      localArchive,
+		Chdir:        s3Target,
+		S3ObjectTags: map[string]string{"team": "zip-restore"},
+	}
+	res = r2.Run(ctx, extract)
+	if res.ExitCode != ExitSuccess {
+		t.Fatalf("extract zip-to-s3 exit=%d err=%v", res.ExitCode, res.Err)
+	}
+
+	tags := getObjectTags(t, ctx, client, bucket, "extracted-zip/src/z.txt")
+	if tags["team"] != "zip-restore" {
+		t.Fatalf("tags[team]=%q, want %q", tags["team"], "zip-restore")
+	}
+	assertCreatedAtTag(t, tags)
 }
 
 // ---------------------------------------------------------------------------

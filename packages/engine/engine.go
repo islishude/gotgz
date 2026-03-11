@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"maps"
 	"strings"
 	"time"
 
@@ -109,6 +110,7 @@ func (r *Runner) runCreate(ctx context.Context, opts cli.Options) (warnings int,
 		return 0, err
 	}
 	archiveRef = applyS3CacheControl(archiveRef, opts.S3CacheControl)
+	archiveRef = applyS3ObjectTags(archiveRef, opts.S3ObjectTags)
 	format := detectCreateArchiveFormat(archiveRef)
 	switch format {
 	case archiveFormatZip:
@@ -221,7 +223,7 @@ func applyArchiveSuffix(ref locator.Ref, suffix string) (locator.Ref, error) {
 }
 
 // parseExtractTarget resolves the output target for extract mode and applies S3 options.
-func parseExtractTarget(chdir string, cacheControl string) (locator.Ref, error) {
+func parseExtractTarget(chdir string, cacheControl string, objectTags map[string]string) (locator.Ref, error) {
 	target := chdir
 	if target == "" {
 		target = "."
@@ -230,7 +232,9 @@ func parseExtractTarget(chdir string, cacheControl string) (locator.Ref, error) 
 	if err != nil {
 		return locator.Ref{}, err
 	}
-	return applyS3CacheControl(ref, cacheControl), nil
+	ref = applyS3CacheControl(ref, cacheControl)
+	ref = applyS3ObjectTags(ref, objectTags)
+	return ref, nil
 }
 
 // applyS3CacheControl sets Cache-Control on S3 refs when the option is provided.
@@ -243,5 +247,17 @@ func applyS3CacheControl(ref locator.Ref, cacheControl string) locator.Ref {
 		return ref
 	}
 	ref.CacheControl = cacheControl
+	return ref
+}
+
+// applyS3ObjectTags sets S3 object tags on S3 refs when the option is provided.
+func applyS3ObjectTags(ref locator.Ref, objectTags map[string]string) locator.Ref {
+	if ref.Kind != locator.KindS3 {
+		return ref
+	}
+	if len(objectTags) == 0 {
+		return ref
+	}
+	ref.ObjectTags = maps.Clone(objectTags)
 	return ref
 }
