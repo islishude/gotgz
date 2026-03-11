@@ -306,10 +306,12 @@ func mergeMetadata(base, overlay map[string]string) map[string]string {
 func encodeObjectTagging(tags map[string]string, createdAt time.Time) string {
 	values := make(url.Values, len(tags))
 	for key, value := range tags {
-		if strings.TrimSpace(key) == "" || key == createdAtObjectTagKey {
+		trimmedKey := strings.TrimSpace(key)
+		if trimmedKey == "" || trimmedKey == createdAtObjectTagKey {
 			continue
 		}
-		values.Set(key, value)
+		trimmedValue := strings.TrimSpace(value)
+		values.Set(trimmedKey, trimmedValue)
 	}
 
 	// Keep the built-in created-at tag at the end while still relying on the
