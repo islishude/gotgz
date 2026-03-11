@@ -13,7 +13,6 @@ import (
 type localCreateEntry struct {
 	current     string
 	archiveName string
-	entry       fs.DirEntry
 	info        fs.FileInfo
 }
 
@@ -55,7 +54,6 @@ func walkLocalCreateMember(ctx context.Context, member string, chdir string, exc
 		return visit(localCreateEntry{
 			current:     current,
 			archiveName: archiveName,
-			entry:       d,
 			info:        info,
 		})
 	})

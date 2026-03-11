@@ -53,8 +53,22 @@ func (r *Runner) runCreateZip(ctx context.Context, opts cli.Options, archiveRef 
 		return warnings, err
 	}
 	excludeMatcher := newCompiledPathMatcher(excludes)
-	if err := r.configureCreateProgressReporter(ctx, opts, excludeMatcher, reporter); err != nil {
+	plan, err := r.buildCreatePlanIfEnabled(ctx, opts, excludeMatcher, reporter)
+	if err != nil {
 		return warnings, err
+	}
+	if plan != nil {
+		createWarnings, err := r.processCreatePlan(
+			ctx,
+			plan,
+			func(ref locator.Ref) error {
+				return r.addS3MemberZip(ctx, zw, ref, opts.Verbose, reporter)
+			},
+			func(entries []localCreateEntry) (int, error) {
+				return r.addLocalEntriesZip(ctx, zw, entries, opts.Verbose, reporter)
+			},
+		)
+		return warnings + createWarnings, err
 	}
 
 	createWarnings, err := r.processCreateMembers(
