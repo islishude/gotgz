@@ -5,6 +5,7 @@ import (
 	"compress/gzip"
 	"context"
 	"io"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -169,6 +170,75 @@ func TestOpenReaderRejectsNonHTTPRef(t *testing.T) {
 	_, _, err := store.OpenReader(context.Background(), locator.Ref{Kind: locator.KindLocal, Raw: "local.tar"})
 	if err == nil {
 		t.Fatalf("expected error")
+	}
+}
+
+func TestOpenRangeReaderSuccess(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.Header.Get("Range"); got != "bytes=2-5" {
+			t.Errorf("Range = %q, want %q", got, "bytes=2-5")
+		}
+		if got := r.Header.Get("Accept-Encoding"); got != "identity" {
+			t.Errorf("Accept-Encoding = %q, want %q", got, "identity")
+		}
+		w.Header().Set("Content-Range", "bytes 2-5/8")
+		w.WriteHeader(http.StatusPartialContent)
+		_, _ = io.WriteString(w, "cdef")
+	}))
+	defer server.Close()
+
+	store := New()
+	rc, err := store.OpenRangeReader(context.Background(), locator.Ref{
+		Kind: locator.KindHTTP,
+		Raw:  server.URL + "/range.zip",
+		URL:  server.URL + "/range.zip",
+	}, 2, 4)
+	if err != nil {
+		t.Fatalf("OpenRangeReader() error = %v", err)
+	}
+	defer rc.Close() //nolint:errcheck
+
+	body, err := io.ReadAll(rc)
+	if err != nil {
+		t.Fatalf("ReadAll() error = %v", err)
+	}
+	if string(body) != "cdef" {
+		t.Fatalf("body = %q, want %q", body, "cdef")
+	}
+}
+
+func TestOpenRangeReaderRejectsNonPartialContent(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, "full-response")
+	}))
+	defer server.Close()
+
+	store := New()
+	_, err := store.OpenRangeReader(context.Background(), locator.Ref{
+		Kind: locator.KindHTTP,
+		Raw:  server.URL + "/range.zip",
+		URL:  server.URL + "/range.zip",
+	}, 0, 4)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "200 OK") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestOpenRangeReaderRejectsOverflow(t *testing.T) {
+	store := New()
+	_, err := store.OpenRangeReader(context.Background(), locator.Ref{
+		Kind: locator.KindHTTP,
+		Raw:  "https://example.com/range.zip",
+		URL:  "https://example.com/range.zip",
+	}, math.MaxInt64, 2)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if got := err.Error(); got != "range end overflows int64 for offset 9223372036854775807 and length 2" {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
 

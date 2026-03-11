@@ -4,12 +4,31 @@ import (
 	"bytes"
 	"errors"
 	"io"
+	"sync"
 )
 
 // replayReadCloser replays prefetched bytes before reading from the source.
 type replayReadCloser struct {
 	reader io.Reader
 	closer io.Closer
+}
+
+// closeOnceCloser guarantees that the wrapped closer is invoked at most once.
+type closeOnceCloser struct {
+	closer io.Closer
+	once   sync.Once
+	err    error
+}
+
+// Close closes the wrapped closer once and returns the same result thereafter.
+func (c *closeOnceCloser) Close() error {
+	if c == nil || c.closer == nil {
+		return nil
+	}
+	c.once.Do(func() {
+		c.err = c.closer.Close()
+	})
+	return c.err
 }
 
 // Read forwards reads to the replay reader.
@@ -25,8 +44,9 @@ func (r *replayReadCloser) Close() error {
 // replayWithMagicPrefix reads up to prefixLen bytes and returns a reader that
 // yields those bytes again before streaming the remaining source bytes.
 func replayWithMagicPrefix(src io.ReadCloser, prefixLen int) ([]byte, io.ReadCloser, error) {
+	closer := &closeOnceCloser{closer: src}
 	if prefixLen <= 0 {
-		return nil, src, nil
+		return nil, &replayReadCloser{reader: src, closer: closer}, nil
 	}
 	buf := make([]byte, prefixLen)
 	n, err := io.ReadFull(src, buf)
@@ -36,7 +56,7 @@ func replayWithMagicPrefix(src io.ReadCloser, prefixLen int) ([]byte, io.ReadClo
 	prefix := append([]byte(nil), buf[:n]...)
 	replay := &replayReadCloser{
 		reader: io.MultiReader(bytes.NewReader(prefix), src),
-		closer: src,
+		closer: closer,
 	}
 	return prefix, replay, nil
 }

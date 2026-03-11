@@ -52,21 +52,34 @@ func (r *Runner) runCreateZip(ctx context.Context, opts cli.Options, archiveRef 
 	if err != nil {
 		return warnings, err
 	}
-	totalBytes, known, err := r.estimateCreateInputBytes(ctx, opts, excludes)
+	excludeMatcher := newCompiledPathMatcher(excludes)
+	plan, err := r.buildCreatePlanIfEnabled(ctx, opts, excludeMatcher, reporter)
 	if err != nil {
 		return warnings, err
 	}
-	reporter.SetTotal(totalBytes, known)
+	if plan != nil {
+		createWarnings, err := r.processCreatePlan(
+			ctx,
+			plan,
+			func(ref locator.Ref) error {
+				return r.addS3MemberZip(ctx, zw, ref, opts.Verbose, reporter)
+			},
+			func(entries []localCreateEntry) (int, error) {
+				return r.addLocalEntriesZip(ctx, zw, entries, opts.Verbose, reporter)
+			},
+		)
+		return warnings + createWarnings, err
+	}
 
 	createWarnings, err := r.processCreateMembers(
 		ctx,
 		opts,
-		excludes,
+		excludeMatcher,
 		func(ref locator.Ref) error {
 			return r.addS3MemberZip(ctx, zw, ref, opts.Verbose, reporter)
 		},
 		func(member string) (int, error) {
-			return r.addLocalPathZip(ctx, zw, member, opts.Chdir, excludes, opts.Verbose, reporter)
+			return r.addLocalPathZip(ctx, zw, member, opts.Chdir, excludeMatcher, opts.Verbose, reporter)
 		},
 	)
 	return warnings + createWarnings, err
@@ -76,6 +89,7 @@ func (r *Runner) runCreateZip(ctx context.Context, opts cli.Options, archiveRef 
 func (r *Runner) runListZip(ctx context.Context, opts cli.Options, reporter *progressReporter, archiveRef locator.Ref, ar io.ReadCloser, info archiveReaderInfo) (int, error) {
 	warnings := r.warnZipReadOptions(opts, reporter)
 	reporter.SetTotal(info.Size, info.SizeKnown)
+	memberMatcher := newMemberMatcher(opts)
 	zipWarnings, err := r.withZipReader(ctx, archiveRef, ar, info, reporter, func(zr *zip.Reader) (int, error) {
 		innerWarnings := 0
 		for _, zf := range zr.File {
@@ -84,7 +98,7 @@ func (r *Runner) runListZip(ctx context.Context, opts cli.Options, reporter *pro
 				return innerWarnings, ctx.Err()
 			default:
 			}
-			if shouldSkipMember(opts, zf.Name) {
+			if shouldSkipMemberWithMatcher(memberMatcher, zf.Name) {
 				continue
 			}
 			reporter.beforeExternalLineOutput()
@@ -102,9 +116,10 @@ func (r *Runner) runExtractZip(ctx context.Context, opts cli.Options, reporter *
 	warnings := r.warnZipReadOptions(opts, reporter)
 
 	if opts.ToStdout {
+		memberMatcher := newMemberMatcher(opts)
 		zipWarnings, err := r.withZipReader(ctx, archiveRef, ar, info, nil, func(zr *zip.Reader) (int, error) {
 			total := totalZipPayloadBytes(zr, func(zf *zip.File) bool {
-				if shouldSkipMember(opts, zf.Name) {
+				if shouldSkipMemberWithMatcher(memberMatcher, zf.Name) {
 					return false
 				}
 				name, ok := stripPathComponents(zf.Name, opts.StripComponents)
@@ -114,7 +129,7 @@ func (r *Runner) runExtractZip(ctx context.Context, opts cli.Options, reporter *
 				return name != "" && isZipRegular(zf)
 			})
 			reporter.SetTotal(total, true)
-			return r.extractZipToStdout(ctx, zr, opts, reporter)
+			return r.extractZipToStdout(ctx, zr, memberMatcher, opts, reporter)
 		})
 		return warnings + zipWarnings, err
 	}
@@ -127,10 +142,15 @@ func (r *Runner) runExtractZip(ctx context.Context, opts cli.Options, reporter *
 	if target == "" {
 		target = "."
 	}
+	var safetyCache *pathSafetyCache
+	if parsedTarget.Kind == locator.KindLocal || parsedTarget.Kind == locator.KindStdio {
+		safetyCache = newPathSafetyCache()
+	}
+	memberMatcher := newMemberMatcher(opts)
 
 	zipWarnings, err := r.withZipReader(ctx, archiveRef, ar, info, nil, func(zr *zip.Reader) (int, error) {
 		total := totalZipPayloadBytes(zr, func(zf *zip.File) bool {
-			if shouldSkipMember(opts, zf.Name) {
+			if shouldSkipMemberWithMatcher(memberMatcher, zf.Name) {
 				return false
 			}
 			name, ok := stripPathComponents(zf.Name, opts.StripComponents)
@@ -145,7 +165,7 @@ func (r *Runner) runExtractZip(ctx context.Context, opts cli.Options, reporter *
 				return innerWarnings, ctx.Err()
 			default:
 			}
-			if shouldSkipMember(opts, zf.Name) {
+			if shouldSkipMemberWithMatcher(memberMatcher, zf.Name) {
 				continue
 			}
 			extractName, ok := stripPathComponents(zf.Name, opts.StripComponents)
@@ -165,7 +185,7 @@ func (r *Runner) runExtractZip(ctx context.Context, opts cli.Options, reporter *
 					return r.extractZipEntryToS3(ctx, target, zf, extractName, reporter)
 				},
 				func(base string) (int, error) {
-					return r.extractZipEntryToLocal(ctx, base, zf, extractName, policy, reporter)
+					return r.extractZipEntryToLocal(ctx, base, zf, extractName, policy, safetyCache, reporter)
 				},
 			)
 			innerWarnings += w

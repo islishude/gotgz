@@ -13,6 +13,8 @@ import (
 	"github.com/islishude/gotgz/internal/locator"
 )
 
+const splitFlushLookaheadBytes int64 = 1 << 20
+
 // tarArchiveWriter writes tar entries and lets callers signal member boundaries.
 type tarArchiveWriter interface {
 	WriteHeader(hdr *tar.Header) error
@@ -142,6 +144,9 @@ func (w *splitTarArchiveWriter) FinishEntry() error {
 	if w.current == nil {
 		return nil
 	}
+	if !shouldFlushSplitVolume(w.current.dst.count, w.splitSize) {
+		return nil
+	}
 	if err := w.current.tw.Flush(); err != nil {
 		return err
 	}
@@ -154,6 +159,15 @@ func (w *splitTarArchiveWriter) FinishEntry() error {
 		w.rotateOnEntry = true
 	}
 	return nil
+}
+
+// shouldFlushSplitVolume reports whether the current volume is close enough to
+// the split threshold that flushing buffered output is worth the cost.
+func shouldFlushSplitVolume(written int64, splitSize int64) bool {
+	if splitSize <= 0 || splitSize <= splitFlushLookaheadBytes {
+		return true
+	}
+	return written >= splitSize-splitFlushLookaheadBytes
 }
 
 // Close finalizes the active volume without creating a trailing empty volume.

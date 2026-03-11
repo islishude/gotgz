@@ -9,7 +9,7 @@ import (
 )
 
 // extractZipEntryToLocal extracts one zip entry into the local filesystem.
-func (r *Runner) extractZipEntryToLocal(ctx context.Context, base string, zf *zip.File, extractName string, policy PermissionPolicy, reporter *progressReporter) (int, error) {
+func (r *Runner) extractZipEntryToLocal(ctx context.Context, base string, zf *zip.File, extractName string, policy PermissionPolicy, safetyCache *pathSafetyCache, reporter *progressReporter) (int, error) {
 	target, err := safeJoin(base, extractName)
 	if err != nil {
 		return 0, err
@@ -20,7 +20,7 @@ func (r *Runner) extractZipEntryToLocal(ctx context.Context, base string, zf *zi
 
 	switch {
 	case isZipDir(zf):
-		if err := ensureLocalDirTarget(base, target, computeExtractPerm(mode, 0o755, policy.SamePerms)); err != nil {
+		if err := ensureLocalDirTarget(base, target, computeExtractPerm(mode, 0o755, policy.SamePerms), safetyCache); err != nil {
 			return warnings, err
 		}
 	case isZipSymlink(zf):
@@ -40,7 +40,7 @@ func (r *Runner) extractZipEntryToLocal(ctx context.Context, base string, zf *zi
 		if cerr != nil {
 			return warnings, cerr
 		}
-		if err := replaceLocalSymlinkTarget(base, target, linkTarget); err != nil {
+		if err := replaceLocalSymlinkTarget(base, target, linkTarget, safetyCache); err != nil {
 			return warnings, err
 		}
 	case isZipRegular(zf):
@@ -52,7 +52,7 @@ func (r *Runner) extractZipEntryToLocal(ctx context.Context, base string, zf *zi
 		if rc == nil {
 			return warnings, nil
 		}
-		err = writeLocalRegularTarget(ctx, base, target, computeExtractPerm(mode, 0o644, policy.SamePerms), newCountingReader(rc, reporter))
+		err = writeLocalRegularTarget(ctx, base, target, computeExtractPerm(mode, 0o644, policy.SamePerms), newCountingReader(rc, reporter), safetyCache)
 		rerr := rc.Close()
 		if err != nil {
 			return warnings, err

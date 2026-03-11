@@ -33,68 +33,93 @@ func (r *Runner) addS3MemberZip(ctx context.Context, zw *zip.Writer, ref locator
 }
 
 // addLocalPathZip walks a local member and writes entries into the zip archive.
-func (r *Runner) addLocalPathZip(ctx context.Context, zw *zip.Writer, member, chdir string, excludes []string, verbose bool, reporter *progressReporter) (int, error) {
+func (r *Runner) addLocalPathZip(ctx context.Context, zw *zip.Writer, member, chdir string, excludeMatcher *compiledPathMatcher, verbose bool, reporter *progressReporter) (int, error) {
 	warnings := 0
-	err := walkLocalCreateMember(ctx, member, chdir, excludes, func(entry localCreateEntry) error {
-		st := entry.info
-		entryName := filepath.ToSlash(entry.archiveName)
-
-		hdr, err := zip.FileInfoHeader(st)
-		if err != nil {
-			return err
-		}
-		hdr.Name = entryName
-		if st.IsDir() {
-			if !strings.HasSuffix(hdr.Name, "/") {
-				hdr.Name += "/"
-			}
-			hdr.Method = zip.Store
-		} else if st.Mode()&os.ModeSymlink != 0 {
-			hdr.Method = zip.Store
-		} else {
-			hdr.Method = zip.Deflate
-		}
-		hdr.Modified = st.ModTime()
-		hdr.SetMode(st.Mode())
-
-		w, err := zw.CreateHeader(hdr)
-		if err != nil {
-			return err
-		}
-		switch {
-		case st.IsDir():
-		case st.Mode()&os.ModeSymlink != 0:
-			linkTarget, err := os.Readlink(entry.current)
-			if err != nil {
-				return err
-			}
-			if _, err := io.WriteString(w, linkTarget); err != nil {
-				return err
-			}
-		case st.Mode().IsRegular():
-			f, err := os.Open(entry.current)
-			if err != nil {
-				return err
-			}
-			_, err = copyWithContext(ctx, w, newCountingReader(f, reporter))
-			cerr := f.Close()
-			if err != nil {
-				return err
-			}
-			if cerr != nil {
-				return cerr
-			}
-		default:
-			warnings += r.warnf(reporter, "zip create: unsupported local member type %s for %s; skipping payload", st.Mode().String(), entry.current)
-			return nil
-		}
-
-		if verbose {
-			reporter.beforeExternalLineOutput()
-			_, _ = fmt.Fprintln(r.stdout, hdr.Name)
-			reporter.afterExternalLineOutput()
-		}
-		return nil
+	err := walkLocalCreateMember(ctx, member, chdir, excludeMatcher, func(entry localCreateEntry) error {
+		w, err := r.writeLocalZipEntry(ctx, zw, entry, verbose, reporter)
+		warnings += w
+		return err
 	})
 	return warnings, err
+}
+
+// addLocalEntriesZip writes a pre-scanned set of local filesystem entries into
+// the zip archive.
+func (r *Runner) addLocalEntriesZip(ctx context.Context, zw *zip.Writer, entries []localCreateEntry, verbose bool, reporter *progressReporter) (int, error) {
+	warnings := 0
+	for _, entry := range entries {
+		select {
+		case <-ctx.Done():
+			return warnings, ctx.Err()
+		default:
+		}
+		w, err := r.writeLocalZipEntry(ctx, zw, entry, verbose, reporter)
+		warnings += w
+		if err != nil {
+			return warnings, err
+		}
+	}
+	return warnings, nil
+}
+
+// writeLocalZipEntry writes one local filesystem entry into the zip archive.
+func (r *Runner) writeLocalZipEntry(ctx context.Context, zw *zip.Writer, entry localCreateEntry, verbose bool, reporter *progressReporter) (int, error) {
+	st := entry.info
+	entryName := filepath.ToSlash(entry.archiveName)
+
+	hdr, err := zip.FileInfoHeader(st)
+	if err != nil {
+		return 0, err
+	}
+	hdr.Name = entryName
+	if st.IsDir() {
+		if !strings.HasSuffix(hdr.Name, "/") {
+			hdr.Name += "/"
+		}
+		hdr.Method = zip.Store
+	} else if st.Mode()&os.ModeSymlink != 0 {
+		hdr.Method = zip.Store
+	} else {
+		hdr.Method = zip.Deflate
+	}
+	hdr.Modified = st.ModTime()
+	hdr.SetMode(st.Mode())
+
+	w, err := zw.CreateHeader(hdr)
+	if err != nil {
+		return 0, err
+	}
+	switch {
+	case st.IsDir():
+	case st.Mode()&os.ModeSymlink != 0:
+		linkTarget, err := os.Readlink(entry.current)
+		if err != nil {
+			return 0, err
+		}
+		if _, err := io.WriteString(w, linkTarget); err != nil {
+			return 0, err
+		}
+	case st.Mode().IsRegular():
+		f, err := os.Open(entry.current)
+		if err != nil {
+			return 0, err
+		}
+		_, err = copyWithContext(ctx, w, newCountingReader(f, reporter))
+		cerr := f.Close()
+		if err != nil {
+			return 0, err
+		}
+		if cerr != nil {
+			return 0, cerr
+		}
+	default:
+		return r.warnf(reporter, "zip create: unsupported local member type %s for %s; skipping payload", st.Mode().String(), entry.current), nil
+	}
+
+	if verbose {
+		reporter.beforeExternalLineOutput()
+		_, _ = fmt.Fprintln(r.stdout, hdr.Name)
+		reporter.afterExternalLineOutput()
+	}
+	return 0, nil
 }

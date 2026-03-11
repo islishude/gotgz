@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"math"
 	"reflect"
 	"strings"
 	"testing"
@@ -22,11 +23,30 @@ func TestStoreRejectsNonS3Refs(t *testing.T) {
 	if _, _, err := store.OpenReader(context.Background(), ref); err == nil {
 		t.Fatalf("OpenReader() error = nil, want non-nil")
 	}
+	if _, err := store.OpenRangeReader(context.Background(), ref, 0, 1); err == nil {
+		t.Fatalf("OpenRangeReader() error = nil, want non-nil")
+	}
 	if _, err := store.OpenWriter(context.Background(), ref, nil); err == nil {
 		t.Fatalf("OpenWriter() error = nil, want non-nil")
 	}
 	if err := store.UploadStream(context.Background(), ref, strings.NewReader("payload"), nil); err == nil {
 		t.Fatalf("UploadStream() error = nil, want non-nil")
+	}
+}
+
+// TestOpenRangeReaderRejectsOverflow verifies that byte range calculation
+// fails before constructing an invalid Range header when the end offset would
+// overflow int64.
+func TestOpenRangeReaderRejectsOverflow(t *testing.T) {
+	store := &Store{}
+	ref := locator.Ref{Kind: locator.KindS3, Raw: "s3://bucket/object", Bucket: "bucket", Key: "object"}
+
+	_, err := store.OpenRangeReader(context.Background(), ref, math.MaxInt64, 2)
+	if err == nil {
+		t.Fatal("OpenRangeReader() error = nil, want non-nil")
+	}
+	if got := err.Error(); got != "range end overflows int64 for offset 9223372036854775807 and length 2" {
+		t.Fatalf("OpenRangeReader() error = %q, want overflow error", got)
 	}
 }
 

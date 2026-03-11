@@ -16,6 +16,7 @@ import (
 
 type fakeS3ArchiveStore struct {
 	openReader   func(ctx context.Context, ref locator.Ref) (io.ReadCloser, s3store.Metadata, error)
+	openRange    func(ctx context.Context, ref locator.Ref, offset int64, length int64) (io.ReadCloser, error)
 	stat         func(ctx context.Context, ref locator.Ref) (s3store.Metadata, error)
 	openWriter   func(ctx context.Context, ref locator.Ref, metadata map[string]string) (io.WriteCloser, error)
 	uploadStream func(ctx context.Context, ref locator.Ref, body io.Reader, metadata map[string]string) error
@@ -27,6 +28,13 @@ func (f fakeS3ArchiveStore) OpenReader(ctx context.Context, ref locator.Ref) (io
 		return nil, s3store.Metadata{}, nil
 	}
 	return f.openReader(ctx, ref)
+}
+
+func (f fakeS3ArchiveStore) OpenRangeReader(ctx context.Context, ref locator.Ref, offset int64, length int64) (io.ReadCloser, error) {
+	if f.openRange == nil {
+		return nil, errors.New("fakeS3ArchiveStore: OpenRangeReader not implemented")
+	}
+	return f.openRange(ctx, ref, offset, length)
 }
 
 func (f fakeS3ArchiveStore) Stat(ctx context.Context, ref locator.Ref) (s3store.Metadata, error) {
@@ -59,6 +67,7 @@ func (f fakeS3ArchiveStore) ListPrefix(ctx context.Context, bucket string, prefi
 
 type fakeHTTPArchiveStore struct {
 	openReader func(ctx context.Context, ref locator.Ref) (io.ReadCloser, httpstore.Metadata, error)
+	openRange  func(ctx context.Context, ref locator.Ref, offset int64, length int64) (io.ReadCloser, error)
 }
 
 func (f fakeHTTPArchiveStore) OpenReader(ctx context.Context, ref locator.Ref) (io.ReadCloser, httpstore.Metadata, error) {
@@ -66,6 +75,13 @@ func (f fakeHTTPArchiveStore) OpenReader(ctx context.Context, ref locator.Ref) (
 		return nil, httpstore.Metadata{}, nil
 	}
 	return f.openReader(ctx, ref)
+}
+
+func (f fakeHTTPArchiveStore) OpenRangeReader(ctx context.Context, ref locator.Ref, offset int64, length int64) (io.ReadCloser, error) {
+	if f.openRange == nil {
+		return nil, errors.New("fakeHTTPArchiveStore: OpenRangeReader not implemented")
+	}
+	return f.openRange(ctx, ref, offset, length)
 }
 
 type fakeWriteCloser struct {

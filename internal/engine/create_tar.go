@@ -38,76 +38,35 @@ func (r *Runner) runCreateTar(ctx context.Context, opts cli.Options, archiveRef 
 	if err != nil {
 		return 0, err
 	}
-	totalBytes, known, err := r.estimateCreateInputBytes(ctx, opts, excludes)
+	excludeMatcher := newCompiledPathMatcher(excludes)
+	plan, err := r.buildCreatePlanIfEnabled(ctx, opts, excludeMatcher, reporter)
 	if err != nil {
 		return 0, err
 	}
-	reporter.SetTotal(totalBytes, known)
+	if plan != nil {
+		return r.processCreatePlan(
+			ctx,
+			plan,
+			func(ref locator.Ref) error {
+				return r.addS3Member(ctx, tw, ref, opts.Verbose, reporter)
+			},
+			func(entries []localCreateEntry) (int, error) {
+				return r.addLocalEntries(ctx, tw, entries, opts.Verbose, metadataPolicy, reporter)
+			},
+		)
+	}
 
 	return r.processCreateMembers(
 		ctx,
 		opts,
-		excludes,
+		excludeMatcher,
 		func(ref locator.Ref) error {
 			return r.addS3Member(ctx, tw, ref, opts.Verbose, reporter)
 		},
 		func(member string) (int, error) {
-			return r.addLocalPath(ctx, tw, member, opts.Chdir, excludes, opts.Verbose, metadataPolicy, reporter)
+			return r.addLocalPath(ctx, tw, member, opts.Chdir, excludeMatcher, opts.Verbose, metadataPolicy, reporter)
 		},
 	)
-}
-
-// estimateCreateInputBytes pre-computes input bytes for create mode progress and ETA.
-func (r *Runner) estimateCreateInputBytes(ctx context.Context, opts cli.Options, excludes []string) (int64, bool, error) {
-	var total int64
-	for _, member := range opts.Members {
-		select {
-		case <-ctx.Done():
-			return 0, false, ctx.Err()
-		default:
-		}
-
-		ref, err := locator.ParseMember(member)
-		if err != nil {
-			return 0, false, err
-		}
-
-		switch ref.Kind {
-		case locator.KindS3:
-			if matchExclude(excludes, ref.Key) {
-				continue
-			}
-			meta, err := r.storage.statS3Object(ctx, ref)
-			if err != nil {
-				// Cannot determine size for this S3 object; fall back to
-				// unknown-total progress so the actual archive still proceeds.
-				return total, false, nil
-			}
-			total += meta.Size
-		case locator.KindLocal:
-			size, err := r.estimateLocalPathBytes(ctx, member, opts.Chdir, excludes)
-			if err != nil {
-				return 0, false, err
-			}
-			total += size
-		default:
-			return 0, false, fmt.Errorf("unsupported member reference %q", member)
-		}
-	}
-	return total, true, nil
-}
-
-// estimateLocalPathBytes sums regular file bytes for one local create member.
-func (r *Runner) estimateLocalPathBytes(ctx context.Context, member, chdir string, excludes []string) (int64, error) {
-	var total int64
-
-	err := walkLocalCreateMember(ctx, member, chdir, excludes, func(entry localCreateEntry) error {
-		if entry.info.Mode().IsRegular() {
-			total += entry.info.Size()
-		}
-		return nil
-	})
-	return total, err
 }
 
 // addS3Member writes one S3 object to the tar stream as a regular file member.
@@ -133,61 +92,103 @@ func (r *Runner) addS3Member(ctx context.Context, tw tarArchiveWriter, ref locat
 
 // addLocalPath walks one local member path and writes entries into the tar
 // stream, returning any metadata warnings emitted along the way.
-func (r *Runner) addLocalPath(ctx context.Context, tw tarArchiveWriter, member, chdir string, excludes []string, verbose bool, metadataPolicy MetadataPolicy, reporter *progressReporter) (int, error) {
+func (r *Runner) addLocalPath(ctx context.Context, tw tarArchiveWriter, member, chdir string, excludeMatcher *compiledPathMatcher, verbose bool, metadataPolicy MetadataPolicy, reporter *progressReporter) (int, error) {
 	warnings := 0
-	err := walkLocalCreateMember(ctx, member, chdir, excludes, func(entry localCreateEntry) error {
-		st := entry.info
-		linkname := ""
-		if st.Mode()&os.ModeSymlink != 0 {
-			resolvedLink, err := os.Readlink(entry.current)
-			if err != nil {
-				return err
-			}
-			linkname = resolvedLink
-		}
-		hdr, err := tar.FileInfoHeader(st, linkname)
-		if err != nil {
-			return err
-		}
-		hdr.Name = filepath.ToSlash(entry.archiveName)
-		hdr.Format = tar.FormatPAX
+	err := walkLocalCreateMember(ctx, member, chdir, excludeMatcher, func(entry localCreateEntry) error {
+		w, err := r.writeLocalTarEntry(ctx, tw, entry, verbose, metadataPolicy, reporter)
+		warnings += w
+		return err
+	})
+	return warnings, err
+}
 
-		if metadataPolicy.Xattrs || metadataPolicy.ACL {
-			xattrs, acls, err := archive.ReadPathMetadata(entry.current)
-			if err != nil {
-				warnings += r.warnf(reporter, "create: metadata for %s is incomplete: %v", entry.current, err)
-			}
-			xattrs, acls = prepareMetadataForArchive(xattrs, acls, metadataPolicy)
-			archive.EncodeXattrToPAX(hdr, xattrs)
-			archive.EncodeACLToPAX(hdr, acls)
-		}
-
-		if err := tw.WriteHeader(hdr); err != nil {
-			return err
-		}
-		if st.Mode().IsRegular() {
-			f, err := os.Open(entry.current)
-			if err != nil {
-				return err
-			}
-			_, err = copyWithContext(ctx, tw, newCountingReader(f, reporter))
-			cerr := f.Close()
-			if err != nil {
-				return err
-			}
-			if cerr != nil {
-				return cerr
-			}
-		}
-		if err := tw.FinishEntry(); err != nil {
-			return err
-		}
-		if verbose {
-			reporter.beforeExternalLineOutput()
-			_, _ = fmt.Fprintln(r.stdout, hdr.Name)
-			reporter.afterExternalLineOutput()
+// collectLocalCreateEntries walks one local member once and returns the
+// normalized archive entries together with their total regular-file size.
+func (r *Runner) collectLocalCreateEntries(ctx context.Context, member, chdir string, excludeMatcher *compiledPathMatcher) ([]localCreateEntry, int64, error) {
+	entries := make([]localCreateEntry, 0)
+	var total int64
+	err := walkLocalCreateMember(ctx, member, chdir, excludeMatcher, func(entry localCreateEntry) error {
+		entries = append(entries, entry)
+		if entry.info.Mode().IsRegular() {
+			total += entry.info.Size()
 		}
 		return nil
 	})
-	return warnings, err
+	return entries, total, err
+}
+
+// addLocalEntries writes a pre-scanned set of local filesystem entries into the
+// tar stream, returning any metadata warnings emitted along the way.
+func (r *Runner) addLocalEntries(ctx context.Context, tw tarArchiveWriter, entries []localCreateEntry, verbose bool, metadataPolicy MetadataPolicy, reporter *progressReporter) (int, error) {
+	warnings := 0
+	for _, entry := range entries {
+		select {
+		case <-ctx.Done():
+			return warnings, ctx.Err()
+		default:
+		}
+		w, err := r.writeLocalTarEntry(ctx, tw, entry, verbose, metadataPolicy, reporter)
+		warnings += w
+		if err != nil {
+			return warnings, err
+		}
+	}
+	return warnings, nil
+}
+
+// writeLocalTarEntry writes one local filesystem entry into the tar stream.
+func (r *Runner) writeLocalTarEntry(ctx context.Context, tw tarArchiveWriter, entry localCreateEntry, verbose bool, metadataPolicy MetadataPolicy, reporter *progressReporter) (int, error) {
+	st := entry.info
+	linkname := ""
+	if st.Mode()&os.ModeSymlink != 0 {
+		resolvedLink, err := os.Readlink(entry.current)
+		if err != nil {
+			return 0, err
+		}
+		linkname = resolvedLink
+	}
+	hdr, err := tar.FileInfoHeader(st, linkname)
+	if err != nil {
+		return 0, err
+	}
+	hdr.Name = filepath.ToSlash(entry.archiveName)
+	hdr.Format = tar.FormatPAX
+
+	warnings := 0
+	if metadataPolicy.Xattrs || metadataPolicy.ACL {
+		xattrs, acls, err := archive.ReadPathMetadata(entry.current)
+		if err != nil {
+			warnings += r.warnf(reporter, "create: metadata for %s is incomplete: %v", entry.current, err)
+		}
+		xattrs, acls = prepareMetadataForArchive(xattrs, acls, metadataPolicy)
+		archive.EncodeXattrToPAX(hdr, xattrs)
+		archive.EncodeACLToPAX(hdr, acls)
+	}
+
+	if err := tw.WriteHeader(hdr); err != nil {
+		return warnings, err
+	}
+	if st.Mode().IsRegular() {
+		f, err := os.Open(entry.current)
+		if err != nil {
+			return warnings, err
+		}
+		_, err = copyWithContext(ctx, tw, newCountingReader(f, reporter))
+		cerr := f.Close()
+		if err != nil {
+			return warnings, err
+		}
+		if cerr != nil {
+			return warnings, cerr
+		}
+	}
+	if err := tw.FinishEntry(); err != nil {
+		return warnings, err
+	}
+	if verbose {
+		reporter.beforeExternalLineOutput()
+		_, _ = fmt.Fprintln(r.stdout, hdr.Name)
+		reporter.afterExternalLineOutput()
+	}
+	return warnings, nil
 }

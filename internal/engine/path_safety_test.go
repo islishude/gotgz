@@ -26,7 +26,7 @@ func TestSafeSymlinkTarget(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := safeSymlinkTarget(base, symlinkPath, tt.linkname)
+			err := safeSymlinkTarget(base, symlinkPath, tt.linkname, nil)
 			if tt.wantErr == "" {
 				if err != nil {
 					t.Fatalf("unexpected error: %v", err)
@@ -56,7 +56,7 @@ func TestEnsureSymlinkFreePathRejectsExistingSymlink(t *testing.T) {
 		t.Fatalf("symlink: %v", err)
 	}
 
-	err := ensureSymlinkFreePath(base, filepath.Join(base, "dir", "file.txt"))
+	err := ensureSymlinkFreePath(base, filepath.Join(base, "dir", "file.txt"), nil)
 	if err == nil || !strings.Contains(err.Error(), "follow symlink") {
 		t.Fatalf("ensureSymlinkFreePath() err = %v, want symlink traversal error", err)
 	}
@@ -75,8 +75,62 @@ func TestSafeSymlinkTargetRejectsResolvedSymlinkTraversal(t *testing.T) {
 		t.Fatalf("symlink: %v", err)
 	}
 
-	err := safeSymlinkTarget(base, filepath.Join(base, "link"), "redir/file.txt")
+	err := safeSymlinkTarget(base, filepath.Join(base, "link"), "redir/file.txt", nil)
 	if err == nil || !strings.Contains(err.Error(), "follow symlink") {
 		t.Fatalf("safeSymlinkTarget() err = %v, want symlink traversal error", err)
+	}
+}
+
+func TestEnsureSymlinkFreePathCachesSafePrefixes(t *testing.T) {
+	base := filepath.Join(t.TempDir(), "extract")
+	targetDir := filepath.Join(base, "dir", "nested")
+	if err := os.MkdirAll(targetDir, 0o755); err != nil {
+		t.Fatalf("mkdir targetDir: %v", err)
+	}
+
+	cache := newPathSafetyCache()
+	candidate := filepath.Join(targetDir, "file.txt")
+	if err := ensureSymlinkFreePath(base, candidate, cache); err != nil {
+		t.Fatalf("ensureSymlinkFreePath() error = %v", err)
+	}
+
+	for _, prefix := range []string{
+		filepath.Join(base, "dir"),
+		targetDir,
+	} {
+		if !cache.has(prefix) {
+			t.Fatalf("expected cached prefix %q", prefix)
+		}
+	}
+	if cache.has(candidate) {
+		t.Fatalf("candidate leaf %q should not be cached when it does not exist", candidate)
+	}
+}
+
+func TestEnsureSymlinkFreePathDoesNotCacheMissingPrefix(t *testing.T) {
+	base := filepath.Join(t.TempDir(), "extract")
+	outside := filepath.Join(t.TempDir(), "outside")
+	if err := os.MkdirAll(base, 0o755); err != nil {
+		t.Fatalf("mkdir base: %v", err)
+	}
+	if err := os.MkdirAll(outside, 0o755); err != nil {
+		t.Fatalf("mkdir outside: %v", err)
+	}
+
+	cache := newPathSafetyCache()
+	missingCandidate := filepath.Join(base, "dir", "file.txt")
+	if err := ensureSymlinkFreePath(base, missingCandidate, cache); err != nil {
+		t.Fatalf("ensureSymlinkFreePath() initial error = %v", err)
+	}
+	if cache.has(filepath.Join(base, "dir")) {
+		t.Fatalf("missing prefix %q should not be cached", filepath.Join(base, "dir"))
+	}
+
+	if err := os.Symlink(outside, filepath.Join(base, "dir")); err != nil {
+		t.Fatalf("symlink: %v", err)
+	}
+	err := ensureSymlinkFreePath(base, filepath.Join(base, "dir", "later.txt"), cache)
+	if err == nil || !strings.Contains(err.Error(), "follow symlink") {
+		t.Fatalf("ensureSymlinkFreePath() err = %v, want symlink traversal error", err)
 	}
 }

@@ -23,16 +23,16 @@ func computeExtractPerm(mode fs.FileMode, fallback fs.FileMode, samePerms bool) 
 }
 
 // ensureLocalDirTarget creates one directory extraction target after path checks.
-func ensureLocalDirTarget(base string, target string, perm fs.FileMode) error {
-	if err := ensureSymlinkFreePath(base, target); err != nil {
+func ensureLocalDirTarget(base string, target string, perm fs.FileMode, cache *pathSafetyCache) error {
+	if err := ensureSymlinkFreePath(base, target, cache); err != nil {
 		return err
 	}
 	return os.MkdirAll(target, perm)
 }
 
 // writeLocalRegularTarget writes one regular file extraction target after path checks.
-func writeLocalRegularTarget(ctx context.Context, base string, target string, perm fs.FileMode, body io.Reader) error {
-	if err := ensureSymlinkFreePath(base, target); err != nil {
+func writeLocalRegularTarget(ctx context.Context, base string, target string, perm fs.FileMode, body io.Reader, cache *pathSafetyCache) error {
+	if err := ensureSymlinkFreePath(base, target, cache); err != nil {
 		return err
 	}
 	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
@@ -54,11 +54,11 @@ func writeLocalRegularTarget(ctx context.Context, base string, target string, pe
 }
 
 // replaceLocalSymlinkTarget replaces one path with a validated symlink target.
-func replaceLocalSymlinkTarget(base string, target string, linkname string) error {
-	if err := ensureSymlinkFreeParentPath(base, target); err != nil {
+func replaceLocalSymlinkTarget(base string, target string, linkname string, cache *pathSafetyCache) error {
+	if err := ensureSymlinkFreeParentPath(base, target, cache); err != nil {
 		return err
 	}
-	if err := safeSymlinkTarget(base, target, linkname); err != nil {
+	if err := safeSymlinkTarget(base, target, linkname, cache); err != nil {
 		return err
 	}
 	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
@@ -67,19 +67,20 @@ func replaceLocalSymlinkTarget(base string, target string, linkname string) erro
 	if err := os.Remove(target); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
+	cache.invalidate(target)
 	return os.Symlink(linkname, target)
 }
 
 // replaceLocalHardlinkTarget replaces one path with a validated hardlink target.
-func replaceLocalHardlinkTarget(base string, target string, linkname string) error {
-	if err := ensureSymlinkFreeParentPath(base, target); err != nil {
+func replaceLocalHardlinkTarget(base string, target string, linkname string, cache *pathSafetyCache) error {
+	if err := ensureSymlinkFreeParentPath(base, target, cache); err != nil {
 		return err
 	}
 	linkTarget, err := safeJoin(base, linkname)
 	if err != nil {
 		return err
 	}
-	if err := ensureSymlinkFreePath(base, linkTarget); err != nil {
+	if err := ensureSymlinkFreePath(base, linkTarget, cache); err != nil {
 		return err
 	}
 	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {

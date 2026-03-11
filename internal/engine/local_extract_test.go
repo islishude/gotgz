@@ -26,7 +26,7 @@ func TestComputeExtractPerm(t *testing.T) {
 func TestWriteLocalRegularTarget(t *testing.T) {
 	base := t.TempDir()
 	target := filepath.Join(base, "nested", "file.txt")
-	if err := writeLocalRegularTarget(context.Background(), base, target, 0o640, strings.NewReader("payload")); err != nil {
+	if err := writeLocalRegularTarget(context.Background(), base, target, 0o640, strings.NewReader("payload"), nil); err != nil {
 		t.Fatalf("writeLocalRegularTarget() error = %v", err)
 	}
 
@@ -59,7 +59,7 @@ func TestReplaceLocalSymlinkTarget(t *testing.T) {
 		t.Fatalf("WriteFile() error = %v", err)
 	}
 
-	if err := replaceLocalSymlinkTarget(base, linkPath, "../target.txt"); err != nil {
+	if err := replaceLocalSymlinkTarget(base, linkPath, "../target.txt", nil); err != nil {
 		t.Fatalf("replaceLocalSymlinkTarget() error = %v", err)
 	}
 	resolved, err := os.Readlink(linkPath)
@@ -68,6 +68,37 @@ func TestReplaceLocalSymlinkTarget(t *testing.T) {
 	}
 	if resolved != "../target.txt" {
 		t.Fatalf("link target = %q, want %q", resolved, "../target.txt")
+	}
+}
+
+func TestReplaceLocalSymlinkTargetInvalidatesCachedPrefixes(t *testing.T) {
+	base := t.TempDir()
+	cache := newPathSafetyCache()
+	oldDir := filepath.Join(base, "dir")
+	if err := os.MkdirAll(oldDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(base, "elsewhere"), 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+
+	if err := ensureSymlinkFreePath(base, filepath.Join(oldDir, "file.txt"), cache); err != nil {
+		t.Fatalf("ensureSymlinkFreePath() error = %v", err)
+	}
+	if !cache.has(oldDir) {
+		t.Fatalf("expected cached prefix %q", oldDir)
+	}
+
+	if err := replaceLocalSymlinkTarget(base, oldDir, "elsewhere", cache); err != nil {
+		t.Fatalf("replaceLocalSymlinkTarget() error = %v", err)
+	}
+	if cache.has(oldDir) {
+		t.Fatalf("cached prefix %q should be invalidated after symlink replacement", oldDir)
+	}
+
+	err := ensureSymlinkFreePath(base, filepath.Join(oldDir, "child.txt"), cache)
+	if err == nil || !strings.Contains(err.Error(), "follow symlink") {
+		t.Fatalf("ensureSymlinkFreePath() err = %v, want symlink traversal error", err)
 	}
 }
 

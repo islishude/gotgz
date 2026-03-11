@@ -115,7 +115,7 @@ func TestProcessCreateMembers(t *testing.T) {
 	warnings, err := (&Runner{}).processCreateMembers(
 		ctx,
 		opts,
-		[]string{"skip.txt"},
+		newCompiledPathMatcher([]string{"skip.txt"}),
 		func(ref locator.Ref) error {
 			seen = append(seen, "s3:"+ref.Key)
 			return nil

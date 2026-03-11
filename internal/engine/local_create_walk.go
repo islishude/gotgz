@@ -6,23 +6,25 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"strings"
 )
 
 // localCreateEntry describes one local filesystem entry normalized for archive creation.
 type localCreateEntry struct {
 	current     string
 	archiveName string
-	entry       fs.DirEntry
 	info        fs.FileInfo
 }
 
 // walkLocalCreateMember normalizes one local create member and visits all non-excluded entries.
-func walkLocalCreateMember(ctx context.Context, member string, chdir string, excludes []string, visit func(entry localCreateEntry) error) error {
+func walkLocalCreateMember(ctx context.Context, member string, chdir string, excludeMatcher *compiledPathMatcher, visit func(entry localCreateEntry) error) error {
 	basePath := member
 	if chdir != "" {
 		basePath = filepath.Join(chdir, member)
 	}
+	basePath = filepath.Clean(basePath)
 	cleanMember := path.Clean(filepath.ToSlash(member))
+	basePrefix := localCreateBasePrefix(basePath)
 
 	return filepath.WalkDir(basePath, func(current string, d fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
@@ -34,15 +36,11 @@ func walkLocalCreateMember(ctx context.Context, member string, chdir string, exc
 		default:
 		}
 
-		rel, err := filepath.Rel(basePath, current)
+		archiveName, err := localCreateArchiveName(basePath, basePrefix, current, cleanMember)
 		if err != nil {
 			return err
 		}
-		archiveName := cleanMember
-		if rel != "." {
-			archiveName = path.Join(cleanMember, filepath.ToSlash(rel))
-		}
-		if matchExclude(excludes, archiveName) {
+		if matchExcludeWithMatcher(excludeMatcher, archiveName) {
 			if d.IsDir() {
 				return filepath.SkipDir
 			}
@@ -56,8 +54,56 @@ func walkLocalCreateMember(ctx context.Context, member string, chdir string, exc
 		return visit(localCreateEntry{
 			current:     current,
 			archiveName: archiveName,
-			entry:       d,
 			info:        info,
 		})
 	})
+}
+
+// localCreateBasePrefix returns the fast-path prefix used to derive archive
+// member names without calling filepath.Rel for every visited path.
+func localCreateBasePrefix(basePath string) string {
+	if basePath == "." {
+		return ""
+	}
+	if filepath.Dir(basePath) == basePath {
+		return basePath
+	}
+	return basePath + string(filepath.Separator)
+}
+
+// localCreateArchiveName derives one archive member name from the current walk
+// path, falling back to filepath.Rel only for unexpected path layouts.
+func localCreateArchiveName(basePath, basePrefix, current, cleanMember string) (string, error) {
+	if current == basePath {
+		return cleanMember, nil
+	}
+	if basePrefix == "" {
+		return joinLocalCreateArchiveName(cleanMember, current), nil
+	}
+	if strings.HasPrefix(current, basePrefix) {
+		return joinLocalCreateArchiveName(cleanMember, current[len(basePrefix):]), nil
+	}
+
+	rel, err := filepath.Rel(basePath, current)
+	if err != nil {
+		return "", err
+	}
+	if rel == "." {
+		return cleanMember, nil
+	}
+	return joinLocalCreateArchiveName(cleanMember, rel), nil
+}
+
+// joinLocalCreateArchiveName appends one relative walk suffix onto the cleaned
+// member root while preserving the existing "." semantics.
+func joinLocalCreateArchiveName(cleanMember, rel string) string {
+	rel = filepath.ToSlash(rel)
+	switch cleanMember {
+	case ".":
+		return rel
+	case "/":
+		return cleanMember + strings.TrimPrefix(rel, "/")
+	default:
+		return cleanMember + "/" + rel
+	}
 }

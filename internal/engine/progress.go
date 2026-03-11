@@ -7,6 +7,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/islishude/gotgz/internal/cli"
@@ -26,9 +27,10 @@ type progressReporter struct {
 	scrollRegion bool
 	total        int64
 	totalKnown   bool
-	done         int64
+	done         atomic.Int64
 	startTime    time.Time
 	lastDraw     time.Time
+	lastDrawUnix atomic.Int64
 	rendered     bool
 	finished     bool
 }
@@ -57,7 +59,7 @@ func newProgressReporter(writer io.Writer, mode cli.ProgressMode, totalBytes int
 
 // SetTotal updates the total byte estimate used by progress rendering.
 func (p *progressReporter) SetTotal(total int64, known bool) {
-	if p == nil {
+	if p == nil || !p.enabled {
 		return
 	}
 	if total < 0 {
@@ -74,14 +76,22 @@ func (p *progressReporter) SetTotal(total int64, known bool) {
 
 // AddDone increments processed bytes and triggers a throttled refresh.
 func (p *progressReporter) AddDone(n int64) {
-	if p == nil || n <= 0 {
+	if p == nil || n <= 0 || !p.enabled {
+		return
+	}
+	p.done.Add(n)
+
+	lastDraw := p.lastDrawUnix.Load()
+	if lastDraw != 0 && time.Now().UnixNano()-lastDraw < int64(progressRefreshInterval) {
 		return
 	}
 
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	p.done += n
+	if p.finished {
+		return
+	}
 	p.renderLocked(false)
 }
 
@@ -128,6 +138,7 @@ func (p *progressReporter) beforeExternalLineOutput() {
 	_, _ = fmt.Fprintln(p.writer)
 	p.rendered = false
 	p.lastDraw = time.Time{}
+	p.lastDrawUnix.Store(0)
 }
 
 // afterExternalLineOutput records that one non-progress line was printed.
@@ -150,7 +161,8 @@ func (p *progressReporter) renderLocked(force bool) {
 		return
 	}
 	now := time.Now()
-	if !force && !p.lastDraw.IsZero() && now.Sub(p.lastDraw) < progressRefreshInterval {
+	lastDrawUnix := p.lastDrawUnix.Load()
+	if !force && lastDrawUnix != 0 && now.UnixNano()-lastDrawUnix < int64(progressRefreshInterval) {
 		return
 	}
 
@@ -160,6 +172,7 @@ func (p *progressReporter) renderLocked(force bool) {
 		// Save cursor, draw status on line 1, and restore the original cursor.
 		_, _ = fmt.Fprintf(p.writer, "\0337\033[1;1H%s\033[K\0338", line)
 		p.lastDraw = now
+		p.lastDrawUnix.Store(now.UnixNano())
 		p.rendered = true
 		return
 	}
@@ -168,6 +181,7 @@ func (p *progressReporter) renderLocked(force bool) {
 	// do not leave residual characters from the previous render.
 	_, _ = fmt.Fprintf(p.writer, "\r%s\033[K", line)
 	p.lastDraw = now
+	p.lastDrawUnix.Store(now.UnixNano())
 	p.rendered = true
 }
 
@@ -194,14 +208,15 @@ func (p *progressReporter) resetScrollRegionLocked() {
 // formatLine renders one line with either known-total or unknown-total layout.
 func (p *progressReporter) formatLine(now time.Time) string {
 	elapsed := max(now.Sub(p.startTime), time.Millisecond)
-	speed := float64(p.done) / elapsed.Seconds()
+	done := p.done.Load()
+	speed := float64(done) / elapsed.Seconds()
 
 	if p.totalKnown {
 		if p.total <= 0 {
 			return "gotgz: [####################] 100.0% 0B/0B 0B/s ETA 00:00 elapsed 00:00"
 		}
 
-		ratio := float64(p.done) / float64(p.total)
+		ratio := float64(done) / float64(p.total)
 		if ratio < 0 {
 			ratio = 0
 		}
@@ -212,15 +227,15 @@ func (p *progressReporter) formatLine(now time.Time) string {
 
 		bar := strings.Repeat("#", filled) + strings.Repeat(".", progressBarWidth-filled)
 		var eta time.Duration
-		if speed > 0 && p.done < p.total {
-			remaining := float64(p.total-p.done) / speed
+		if speed > 0 && done < p.total {
+			remaining := float64(p.total-done) / speed
 			eta = time.Duration(remaining * float64(time.Second))
 		}
 		return fmt.Sprintf(
 			"gotgz: [%s] %5.1f%% %s/%s %s/s ETA %s elapsed %s",
 			bar,
 			ratio*100,
-			formatBytes(p.done),
+			formatBytes(done),
 			formatBytes(p.total),
 			formatRate(speed),
 			formatClock(eta),
@@ -230,7 +245,7 @@ func (p *progressReporter) formatLine(now time.Time) string {
 
 	return fmt.Sprintf(
 		"gotgz: [working] %s processed %s/s elapsed %s",
-		formatBytes(p.done),
+		formatBytes(done),
 		formatRate(speed),
 		formatClock(elapsed),
 	)
@@ -333,6 +348,9 @@ type countingReader struct {
 
 // newCountingReader wraps a reader and records all successful reads.
 func newCountingReader(reader io.Reader, reporter *progressReporter) io.Reader {
+	if reporter == nil || !reporter.enabled {
+		return reader
+	}
 	return &countingReader{reader: reader, reporter: reporter}
 }
 
@@ -355,6 +373,9 @@ type countingReadCloser struct {
 
 // newCountingReadCloser wraps a read closer and records all successful reads.
 func newCountingReadCloser(reader io.ReadCloser, reporter *progressReporter) io.ReadCloser {
+	if reporter == nil || !reporter.enabled {
+		return reader
+	}
 	return &countingReadCloser{
 		countingReader: countingReader{reader: reader, reporter: reporter},
 		closer:         reader,
