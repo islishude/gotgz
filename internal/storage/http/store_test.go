@@ -176,10 +176,10 @@ func TestOpenReaderRejectsNonHTTPRef(t *testing.T) {
 func TestOpenRangeReaderSuccess(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if got := r.Header.Get("Range"); got != "bytes=2-5" {
-			t.Fatalf("Range = %q, want %q", got, "bytes=2-5")
+			t.Errorf("Range = %q, want %q", got, "bytes=2-5")
 		}
 		if got := r.Header.Get("Accept-Encoding"); got != "identity" {
-			t.Fatalf("Accept-Encoding = %q, want %q", got, "identity")
+			t.Errorf("Accept-Encoding = %q, want %q", got, "identity")
 		}
 		w.Header().Set("Content-Range", "bytes 2-5/8")
 		w.WriteHeader(http.StatusPartialContent)
