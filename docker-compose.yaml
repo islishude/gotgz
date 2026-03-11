@@ -1,7 +1,7 @@
-name: "test"
+name: "gotgz"
 
 services:
-  ruststack:
+  s3mock:
     image: ghcr.io/tyrchen/ruststack:0.4.2
     environment:
       DEFAULT_REGION: us-east-1

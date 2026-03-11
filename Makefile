@@ -12,10 +12,10 @@ fmt:
 	gofmt -w -s .
 	go fix ./...
 
-test: build lint fmt ruststack
+test: build lint fmt s3mock
 	GOTGZ_TEST_S3_ENDPOINT=http://localhost:4566 go test -v -race -count=1 -coverprofile=coverage.txt ./...
 	docker compose down
 
-ruststack:
+s3mock:
 	docker compose down
 	docker compose up -d --wait
