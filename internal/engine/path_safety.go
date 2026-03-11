@@ -124,7 +124,6 @@ func ensureSymlinkFreePath(base, candidate string, cache *pathSafetyCache) error
 		}
 		info, err := os.Lstat(current)
 		if errors.Is(err, os.ErrNotExist) {
-			cache.add(current)
 			return nil
 		}
 		if err != nil {
