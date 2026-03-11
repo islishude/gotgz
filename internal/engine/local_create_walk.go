@@ -17,7 +17,7 @@ type localCreateEntry struct {
 }
 
 // walkLocalCreateMember normalizes one local create member and visits all non-excluded entries.
-func walkLocalCreateMember(ctx context.Context, member string, chdir string, excludes []string, visit func(entry localCreateEntry) error) error {
+func walkLocalCreateMember(ctx context.Context, member string, chdir string, excludeMatcher *compiledPathMatcher, visit func(entry localCreateEntry) error) error {
 	basePath := member
 	if chdir != "" {
 		basePath = filepath.Join(chdir, member)
@@ -42,7 +42,7 @@ func walkLocalCreateMember(ctx context.Context, member string, chdir string, exc
 		if rel != "." {
 			archiveName = path.Join(cleanMember, filepath.ToSlash(rel))
 		}
-		if matchExclude(excludes, archiveName) {
+		if matchExcludeWithMatcher(excludeMatcher, archiveName) {
 			if d.IsDir() {
 				return filepath.SkipDir
 			}

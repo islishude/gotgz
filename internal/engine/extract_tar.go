@@ -23,10 +23,11 @@ func (r *Runner) runListTar(ctx context.Context, opts cli.Options, reporter *pro
 	if err != nil {
 		return 0, err
 	}
+	memberMatcher := newMemberMatcher(opts)
 
 	scan := func(scanReader io.ReadCloser, scanInfo archiveReaderInfo) (int, error) {
 		return r.scanTarArchiveFromReader(ctx, opts, reporter, scanInfo, archiveutil.NameHint(ref), scanReader, func(hdr *tar.Header, tr *tar.Reader) (int, error) {
-			if shouldSkipMember(opts, hdr.Name) {
+			if shouldSkipMemberWithMatcher(memberMatcher, hdr.Name) {
 				if _, err := copyWithContext(ctx, io.Discard, tr); err != nil {
 					return 0, err
 				}
@@ -71,10 +72,11 @@ func (r *Runner) runExtractTar(ctx context.Context, opts cli.Options, reporter *
 func (r *Runner) runExtractTarReader(ctx context.Context, opts cli.Options, reporter *progressReporter, ar io.ReadCloser, info archiveReaderInfo) (int, error) {
 	policy := resolvePolicy(opts)
 	metadataPolicy := resolveMetadataPolicy(opts)
+	memberMatcher := newMemberMatcher(opts)
 
 	if opts.ToStdout {
 		return r.scanTarArchiveFromReader(ctx, opts, reporter, info, opts.Archive, ar, func(hdr *tar.Header, tr *tar.Reader) (int, error) {
-			if shouldSkipMember(opts, hdr.Name) {
+			if shouldSkipMemberWithMatcher(memberMatcher, hdr.Name) {
 				if _, err := copyWithContext(ctx, io.Discard, tr); err != nil {
 					return 0, err
 				}
@@ -111,7 +113,7 @@ func (r *Runner) runExtractTarReader(ctx context.Context, opts cli.Options, repo
 	}
 
 	return r.scanTarArchiveFromReader(ctx, opts, reporter, info, opts.Archive, ar, func(hdr *tar.Header, tr *tar.Reader) (int, error) {
-		if shouldSkipMember(opts, hdr.Name) {
+		if shouldSkipMemberWithMatcher(memberMatcher, hdr.Name) {
 			if _, err := copyWithContext(ctx, io.Discard, tr); err != nil {
 				return 0, err
 			}

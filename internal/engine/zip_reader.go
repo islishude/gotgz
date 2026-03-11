@@ -150,7 +150,7 @@ func zipStagingLimitError(ref locator.Ref, limit int64) error {
 }
 
 // extractZipToStdout writes matching regular zip members to stdout.
-func (r *Runner) extractZipToStdout(ctx context.Context, zr *zip.Reader, opts cli.Options, reporter *progressReporter) (int, error) {
+func (r *Runner) extractZipToStdout(ctx context.Context, zr *zip.Reader, memberMatcher *compiledPathMatcher, opts cli.Options, reporter *progressReporter) (int, error) {
 	warnings := 0
 	for _, zf := range zr.File {
 		select {
@@ -158,7 +158,7 @@ func (r *Runner) extractZipToStdout(ctx context.Context, zr *zip.Reader, opts cl
 			return warnings, ctx.Err()
 		default:
 		}
-		if shouldSkipMember(opts, zf.Name) {
+		if shouldSkipMemberWithMatcher(memberMatcher, zf.Name) {
 			continue
 		}
 		name, ok := stripPathComponents(zf.Name, opts.StripComponents)

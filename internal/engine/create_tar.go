@@ -38,31 +38,32 @@ func (r *Runner) runCreateTar(ctx context.Context, opts cli.Options, archiveRef 
 	if err != nil {
 		return 0, err
 	}
-	if err := r.configureCreateProgressReporter(ctx, opts, excludes, reporter); err != nil {
+	excludeMatcher := newCompiledPathMatcher(excludes)
+	if err := r.configureCreateProgressReporter(ctx, opts, excludeMatcher, reporter); err != nil {
 		return 0, err
 	}
 
 	return r.processCreateMembers(
 		ctx,
 		opts,
-		excludes,
+		excludeMatcher,
 		func(ref locator.Ref) error {
 			return r.addS3Member(ctx, tw, ref, opts.Verbose, reporter)
 		},
 		func(member string) (int, error) {
-			return r.addLocalPath(ctx, tw, member, opts.Chdir, excludes, opts.Verbose, metadataPolicy, reporter)
+			return r.addLocalPath(ctx, tw, member, opts.Chdir, excludeMatcher, opts.Verbose, metadataPolicy, reporter)
 		},
 	)
 }
 
 // configureCreateProgressReporter populates create-mode totals only when
 // progress output is active for the current run.
-func (r *Runner) configureCreateProgressReporter(ctx context.Context, opts cli.Options, excludes []string, reporter *progressReporter) error {
+func (r *Runner) configureCreateProgressReporter(ctx context.Context, opts cli.Options, excludeMatcher *compiledPathMatcher, reporter *progressReporter) error {
 	if reporter == nil || !reporter.enabled {
 		return nil
 	}
 
-	totalBytes, known, err := r.estimateCreateInputBytes(ctx, opts, excludes)
+	totalBytes, known, err := r.estimateCreateInputBytes(ctx, opts, excludeMatcher)
 	if err != nil {
 		return err
 	}
@@ -71,7 +72,7 @@ func (r *Runner) configureCreateProgressReporter(ctx context.Context, opts cli.O
 }
 
 // estimateCreateInputBytes pre-computes input bytes for create mode progress and ETA.
-func (r *Runner) estimateCreateInputBytes(ctx context.Context, opts cli.Options, excludes []string) (int64, bool, error) {
+func (r *Runner) estimateCreateInputBytes(ctx context.Context, opts cli.Options, excludeMatcher *compiledPathMatcher) (int64, bool, error) {
 	var total int64
 	for _, member := range opts.Members {
 		select {
@@ -87,7 +88,7 @@ func (r *Runner) estimateCreateInputBytes(ctx context.Context, opts cli.Options,
 
 		switch ref.Kind {
 		case locator.KindS3:
-			if matchExclude(excludes, ref.Key) {
+			if matchExcludeWithMatcher(excludeMatcher, ref.Key) {
 				continue
 			}
 			meta, err := r.storage.statS3Object(ctx, ref)
@@ -98,7 +99,7 @@ func (r *Runner) estimateCreateInputBytes(ctx context.Context, opts cli.Options,
 			}
 			total += meta.Size
 		case locator.KindLocal:
-			size, err := r.estimateLocalPathBytes(ctx, member, opts.Chdir, excludes)
+			size, err := r.estimateLocalPathBytes(ctx, member, opts.Chdir, excludeMatcher)
 			if err != nil {
 				return 0, false, err
 			}
@@ -111,10 +112,10 @@ func (r *Runner) estimateCreateInputBytes(ctx context.Context, opts cli.Options,
 }
 
 // estimateLocalPathBytes sums regular file bytes for one local create member.
-func (r *Runner) estimateLocalPathBytes(ctx context.Context, member, chdir string, excludes []string) (int64, error) {
+func (r *Runner) estimateLocalPathBytes(ctx context.Context, member, chdir string, excludeMatcher *compiledPathMatcher) (int64, error) {
 	var total int64
 
-	err := walkLocalCreateMember(ctx, member, chdir, excludes, func(entry localCreateEntry) error {
+	err := walkLocalCreateMember(ctx, member, chdir, excludeMatcher, func(entry localCreateEntry) error {
 		if entry.info.Mode().IsRegular() {
 			total += entry.info.Size()
 		}
@@ -146,9 +147,9 @@ func (r *Runner) addS3Member(ctx context.Context, tw tarArchiveWriter, ref locat
 
 // addLocalPath walks one local member path and writes entries into the tar
 // stream, returning any metadata warnings emitted along the way.
-func (r *Runner) addLocalPath(ctx context.Context, tw tarArchiveWriter, member, chdir string, excludes []string, verbose bool, metadataPolicy MetadataPolicy, reporter *progressReporter) (int, error) {
+func (r *Runner) addLocalPath(ctx context.Context, tw tarArchiveWriter, member, chdir string, excludeMatcher *compiledPathMatcher, verbose bool, metadataPolicy MetadataPolicy, reporter *progressReporter) (int, error) {
 	warnings := 0
-	err := walkLocalCreateMember(ctx, member, chdir, excludes, func(entry localCreateEntry) error {
+	err := walkLocalCreateMember(ctx, member, chdir, excludeMatcher, func(entry localCreateEntry) error {
 		st := entry.info
 		linkname := ""
 		if st.Mode()&os.ModeSymlink != 0 {

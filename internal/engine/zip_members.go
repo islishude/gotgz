@@ -33,9 +33,9 @@ func (r *Runner) addS3MemberZip(ctx context.Context, zw *zip.Writer, ref locator
 }
 
 // addLocalPathZip walks a local member and writes entries into the zip archive.
-func (r *Runner) addLocalPathZip(ctx context.Context, zw *zip.Writer, member, chdir string, excludes []string, verbose bool, reporter *progressReporter) (int, error) {
+func (r *Runner) addLocalPathZip(ctx context.Context, zw *zip.Writer, member, chdir string, excludeMatcher *compiledPathMatcher, verbose bool, reporter *progressReporter) (int, error) {
 	warnings := 0
-	err := walkLocalCreateMember(ctx, member, chdir, excludes, func(entry localCreateEntry) error {
+	err := walkLocalCreateMember(ctx, member, chdir, excludeMatcher, func(entry localCreateEntry) error {
 		st := entry.info
 		entryName := filepath.ToSlash(entry.archiveName)
 
