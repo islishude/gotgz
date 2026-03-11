@@ -67,6 +67,7 @@ func replaceLocalSymlinkTarget(base string, target string, linkname string, cach
 	if err := os.Remove(target); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
+	cache.invalidate(target)
 	return os.Symlink(linkname, target)
 }
 

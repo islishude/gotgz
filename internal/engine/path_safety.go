@@ -43,6 +43,24 @@ func (c *pathSafetyCache) add(path string) {
 	c.safePrefixes[path] = struct{}{}
 }
 
+// invalidate removes one path and any cached descendants after filesystem
+// mutations so future extraction checks re-stat the affected subtree.
+func (c *pathSafetyCache) invalidate(path string) {
+	if c == nil {
+		return
+	}
+	path = filepath.Clean(path)
+	prefix := path + string(filepath.Separator)
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for cached := range c.safePrefixes {
+		if cached == path || strings.HasPrefix(cached, prefix) {
+			delete(c.safePrefixes, cached)
+		}
+	}
+}
+
 // safeSymlinkTarget validates that a symlink's target does not escape the
 // extraction base directory. linkname is the raw target from the archive;
 // symlinkPath is the absolute path where the symlink will be created.

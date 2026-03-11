@@ -33,3 +33,23 @@ func TestWalkLocalCreateMember(t *testing.T) {
 		t.Fatalf("seen = %q, want %q", joined, "dir,dir/file.txt")
 	}
 }
+
+func TestWalkLocalCreateMemberDotMember(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "file.txt"), []byte("ok"), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	var seen []string
+	err := walkLocalCreateMember(context.Background(), ".", root, nil, func(entry localCreateEntry) error {
+		seen = append(seen, entry.archiveName)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("walkLocalCreateMember() error = %v", err)
+	}
+	joined := strings.Join(seen, ",")
+	if joined != ".,file.txt" {
+		t.Fatalf("seen = %q, want %q", joined, ".,file.txt")
+	}
+}

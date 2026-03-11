@@ -32,7 +32,7 @@ func (f fakeS3ArchiveStore) OpenReader(ctx context.Context, ref locator.Ref) (io
 
 func (f fakeS3ArchiveStore) OpenRangeReader(ctx context.Context, ref locator.Ref, offset int64, length int64) (io.ReadCloser, error) {
 	if f.openRange == nil {
-		return nil, nil
+		return nil, errors.New("fakeS3ArchiveStore: OpenRangeReader not implemented")
 	}
 	return f.openRange(ctx, ref, offset, length)
 }
@@ -79,7 +79,7 @@ func (f fakeHTTPArchiveStore) OpenReader(ctx context.Context, ref locator.Ref) (
 
 func (f fakeHTTPArchiveStore) OpenRangeReader(ctx context.Context, ref locator.Ref, offset int64, length int64) (io.ReadCloser, error) {
 	if f.openRange == nil {
-		return nil, nil
+		return nil, errors.New("fakeHTTPArchiveStore: OpenRangeReader not implemented")
 	}
 	return f.openRange(ctx, ref, offset, length)
 }

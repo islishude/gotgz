@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"maps"
+	"math"
 	"mime"
 	"os"
 	"path/filepath"
@@ -113,6 +114,9 @@ func (s *Store) OpenRangeReader(ctx context.Context, ref locator.Ref, offset int
 	}
 	if length == 0 {
 		return io.NopCloser(bytes.NewReader(nil)), nil
+	}
+	if offset > math.MaxInt64-(length-1) {
+		return nil, fmt.Errorf("range end overflows int64 for offset %d and length %d", offset, length)
 	}
 
 	end := offset + length - 1

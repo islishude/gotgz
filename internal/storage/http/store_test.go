@@ -5,6 +5,7 @@ import (
 	"compress/gzip"
 	"context"
 	"io"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -222,6 +223,21 @@ func TestOpenRangeReaderRejectsNonPartialContent(t *testing.T) {
 		t.Fatal("expected error")
 	}
 	if !strings.Contains(err.Error(), "200 OK") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestOpenRangeReaderRejectsOverflow(t *testing.T) {
+	store := New()
+	_, err := store.OpenRangeReader(context.Background(), locator.Ref{
+		Kind: locator.KindHTTP,
+		Raw:  "https://example.com/range.zip",
+		URL:  "https://example.com/range.zip",
+	}, math.MaxInt64, 2)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if got := err.Error(); got != "range end overflows int64 for offset 9223372036854775807 and length 2" {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }

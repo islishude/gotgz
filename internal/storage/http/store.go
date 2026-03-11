@@ -9,6 +9,8 @@ import (
 	"net/http"
 	"strings"
 
+	"math"
+
 	"github.com/islishude/gotgz/internal/locator"
 )
 
@@ -85,6 +87,9 @@ func (s *Store) OpenRangeReader(ctx context.Context, ref locator.Ref, offset int
 	}
 	if length == 0 {
 		return io.NopCloser(bytes.NewReader(nil)), nil
+	}
+	if offset > math.MaxInt64-(length-1) {
+		return nil, fmt.Errorf("range end overflows int64 for offset %d and length %d", offset, length)
 	}
 
 	client := s.client

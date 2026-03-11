@@ -71,6 +71,37 @@ func TestReplaceLocalSymlinkTarget(t *testing.T) {
 	}
 }
 
+func TestReplaceLocalSymlinkTargetInvalidatesCachedPrefixes(t *testing.T) {
+	base := t.TempDir()
+	cache := newPathSafetyCache()
+	oldDir := filepath.Join(base, "dir")
+	if err := os.MkdirAll(oldDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(base, "elsewhere"), 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+
+	if err := ensureSymlinkFreePath(base, filepath.Join(oldDir, "file.txt"), cache); err != nil {
+		t.Fatalf("ensureSymlinkFreePath() error = %v", err)
+	}
+	if !cache.has(oldDir) {
+		t.Fatalf("expected cached prefix %q", oldDir)
+	}
+
+	if err := replaceLocalSymlinkTarget(base, oldDir, "elsewhere", cache); err != nil {
+		t.Fatalf("replaceLocalSymlinkTarget() error = %v", err)
+	}
+	if cache.has(oldDir) {
+		t.Fatalf("cached prefix %q should be invalidated after symlink replacement", oldDir)
+	}
+
+	err := ensureSymlinkFreePath(base, filepath.Join(oldDir, "child.txt"), cache)
+	if err == nil || !strings.Contains(err.Error(), "follow symlink") {
+		t.Fatalf("ensureSymlinkFreePath() err = %v, want symlink traversal error", err)
+	}
+}
+
 func TestApplyLocalExtractMetadata(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "file.txt")
 	if err := os.WriteFile(path, []byte("ok"), 0o600); err != nil {
