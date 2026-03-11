@@ -165,6 +165,22 @@ func TestProgressReporterNilSafe(t *testing.T) {
 	p.Finish()
 }
 
+func TestNewCountingReaderBypassesDisabledReporter(t *testing.T) {
+	src := strings.NewReader("payload")
+	reporter := newProgressReporter(io.Discard, cli.ProgressAuto, 0, false, time.Now(), false)
+	if got := newCountingReader(src, reporter); got != src {
+		t.Fatalf("newCountingReader() should return original reader when progress is disabled")
+	}
+}
+
+func TestNewCountingReadCloserBypassesDisabledReporter(t *testing.T) {
+	src := io.NopCloser(strings.NewReader("payload"))
+	reporter := newProgressReporter(io.Discard, cli.ProgressAuto, 0, false, time.Now(), false)
+	if got := newCountingReadCloser(src, reporter); got != src {
+		t.Fatalf("newCountingReadCloser() should return original reader when progress is disabled")
+	}
+}
+
 // newTopPinnedReporter creates a progressReporter with topPinned=true for
 // testing the ANSI cursor-management code path that requires an interactive
 // TTY. Since bytes.Buffer is not a real TTY, we construct the struct directly.
@@ -211,6 +227,7 @@ func TestTopPinnedSubsequentRenderDoesNotRecreateScrollRegion(t *testing.T) {
 	// Force a second render by clearing the throttle and adding bytes.
 	p.mu.Lock()
 	p.lastDraw = time.Time{}
+	p.lastDrawUnix.Store(0)
 	p.mu.Unlock()
 	p.AddDone(10)
 
