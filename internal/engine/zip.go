@@ -125,6 +125,10 @@ func (r *Runner) runExtractZip(ctx context.Context, opts cli.Options, reporter *
 	if target == "" {
 		target = "."
 	}
+	var safetyCache *pathSafetyCache
+	if parsedTarget.Kind == locator.KindLocal || parsedTarget.Kind == locator.KindStdio {
+		safetyCache = newPathSafetyCache()
+	}
 
 	zipWarnings, err := r.withZipReader(ctx, archiveRef, ar, info, nil, func(zr *zip.Reader) (int, error) {
 		total := totalZipPayloadBytes(zr, func(zf *zip.File) bool {
@@ -163,7 +167,7 @@ func (r *Runner) runExtractZip(ctx context.Context, opts cli.Options, reporter *
 					return r.extractZipEntryToS3(ctx, target, zf, extractName, reporter)
 				},
 				func(base string) (int, error) {
-					return r.extractZipEntryToLocal(ctx, base, zf, extractName, policy, reporter)
+					return r.extractZipEntryToLocal(ctx, base, zf, extractName, policy, safetyCache, reporter)
 				},
 			)
 			innerWarnings += w

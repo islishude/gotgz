@@ -7,14 +7,48 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
+	"sync"
 )
+
+// pathSafetyCache memoizes already-verified safe extraction prefixes within one
+// extraction run so repeated sibling entries avoid redundant lstat calls.
+type pathSafetyCache struct {
+	mu           sync.RWMutex
+	safePrefixes map[string]struct{}
+}
+
+// newPathSafetyCache creates an empty cache for one extraction run.
+func newPathSafetyCache() *pathSafetyCache {
+	return &pathSafetyCache{safePrefixes: make(map[string]struct{})}
+}
+
+// has reports whether one cleaned path has already been verified safe.
+func (c *pathSafetyCache) has(path string) bool {
+	if c == nil {
+		return false
+	}
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	_, ok := c.safePrefixes[path]
+	return ok
+}
+
+// add marks one cleaned path as safe for future extraction checks.
+func (c *pathSafetyCache) add(path string) {
+	if c == nil {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.safePrefixes[path] = struct{}{}
+}
 
 // safeSymlinkTarget validates that a symlink's target does not escape the
 // extraction base directory. linkname is the raw target from the archive;
 // symlinkPath is the absolute path where the symlink will be created.
 // Absolute symlink targets are always rejected because os.Symlink would
 // create a link pointing outside the extraction directory.
-func safeSymlinkTarget(base, symlinkPath, linkname string) error {
+func safeSymlinkTarget(base, symlinkPath, linkname string, cache *pathSafetyCache) error {
 	if linkname == "" {
 		return fmt.Errorf("symlink target is empty")
 	}
@@ -33,7 +67,7 @@ func safeSymlinkTarget(base, symlinkPath, linkname string) error {
 	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 		return fmt.Errorf("refusing symlink %q -> %q: target escapes extraction directory", symlinkPath, linkname)
 	}
-	if err := ensureSymlinkFreePath(base, resolved); err != nil {
+	if err := ensureSymlinkFreePath(base, resolved, cache); err != nil {
 		return fmt.Errorf("refusing symlink %q -> %q: %w", symlinkPath, linkname, err)
 	}
 	return nil
@@ -57,17 +91,17 @@ func safeJoin(base, member string) (string, error) {
 
 // ensureSymlinkFreeParentPath verifies that candidate's parent chain under
 // base does not traverse any pre-existing symbolic links.
-func ensureSymlinkFreeParentPath(base, candidate string) error {
+func ensureSymlinkFreeParentPath(base, candidate string, cache *pathSafetyCache) error {
 	parent := filepath.Dir(filepath.Clean(candidate))
 	if parent == filepath.Clean(candidate) {
 		return nil
 	}
-	return ensureSymlinkFreePath(base, parent)
+	return ensureSymlinkFreePath(base, parent, cache)
 }
 
 // ensureSymlinkFreePath rejects existing symbolic links anywhere in the
 // already-present portion of candidate's path below base.
-func ensureSymlinkFreePath(base, candidate string) error {
+func ensureSymlinkFreePath(base, candidate string, cache *pathSafetyCache) error {
 	base = filepath.Clean(base)
 	candidate = filepath.Clean(candidate)
 
@@ -85,8 +119,12 @@ func ensureSymlinkFreePath(base, candidate string) error {
 	current := base
 	for part := range strings.SplitSeq(rel, string(filepath.Separator)) {
 		current = filepath.Join(current, part)
+		if cache.has(current) {
+			continue
+		}
 		info, err := os.Lstat(current)
 		if errors.Is(err, os.ErrNotExist) {
+			cache.add(current)
 			return nil
 		}
 		if err != nil {
@@ -95,6 +133,7 @@ func ensureSymlinkFreePath(base, candidate string) error {
 		if info.Mode()&os.ModeSymlink != 0 {
 			return fmt.Errorf("refusing to follow symlink in extraction path: %s", current)
 		}
+		cache.add(current)
 	}
 	return nil
 }

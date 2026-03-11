@@ -19,6 +19,7 @@ type localArchiveStore interface {
 // s3ArchiveStore reads, writes, and enumerates archive objects in S3.
 type s3ArchiveStore interface {
 	OpenReader(ctx context.Context, ref locator.Ref) (io.ReadCloser, s3store.Metadata, error)
+	OpenRangeReader(ctx context.Context, ref locator.Ref, offset int64, length int64) (io.ReadCloser, error)
 	Stat(ctx context.Context, ref locator.Ref) (s3store.Metadata, error)
 	OpenWriter(ctx context.Context, ref locator.Ref, metadata map[string]string) (io.WriteCloser, error)
 	UploadStream(ctx context.Context, ref locator.Ref, body io.Reader, metadata map[string]string) error
@@ -28,4 +29,5 @@ type s3ArchiveStore interface {
 // httpArchiveStore opens archive sources over HTTP(S).
 type httpArchiveStore interface {
 	OpenReader(ctx context.Context, ref locator.Ref) (io.ReadCloser, httpstore.Metadata, error)
+	OpenRangeReader(ctx context.Context, ref locator.Ref, offset int64, length int64) (io.ReadCloser, error)
 }

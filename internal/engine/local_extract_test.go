@@ -26,7 +26,7 @@ func TestComputeExtractPerm(t *testing.T) {
 func TestWriteLocalRegularTarget(t *testing.T) {
 	base := t.TempDir()
 	target := filepath.Join(base, "nested", "file.txt")
-	if err := writeLocalRegularTarget(context.Background(), base, target, 0o640, strings.NewReader("payload")); err != nil {
+	if err := writeLocalRegularTarget(context.Background(), base, target, 0o640, strings.NewReader("payload"), nil); err != nil {
 		t.Fatalf("writeLocalRegularTarget() error = %v", err)
 	}
 
@@ -59,7 +59,7 @@ func TestReplaceLocalSymlinkTarget(t *testing.T) {
 		t.Fatalf("WriteFile() error = %v", err)
 	}
 
-	if err := replaceLocalSymlinkTarget(base, linkPath, "../target.txt"); err != nil {
+	if err := replaceLocalSymlinkTarget(base, linkPath, "../target.txt", nil); err != nil {
 		t.Fatalf("replaceLocalSymlinkTarget() error = %v", err)
 	}
 	resolved, err := os.Readlink(linkPath)

@@ -93,6 +93,27 @@ func (r *storageRouter) openArchiveWriter(ctx context.Context, ref locator.Ref) 
 	}
 }
 
+// openArchiveRangeReader opens one byte range from a remote archive source.
+func (r *storageRouter) openArchiveRangeReader(ctx context.Context, ref locator.Ref, offset int64, length int64) (io.ReadCloser, error) {
+	switch ref.Kind {
+	case locator.KindS3:
+		if err := r.requireS3(); err != nil {
+			return nil, err
+		}
+		if strings.TrimSpace(ref.Key) == "" {
+			return nil, fmt.Errorf("archive object key cannot be empty for -f")
+		}
+		return r.s3.OpenRangeReader(ctx, ref, offset, length)
+	case locator.KindHTTP:
+		if err := r.requireHTTP(); err != nil {
+			return nil, err
+		}
+		return r.http.OpenRangeReader(ctx, ref, offset, length)
+	default:
+		return nil, fmt.Errorf("unsupported archive range source %q", ref.Raw)
+	}
+}
+
 // openS3ObjectReader opens one S3 object as a generic member stream.
 func (r *storageRouter) openS3ObjectReader(ctx context.Context, ref locator.Ref) (io.ReadCloser, s3store.Metadata, error) {
 	if err := r.requireS3(); err != nil {

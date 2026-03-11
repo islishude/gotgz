@@ -105,6 +105,10 @@ func (r *Runner) runExtractTarReader(ctx context.Context, opts cli.Options, repo
 	if target == "" {
 		target = "."
 	}
+	var safetyCache *pathSafetyCache
+	if parsedTarget.Kind == locator.KindLocal || parsedTarget.Kind == locator.KindStdio {
+		safetyCache = newPathSafetyCache()
+	}
 
 	return r.scanTarArchiveFromReader(ctx, opts, reporter, info, opts.Archive, ar, func(hdr *tar.Header, tr *tar.Reader) (int, error) {
 		if shouldSkipMember(opts, hdr.Name) {
@@ -134,7 +138,7 @@ func (r *Runner) runExtractTarReader(ctx context.Context, opts cli.Options, repo
 				return r.extractToS3(ctx, target, &effectiveHdr, tr, reporter)
 			},
 			func(base string) (int, error) {
-				return r.extractToLocal(ctx, base, &effectiveHdr, tr, policy, metadataPolicy, reporter)
+				return r.extractToLocal(ctx, base, &effectiveHdr, tr, policy, metadataPolicy, safetyCache, reporter)
 			},
 		)
 	})
@@ -183,7 +187,7 @@ func (r *Runner) extractToS3(ctx context.Context, target locator.Ref, hdr *tar.H
 }
 
 // extractToLocal writes one tar entry under base according to extraction policy.
-func (r *Runner) extractToLocal(ctx context.Context, base string, hdr *tar.Header, tr *tar.Reader, policy PermissionPolicy, metadataPolicy MetadataPolicy, reporter *progressReporter) (int, error) {
+func (r *Runner) extractToLocal(ctx context.Context, base string, hdr *tar.Header, tr *tar.Reader, policy PermissionPolicy, metadataPolicy MetadataPolicy, safetyCache *pathSafetyCache, reporter *progressReporter) (int, error) {
 	target, err := safeJoin(base, hdr.Name)
 	if err != nil {
 		return 0, err
@@ -194,19 +198,19 @@ func (r *Runner) extractToLocal(ctx context.Context, base string, hdr *tar.Heade
 
 	switch hdr.Typeflag {
 	case tar.TypeDir:
-		if err := ensureLocalDirTarget(base, target, extractPerm); err != nil {
+		if err := ensureLocalDirTarget(base, target, extractPerm, safetyCache); err != nil {
 			return warnings, err
 		}
 	case tar.TypeReg:
-		if err := writeLocalRegularTarget(ctx, base, target, extractPerm, io.LimitReader(tr, hdr.Size)); err != nil {
+		if err := writeLocalRegularTarget(ctx, base, target, extractPerm, io.LimitReader(tr, hdr.Size), safetyCache); err != nil {
 			return warnings, err
 		}
 	case tar.TypeSymlink:
-		if err := replaceLocalSymlinkTarget(base, target, hdr.Linkname); err != nil {
+		if err := replaceLocalSymlinkTarget(base, target, hdr.Linkname, safetyCache); err != nil {
 			return warnings, err
 		}
 	case tar.TypeLink:
-		if err := replaceLocalHardlinkTarget(base, target, hdr.Linkname); err != nil {
+		if err := replaceLocalHardlinkTarget(base, target, hdr.Linkname, safetyCache); err != nil {
 			return warnings, err
 		}
 	default:

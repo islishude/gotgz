@@ -22,6 +22,9 @@ func TestStoreRejectsNonS3Refs(t *testing.T) {
 	if _, _, err := store.OpenReader(context.Background(), ref); err == nil {
 		t.Fatalf("OpenReader() error = nil, want non-nil")
 	}
+	if _, err := store.OpenRangeReader(context.Background(), ref, 0, 1); err == nil {
+		t.Fatalf("OpenRangeReader() error = nil, want non-nil")
+	}
 	if _, err := store.OpenWriter(context.Background(), ref, nil); err == nil {
 		t.Fatalf("OpenWriter() error = nil, want non-nil")
 	}

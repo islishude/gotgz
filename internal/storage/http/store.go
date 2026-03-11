@@ -1,6 +1,7 @@
 package httpstore
 
 import (
+	"bytes"
 	"compress/gzip"
 	"context"
 	"fmt"
@@ -69,6 +70,53 @@ func (s *Store) OpenReader(ctx context.Context, ref locator.Ref) (io.ReadCloser,
 		ContentType: strings.TrimSpace(resp.Header.Get("Content-Type")),
 	}
 	return body, meta, nil
+}
+
+// OpenRangeReader opens one byte range from an HTTP(S) archive source.
+func (s *Store) OpenRangeReader(ctx context.Context, ref locator.Ref, offset int64, length int64) (io.ReadCloser, error) {
+	if ref.Kind != locator.KindHTTP {
+		return nil, fmt.Errorf("ref %q is not http", ref.Raw)
+	}
+	if offset < 0 {
+		return nil, fmt.Errorf("range offset must be >= 0")
+	}
+	if length < 0 {
+		return nil, fmt.Errorf("range length must be >= 0")
+	}
+	if length == 0 {
+		return io.NopCloser(bytes.NewReader(nil)), nil
+	}
+
+	client := s.client
+	if client == nil {
+		client = http.DefaultClient
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, ref.URL, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Range", fmt.Sprintf("bytes=%d-%d", offset, offset+length-1))
+	req.Header.Set("Accept-Encoding", "identity")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode != http.StatusPartialContent {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, maxErrorBodyBytes))
+		_ = resp.Body.Close()
+		text := strings.TrimSpace(string(body))
+		if text != "" {
+			return nil, fmt.Errorf("http range GET %q failed: status %s: %s", ref.URL, resp.Status, text)
+		}
+		return nil, fmt.Errorf("http range GET %q failed: status %s", ref.URL, resp.Status)
+	}
+	if encoding := strings.TrimSpace(strings.ToLower(resp.Header.Get("Content-Encoding"))); encoding != "" && encoding != "identity" {
+		_ = resp.Body.Close()
+		return nil, fmt.Errorf("http range GET %q returned unsupported content-encoding %q", ref.URL, encoding)
+	}
+	return resp.Body, nil
 }
 
 // decodeResponseBody returns the response body and its content size.

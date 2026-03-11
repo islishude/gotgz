@@ -158,6 +158,104 @@ func TestWithZipReaderPreservesLocalZipParseErrorWhenStagingFallbackIsUsed(t *te
 	}
 }
 
+// TestWithZipReaderUsesRemoteRangesForKnownS3Zip verifies that known-size S3
+// zip inputs use remote range reads instead of staging the archive stream.
+func TestWithZipReaderUsesRemoteRangesForKnownS3Zip(t *testing.T) {
+	payload := zipArchiveBytes(t, map[string]string{
+		"file.txt": "payload",
+	})
+	stream := &trackingReadCloser{Reader: strings.NewReader("unused-stream")}
+	rangeCalls := 0
+	runner := newRunner(
+		nil,
+		fakeS3ArchiveStore{
+			openRange: func(_ context.Context, ref locator.Ref, offset int64, length int64) (io.ReadCloser, error) {
+				rangeCalls++
+				if ref.Key != "bundle.zip" {
+					t.Fatalf("ref.Key = %q, want %q", ref.Key, "bundle.zip")
+				}
+				end := min(offset+length, int64(len(payload)))
+				return io.NopCloser(bytes.NewReader(payload[offset:end])), nil
+			},
+		},
+		nil,
+		io.Discard,
+		io.Discard,
+	)
+
+	warnings, err := runner.withZipReader(
+		context.Background(),
+		locator.Ref{Kind: locator.KindS3, Raw: "s3://bucket/bundle.zip", Bucket: "bucket", Key: "bundle.zip"},
+		stream,
+		archiveReaderInfo{Size: int64(len(payload)), SizeKnown: true},
+		nil,
+		func(zr *zip.Reader) (int, error) {
+			if len(zr.File) != 1 || zr.File[0].Name != "file.txt" {
+				t.Fatalf("zip files = %+v", zr.File)
+			}
+			return 0, nil
+		},
+	)
+	if err != nil {
+		t.Fatalf("withZipReader() error = %v", err)
+	}
+	if warnings != 0 {
+		t.Fatalf("warnings = %d, want 0", warnings)
+	}
+	if stream.readCalls != 0 {
+		t.Fatalf("stream readCalls = %d, want 0", stream.readCalls)
+	}
+	if stream.closeCalls != 1 {
+		t.Fatalf("stream closeCalls = %d, want 1", stream.closeCalls)
+	}
+	if rangeCalls == 0 {
+		t.Fatal("expected remote range reads")
+	}
+}
+
+// TestWithZipReaderFallsBackToStagingWhenRemoteRangesFail verifies that range
+// initialization failures still fall back to the existing temp-file path.
+func TestWithZipReaderFallsBackToStagingWhenRemoteRangesFail(t *testing.T) {
+	payload := zipArchiveBytes(t, map[string]string{
+		"file.txt": "payload",
+	})
+	stream := &trackingReadCloser{Reader: bytes.NewReader(payload)}
+	runner := newRunner(
+		nil,
+		nil,
+		fakeHTTPArchiveStore{
+			openRange: func(_ context.Context, ref locator.Ref, offset int64, length int64) (io.ReadCloser, error) {
+				return nil, errors.New("range unsupported")
+			},
+		},
+		io.Discard,
+		io.Discard,
+	)
+
+	warnings, err := runner.withZipReader(
+		context.Background(),
+		locator.Ref{Kind: locator.KindHTTP, Raw: "https://example.test/bundle.zip", URL: "https://example.test/bundle.zip"},
+		stream,
+		archiveReaderInfo{Size: int64(len(payload)), SizeKnown: true},
+		nil,
+		func(zr *zip.Reader) (int, error) {
+			if len(zr.File) != 1 || zr.File[0].Name != "file.txt" {
+				t.Fatalf("zip files = %+v", zr.File)
+			}
+			return 0, nil
+		},
+	)
+	if err != nil {
+		t.Fatalf("withZipReader() error = %v", err)
+	}
+	if warnings != 0 {
+		t.Fatalf("warnings = %d, want 0", warnings)
+	}
+	if stream.readCalls == 0 {
+		t.Fatal("expected staging fallback to read the original stream")
+	}
+}
+
 // slowChunkReader emits fixed-size chunks with delay to model a long stream.
 type slowChunkReader struct {
 	started   chan struct{}
@@ -201,4 +299,23 @@ func (r *slowChunkReader) waitForStart(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("reader did not start")
 	}
+}
+
+// trackingReadCloser records how many reads and closes passed through it.
+type trackingReadCloser struct {
+	io.Reader
+	readCalls  int
+	closeCalls int
+}
+
+// Read forwards reads and counts them for assertions.
+func (r *trackingReadCloser) Read(p []byte) (int, error) {
+	r.readCalls++
+	return r.Reader.Read(p)
+}
+
+// Close records one close call.
+func (r *trackingReadCloser) Close() error {
+	r.closeCalls++
+	return nil
 }

@@ -22,8 +22,9 @@ const (
 )
 
 // withZipReader opens a zip.Reader from local file directly when possible and
-// otherwise copies source bytes to a temporary file to satisfy ReaderAt.
-// copyReporter tracks archive bytes consumed while preparing the zip reader.
+// otherwise prefers remote range reads before copying source bytes to a
+// temporary file to satisfy ReaderAt. copyReporter tracks archive bytes
+// consumed while preparing the zip reader.
 func (r *Runner) withZipReader(ctx context.Context, archiveRef locator.Ref, ar io.ReadCloser, info archiveReaderInfo, copyReporter *progressReporter, fn func(zr *zip.Reader) (int, error)) (int, error) {
 	if archiveRef.Kind == locator.KindLocal && info.SizeKnown && archiveRef.Path != "" {
 		f, err := os.Open(archiveRef.Path)
@@ -40,6 +41,10 @@ func (r *Runner) withZipReader(ctx context.Context, archiveRef locator.Ref, ar i
 				}
 			}
 		}
+	}
+
+	if zr, err := r.tryRemoteZipReader(ctx, archiveRef, ar, info); zr != nil && err == nil {
+		return fn(zr)
 	}
 
 	enforceStagingLimit := zipStagingLimitApplies(archiveRef)
@@ -83,6 +88,29 @@ func (r *Runner) withZipReader(ctx context.Context, archiveRef locator.Ref, ar i
 		return 0, err
 	}
 	return fn(zr)
+}
+
+// tryRemoteZipReader opens a zip.Reader backed by remote range requests when
+// the archive source supports random access and the total size is known.
+func (r *Runner) tryRemoteZipReader(ctx context.Context, archiveRef locator.Ref, ar io.ReadCloser, info archiveReaderInfo) (*zip.Reader, error) {
+	if !info.SizeKnown {
+		return nil, nil
+	}
+	if archiveRef.Kind != locator.KindS3 && archiveRef.Kind != locator.KindHTTP {
+		return nil, nil
+	}
+
+	readerAt := newRemoteZipReaderAt(ctx, info.Size, defaultRemoteZipReadBlockSize, func(ctx context.Context, offset int64, length int64) (io.ReadCloser, error) {
+		return r.storage.openArchiveRangeReader(ctx, archiveRef, offset, length)
+	})
+	zr, err := zip.NewReader(readerAt, info.Size)
+	if err != nil {
+		return nil, err
+	}
+	if ar != nil {
+		_ = ar.Close()
+	}
+	return zr, nil
 }
 
 // zipStagingLimitApplies reports whether staged ZIP bytes should be capped for

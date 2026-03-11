@@ -1,6 +1,7 @@
 package s3
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -97,6 +98,34 @@ func (s *Store) OpenReader(ctx context.Context, ref locator.Ref) (io.ReadCloser,
 		ContentType: aws.ToString(out.ContentType),
 	}
 	return out.Body, meta, nil
+}
+
+// OpenRangeReader opens one byte range from an S3 object.
+func (s *Store) OpenRangeReader(ctx context.Context, ref locator.Ref, offset int64, length int64) (io.ReadCloser, error) {
+	if ref.Kind != locator.KindS3 {
+		return nil, fmt.Errorf("ref %q is not s3", ref.Raw)
+	}
+	if offset < 0 {
+		return nil, fmt.Errorf("range offset must be >= 0")
+	}
+	if length < 0 {
+		return nil, fmt.Errorf("range length must be >= 0")
+	}
+	if length == 0 {
+		return io.NopCloser(bytes.NewReader(nil)), nil
+	}
+
+	end := offset + length - 1
+	rangeHeader := fmt.Sprintf("bytes=%d-%d", offset, end)
+	out, err := s.client.GetObject(ctx, &awss3.GetObjectInput{
+		Bucket: new(ref.Bucket),
+		Key:    new(ref.Key),
+		Range:  &rangeHeader,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return out.Body, nil
 }
 
 func (s *Store) Stat(ctx context.Context, ref locator.Ref) (Metadata, error) {
