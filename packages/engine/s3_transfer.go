@@ -40,6 +40,7 @@ func (r *Runner) uploadToS3Target(ctx context.Context, target locator.Ref, name 
 		Kind:         locator.KindS3,
 		Bucket:       target.Bucket,
 		Key:          locator.JoinS3Prefix(target.Key, name),
+		ObjectTags:   target.ObjectTags,
 		CacheControl: target.CacheControl,
 	}, body, metadata)
 }

@@ -29,6 +29,8 @@ Main Options:
                     Change directory before create/extract
   --s3-cache-control <value>
                     Set Cache-Control header when writing to S3 targets
+  --s3-tag <key=value>
+                    Add an S3 object tag when writing to S3 targets (always also adds gotgz-created-at)
   --strip-components <count>
                     Remove <count> leading path elements when extracting
   -v                Verbose output

@@ -15,6 +15,7 @@ A Linux `tar`-compatible CLI tool written in Go, with native AWS S3 support as b
 - **Path stripping on extract** — `--strip-components <count>` removes leading path segments
 - **Progress + timing** — byte-based progress with ETA and elapsed time on TTY (or force with `--progress`)
 - **S3 encryption** — configurable server-side encryption (AES256, SSE-KMS)
+- **S3 object tags** — repeat `--s3-tag key=value` on S3 writes; `gotgz-created-at` is added automatically
 
 ## Installation
 
@@ -63,6 +64,9 @@ gotgz -cvf s3://my-bucket/backups/archive.tar.gz dir1 file1.txt
 # Local files → S3 with Cache-Control
 gotgz -cvf s3://my-bucket/backups/archive.tar.gz --s3-cache-control "max-age=3600,public" dir1 file1.txt
 
+# Local files → S3 with object tags (gotgz-created-at is added automatically)
+gotgz -cvf s3://my-bucket/backups/archive.tar.gz --s3-tag team=archive --s3-tag env=prod dir1 file1.txt
+
 # S3 objects → local archive
 gotgz -cvf archive.tar s3://my-bucket/data/file1.txt s3://my-bucket/data/file2.txt
 
@@ -99,6 +103,9 @@ gotgz -xvf archive.tar -C s3://my-bucket/restored/
 
 # Local archive → S3 with Cache-Control
 gotgz -xvf archive.tar -C s3://my-bucket/restored/ --s3-cache-control no-store
+
+# Local archive → S3 with object tags (gotgz-created-at is added automatically)
+gotgz -xvf archive.tar -C s3://my-bucket/restored/ --s3-tag team=restore --s3-tag env=prod
 ```
 
 ### List contents
@@ -159,6 +166,7 @@ gotgz -cvzf "s3://my-bucket/backups/archive.tgz?env=prod&owner=platform" dir/
 ```
 
 Use `--s3-cache-control` to set the S3 `Cache-Control` header for archive uploads (`-f s3://...`) and extract targets (`-C s3://...`) without URL-encoding.
+Use repeatable `--s3-tag key=value` flags to add S3 object tags for archive uploads and extract targets. Every S3 write also adds the built-in `gotgz-created-at=<RFC3339 UTC>` tag automatically.
 
 ### HTTP archive source
 
@@ -188,6 +196,10 @@ gotgz -tf archive.tar --wildcards 'src/*.go'
 # Set Cache-Control for S3 writes
 gotgz -cvf s3://my-bucket/out.tar --s3-cache-control "max-age=600,public" dir/
 gotgz -xvf archive.tar -C s3://my-bucket/restored/ --s3-cache-control no-cache
+
+# Set S3 object tags for S3 writes
+gotgz -cvf s3://my-bucket/out.tar --s3-tag team=archive --s3-tag env=prod dir/
+gotgz -xvf archive.tar -C s3://my-bucket/restored/ --s3-tag team=restore
 
 # Permission preservation
 gotgz -xvf archive.tar --same-owner --same-permissions

@@ -26,6 +26,8 @@ type Ref struct {
 	Bucket   string
 	Key      string
 	Metadata map[string]string
+	// ObjectTags stores S3 object tags for upload targets.
+	ObjectTags map[string]string
 	// CacheControl stores the S3 Cache-Control header for upload targets.
 	CacheControl string
 }

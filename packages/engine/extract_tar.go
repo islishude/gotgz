@@ -99,7 +99,7 @@ func (r *Runner) runExtractTarReader(ctx context.Context, opts cli.Options, repo
 		})
 	}
 
-	parsedTarget, err := parseExtractTarget(opts.Chdir, opts.S3CacheControl)
+	parsedTarget, err := parseExtractTarget(opts.Chdir, opts.S3CacheControl, opts.S3ObjectTags)
 	if err != nil {
 		return 0, err
 	}

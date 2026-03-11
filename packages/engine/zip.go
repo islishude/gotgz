@@ -134,7 +134,7 @@ func (r *Runner) runExtractZip(ctx context.Context, opts cli.Options, reporter *
 		return warnings + zipWarnings, err
 	}
 
-	parsedTarget, err := parseExtractTarget(opts.Chdir, opts.S3CacheControl)
+	parsedTarget, err := parseExtractTarget(opts.Chdir, opts.S3CacheControl, opts.S3ObjectTags)
 	if err != nil {
 		return warnings, err
 	}

@@ -55,6 +55,7 @@ type Options struct {
 	StripComponents  int
 	Chdir            string
 	S3CacheControl   string
+	S3ObjectTags     map[string]string
 	ToStdout         bool
 	Compression      CompressionHint
 	Exclude          []string
@@ -151,7 +152,7 @@ func (p *optionParser) consumedValueArgs(current int) int {
 	}
 	if strings.HasPrefix(arg, "--") {
 		switch arg {
-		case "--exclude", "--exclude-from", "--strip-components", "--compression-level", "--split-size", "--suffix", "--cd", "--directory", "--s3-cache-control":
+		case "--exclude", "--exclude-from", "--strip-components", "--compression-level", "--split-size", "--suffix", "--cd", "--directory", "--s3-cache-control", "--s3-tag":
 			return 1
 		default:
 			return 0
@@ -268,6 +269,20 @@ func (p *optionParser) applyLongOption(name, value string, hasValue bool, i int)
 		}
 		p.opts.S3CacheControl = strings.TrimSpace(v)
 		return nextI, nil
+	case "s3-tag":
+		v, nextI, err := resolveValue(name, value, hasValue, p.args, i)
+		if err != nil {
+			return i, err
+		}
+		key, tagValue, err := parseS3Tag(v)
+		if err != nil {
+			return i, err
+		}
+		if p.opts.S3ObjectTags == nil {
+			p.opts.S3ObjectTags = make(map[string]string)
+		}
+		p.opts.S3ObjectTags[key] = tagValue
+		return nextI, nil
 	case "wildcards":
 		p.opts.Wildcards = true
 	case "numeric-owner":
@@ -375,6 +390,19 @@ func (p *optionParser) parseCompressionLevel(name, value string, hasValue bool, 
 		return 0, i, fmt.Errorf("option --compression-level requires an integer between 1 and 9")
 	}
 	return level, nextI, nil
+}
+
+// parseS3Tag validates one --s3-tag key=value option.
+func parseS3Tag(v string) (string, string, error) {
+	key, value, ok := strings.Cut(v, "=")
+	if !ok {
+		return "", "", fmt.Errorf("option --s3-tag requires key=value")
+	}
+	key = strings.TrimSpace(key)
+	if key == "" {
+		return "", "", fmt.Errorf("option --s3-tag requires a non-empty key")
+	}
+	return key, strings.TrimSpace(value), nil
 }
 
 // parseSplitSizeOption validates one split-size option value.
