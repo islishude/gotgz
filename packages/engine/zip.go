@@ -5,7 +5,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"math"
 
 	"github.com/islishude/gotgz/packages/archivepath"
 	"github.com/islishude/gotgz/packages/archiveprogress"
@@ -241,7 +240,7 @@ func (r *Runner) sumSplitZipPayloadBytes(ctx context.Context, volumes []archiveV
 	var total int64
 	_, err := r.forEachArchiveVolume(ctx, volumes, first, firstInfo, func(ref locator.Ref, reader io.ReadCloser, readerInfo archiveReaderInfo) (int, error) {
 		_, err := r.withZipReader(ctx, ref, reader, readerInfo, nil, func(zr *zip.Reader) (int, error) {
-			total = addZipPayloadBytes(total, totalZipPayloadBytes(zr, match))
+			total = addArchiveVolumeSize(total, totalZipPayloadBytes(zr, match))
 			return 0, nil
 		})
 		return 0, err
@@ -282,9 +281,4 @@ func shouldIncludeZipExtractEntry(zf *zip.File, memberMatcher *archivepath.Compi
 	}
 	name, ok := archivepath.StripPathComponents(zf.Name, stripComponents)
 	return ok && name != ""
-}
-
-// addZipPayloadBytes accumulates payload totals while clamping on overflow.
-func addZipPayloadBytes(total int64, add int64) int64 {
-	return addArchiveVolumeSize(total, add)
 }
