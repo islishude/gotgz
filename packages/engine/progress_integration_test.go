@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/islishude/gotgz/packages/archiveprogress"
 	"github.com/islishude/gotgz/packages/cli"
 )
 
@@ -274,7 +275,7 @@ func TestProgressAlwaysUsesCombinedTotalForSplitArchives(t *testing.T) {
 		t.Fatalf("stderr missing progress output:\n%s", final)
 	}
 	final = final[index:]
-	want := formatBytes(total) + "/" + formatBytes(total)
+	want := archiveprogress.FormatBytes(total) + "/" + archiveprogress.FormatBytes(total)
 	if !strings.Contains(final, want) {
 		t.Fatalf("final progress line = %q, want combined total %q", final, want)
 	}

@@ -5,11 +5,12 @@ import (
 	"context"
 	"strings"
 
+	"github.com/islishude/gotgz/packages/archiveprogress"
 	"github.com/islishude/gotgz/packages/locator"
 )
 
 // extractZipEntryToLocal extracts one zip entry into the local filesystem.
-func (r *Runner) extractZipEntryToLocal(ctx context.Context, base string, zf *zip.File, extractName string, policy PermissionPolicy, safetyCache *pathSafetyCache, reporter *progressReporter) (int, error) {
+func (r *Runner) extractZipEntryToLocal(ctx context.Context, base string, zf *zip.File, extractName string, policy PermissionPolicy, safetyCache *pathSafetyCache, reporter *archiveprogress.Reporter) (int, error) {
 	target, err := safeJoin(base, extractName)
 	if err != nil {
 		return 0, err
@@ -52,7 +53,7 @@ func (r *Runner) extractZipEntryToLocal(ctx context.Context, base string, zf *zi
 		if rc == nil {
 			return warnings, nil
 		}
-		err = writeLocalRegularTarget(ctx, base, target, computeExtractPerm(mode, 0o644, policy.SamePerms), newCountingReader(rc, reporter), safetyCache)
+		err = writeLocalRegularTarget(ctx, base, target, computeExtractPerm(mode, 0o644, policy.SamePerms), archiveprogress.NewCountingReader(rc, reporter), safetyCache)
 		rerr := rc.Close()
 		if err != nil {
 			return warnings, err
@@ -70,7 +71,7 @@ func (r *Runner) extractZipEntryToLocal(ctx context.Context, base string, zf *zi
 }
 
 // extractZipEntryToS3 extracts one zip entry into an S3 target.
-func (r *Runner) extractZipEntryToS3(ctx context.Context, target locator.Ref, zf *zip.File, extractName string, reporter *progressReporter) (int, error) {
+func (r *Runner) extractZipEntryToS3(ctx context.Context, target locator.Ref, zf *zip.File, extractName string, reporter *archiveprogress.Reporter) (int, error) {
 	name := strings.TrimPrefix(extractName, "./")
 	if name == "" {
 		return 0, nil
@@ -88,7 +89,7 @@ func (r *Runner) extractZipEntryToS3(ctx context.Context, target locator.Ref, zf
 			return w, nil
 		}
 		defer rc.Close() //nolint:errcheck
-		if err := r.uploadToS3Target(ctx, target, name, newCountingReader(rc, reporter), target.Metadata); err != nil {
+		if err := r.uploadToS3Target(ctx, target, name, archiveprogress.NewCountingReader(rc, reporter), target.Metadata); err != nil {
 			return w, err
 		}
 		return w, nil
@@ -103,7 +104,7 @@ func (r *Runner) extractZipEntryToS3(ctx context.Context, target locator.Ref, zf
 			return w, nil
 		}
 		w += r.warnf(reporter, "zip symlink %s extracted to S3 as regular object", zf.Name)
-		err = r.uploadToS3Target(ctx, target, name, newCountingReader(rc, reporter), target.Metadata)
+		err = r.uploadToS3Target(ctx, target, name, archiveprogress.NewCountingReader(rc, reporter), target.Metadata)
 		cerr := rc.Close()
 		if err != nil {
 			return w, err

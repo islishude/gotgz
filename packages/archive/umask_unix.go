@@ -1,6 +1,6 @@
 //go:build unix
 
-package engine
+package archive
 
 import (
 	"io/fs"
@@ -11,7 +11,8 @@ import (
 
 var umaskMu sync.Mutex
 
-func currentUmask() fs.FileMode {
+// CurrentUmask returns the process umask without changing its effective value.
+func CurrentUmask() fs.FileMode {
 	umaskMu.Lock()
 	defer umaskMu.Unlock()
 	old := unix.Umask(0)

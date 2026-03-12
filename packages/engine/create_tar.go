@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/islishude/gotgz/packages/archive"
+	"github.com/islishude/gotgz/packages/archiveprogress"
 	"github.com/islishude/gotgz/packages/archiveutil"
 	"github.com/islishude/gotgz/packages/cli"
 	"github.com/islishude/gotgz/packages/locator"
@@ -18,7 +19,7 @@ import (
 // runCreateTar writes create-mode output in tar format.
 func (r *Runner) runCreateTar(ctx context.Context, opts cli.Options, archiveRef locator.Ref) (warnings int, retErr error) {
 	metadataPolicy := resolveMetadataPolicy(opts)
-	reporter := newProgressReporter(r.stderr, opts.Progress, 0, false, time.Now(), opts.Verbose)
+	reporter := archiveprogress.NewReporter(r.stderr, opts.Progress, 0, false, time.Now(), opts.Verbose)
 	defer reporter.Finish()
 
 	archiveRef, err := applyArchiveSuffix(archiveRef, opts.Suffix)
@@ -71,7 +72,7 @@ func (r *Runner) runCreateTar(ctx context.Context, opts cli.Options, archiveRef 
 }
 
 // addS3Member writes one S3 object to the tar stream as a regular file member.
-func (r *Runner) addS3Member(ctx context.Context, tw tarArchiveWriter, ref locator.Ref, verbose bool, reporter *progressReporter) (err error) {
+func (r *Runner) addS3Member(ctx context.Context, tw tarArchiveWriter, ref locator.Ref, verbose bool, reporter *archiveprogress.Reporter) (err error) {
 	return r.streamS3MemberToArchive(ctx, ref, verbose, reporter, func(name string, size int64, modified time.Time, body io.Reader) error {
 		hdr := &tar.Header{
 			Name:     name,
@@ -93,7 +94,7 @@ func (r *Runner) addS3Member(ctx context.Context, tw tarArchiveWriter, ref locat
 
 // addLocalPath walks one local member path and writes entries into the tar
 // stream, returning any metadata warnings emitted along the way.
-func (r *Runner) addLocalPath(ctx context.Context, tw tarArchiveWriter, member, chdir string, excludeMatcher *compiledPathMatcher, verbose bool, metadataPolicy MetadataPolicy, reporter *progressReporter) (int, error) {
+func (r *Runner) addLocalPath(ctx context.Context, tw tarArchiveWriter, member, chdir string, excludeMatcher *compiledPathMatcher, verbose bool, metadataPolicy MetadataPolicy, reporter *archiveprogress.Reporter) (int, error) {
 	warnings := 0
 	err := walkLocalCreateMember(ctx, member, chdir, excludeMatcher, func(entry localCreateEntry) error {
 		w, err := r.writeLocalTarEntry(ctx, tw, entry, verbose, metadataPolicy, reporter)
@@ -120,7 +121,7 @@ func (r *Runner) collectLocalCreateEntries(ctx context.Context, member, chdir st
 
 // addLocalEntries writes a pre-scanned set of local filesystem entries into the
 // tar stream, returning any metadata warnings emitted along the way.
-func (r *Runner) addLocalEntries(ctx context.Context, tw tarArchiveWriter, entries []localCreateEntry, verbose bool, metadataPolicy MetadataPolicy, reporter *progressReporter) (int, error) {
+func (r *Runner) addLocalEntries(ctx context.Context, tw tarArchiveWriter, entries []localCreateEntry, verbose bool, metadataPolicy MetadataPolicy, reporter *archiveprogress.Reporter) (int, error) {
 	warnings := 0
 	for _, entry := range entries {
 		select {
@@ -138,7 +139,7 @@ func (r *Runner) addLocalEntries(ctx context.Context, tw tarArchiveWriter, entri
 }
 
 // writeLocalTarEntry writes one local filesystem entry into the tar stream.
-func (r *Runner) writeLocalTarEntry(ctx context.Context, tw tarArchiveWriter, entry localCreateEntry, verbose bool, metadataPolicy MetadataPolicy, reporter *progressReporter) (int, error) {
+func (r *Runner) writeLocalTarEntry(ctx context.Context, tw tarArchiveWriter, entry localCreateEntry, verbose bool, metadataPolicy MetadataPolicy, reporter *archiveprogress.Reporter) (int, error) {
 	st := entry.info
 	linkname := ""
 	if st.Mode()&os.ModeSymlink != 0 {
@@ -174,7 +175,7 @@ func (r *Runner) writeLocalTarEntry(ctx context.Context, tw tarArchiveWriter, en
 		if err != nil {
 			return warnings, err
 		}
-		_, err = archiveutil.CopyWithContext(ctx, tw, newCountingReader(f, reporter))
+		_, err = archiveutil.CopyWithContext(ctx, tw, archiveprogress.NewCountingReader(f, reporter))
 		cerr := f.Close()
 		if err != nil {
 			return warnings, err
@@ -187,9 +188,9 @@ func (r *Runner) writeLocalTarEntry(ctx context.Context, tw tarArchiveWriter, en
 		return warnings, err
 	}
 	if verbose {
-		reporter.beforeExternalLineOutput()
+		reporter.BeforeExternalLineOutput()
 		_, _ = fmt.Fprintln(r.stdout, hdr.Name)
-		reporter.afterExternalLineOutput()
+		reporter.AfterExternalLineOutput()
 	}
 	return warnings, nil
 }

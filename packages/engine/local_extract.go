@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/islishude/gotgz/packages/archive"
 	"github.com/islishude/gotgz/packages/archiveutil"
 )
 
@@ -19,7 +20,7 @@ func computeExtractPerm(mode fs.FileMode, fallback fs.FileMode, samePerms bool) 
 		perm = fallback
 	}
 	if !samePerms {
-		perm &^= currentUmask()
+		perm &^= archive.CurrentUmask()
 	}
 	return perm
 }

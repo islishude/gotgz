@@ -1,9 +1,8 @@
-package engine
+package archiveprogress
 
 import (
 	"bytes"
 	"io"
-	"os"
 	"strings"
 	"testing"
 	"time"
@@ -13,7 +12,7 @@ import (
 
 func TestProgressReporterKnownTotalIncludesETAAndElapsed(t *testing.T) {
 	var buf bytes.Buffer
-	p := newProgressReporter(&buf, cli.ProgressAlways, 100, true, time.Now().Add(-2*time.Second), false)
+	p := NewReporter(&buf, cli.ProgressAlways, 100, true, time.Now().Add(-2*time.Second), false)
 	p.AddDone(50)
 	p.Finish()
 
@@ -37,7 +36,7 @@ func TestProgressReporterKnownTotalIncludesETAAndElapsed(t *testing.T) {
 
 func TestProgressReporterUnknownTotalOmitsETA(t *testing.T) {
 	var buf bytes.Buffer
-	p := newProgressReporter(&buf, cli.ProgressAlways, 0, false, time.Now().Add(-2*time.Second), false)
+	p := NewReporter(&buf, cli.ProgressAlways, 0, false, time.Now().Add(-2*time.Second), false)
 	p.AddDone(512)
 	p.Finish()
 
@@ -55,7 +54,7 @@ func TestProgressReporterUnknownTotalOmitsETA(t *testing.T) {
 
 func TestProgressReporterAutoDisablesOnNonTTY(t *testing.T) {
 	var buf bytes.Buffer
-	p := newProgressReporter(&buf, cli.ProgressAuto, 10, true, time.Now().Add(-time.Second), false)
+	p := NewReporter(&buf, cli.ProgressAuto, 10, true, time.Now().Add(-time.Second), false)
 	p.AddDone(10)
 	p.Finish()
 
@@ -66,86 +65,18 @@ func TestProgressReporterAutoDisablesOnNonTTY(t *testing.T) {
 
 func TestProgressReporterBeforeExternalLineOutput(t *testing.T) {
 	var buf bytes.Buffer
-	p := newProgressReporter(&buf, cli.ProgressAlways, 100, true, time.Now().Add(-time.Second), false)
+	p := NewReporter(&buf, cli.ProgressAlways, 100, true, time.Now().Add(-time.Second), false)
 	p.AddDone(10)
-	p.beforeExternalLineOutput()
+	p.BeforeExternalLineOutput()
 	out := buf.String()
 	if !strings.HasSuffix(out, "\n") {
 		t.Fatalf("expected newline after breaking progress line, got %q", out)
 	}
 }
 
-func TestFormatBytes(t *testing.T) {
-	cases := []struct {
-		input int64
-		want  string
-	}{
-		{0, "0B"},
-		{-1, "0B"},
-		{1, "1B"},
-		{1023, "1023B"},
-		{1024, "1.0KiB"},
-		{1536, "1.5KiB"},
-		{1048576, "1.0MiB"},
-		{1073741824, "1.0GiB"},
-		{1099511627776, "1.0TiB"},
-		{1125899906842624, "1.0PiB"},
-	}
-	for _, tc := range cases {
-		t.Run(tc.want, func(t *testing.T) {
-			if got := formatBytes(tc.input); got != tc.want {
-				t.Fatalf("formatBytes(%d) = %q, want %q", tc.input, got, tc.want)
-			}
-		})
-	}
-}
-
-func TestFormatRate(t *testing.T) {
-	cases := []struct {
-		input float64
-		want  string
-	}{
-		{0, "0B"},
-		{-10, "0B"},
-		{500, "500B"},
-		{1024, "1.0KiB"},
-		{1048576, "1.0MiB"},
-		{1536.0, "1.5KiB"},
-	}
-	for _, tc := range cases {
-		t.Run(tc.want, func(t *testing.T) {
-			if got := formatRate(tc.input); got != tc.want {
-				t.Fatalf("formatRate(%f) = %q, want %q", tc.input, got, tc.want)
-			}
-		})
-	}
-}
-
-func TestFormatClock(t *testing.T) {
-	cases := []struct {
-		input time.Duration
-		want  string
-	}{
-		{0, "00:00"},
-		{-5 * time.Second, "00:00"},
-		{30 * time.Second, "00:30"},
-		{90 * time.Second, "01:30"},
-		{3600 * time.Second, "01:00:00"},
-		{3661 * time.Second, "01:01:01"},
-		{500 * time.Millisecond, "00:01"},
-	}
-	for _, tc := range cases {
-		t.Run(tc.want, func(t *testing.T) {
-			if got := formatClock(tc.input); got != tc.want {
-				t.Fatalf("formatClock(%v) = %q, want %q", tc.input, got, tc.want)
-			}
-		})
-	}
-}
-
 func TestProgressReporterFinishIdempotent(t *testing.T) {
 	var buf bytes.Buffer
-	p := newProgressReporter(&buf, cli.ProgressAlways, 100, true, time.Now().Add(-time.Second), false)
+	p := NewReporter(&buf, cli.ProgressAlways, 100, true, time.Now().Add(-time.Second), false)
 	p.AddDone(100)
 	p.Finish()
 	first := buf.String()
@@ -156,36 +87,106 @@ func TestProgressReporterFinishIdempotent(t *testing.T) {
 }
 
 func TestProgressReporterNilSafe(t *testing.T) {
-	var p *progressReporter
+	var p *Reporter
 	// These should not panic on a nil receiver.
 	p.SetTotal(100, true)
 	p.AddDone(50)
-	p.beforeExternalLineOutput()
-	p.afterExternalLineOutput()
+	p.BeforeExternalLineOutput()
+	p.AfterExternalLineOutput()
 	p.Finish()
+}
+
+func TestReporterEnabled(t *testing.T) {
+	t.Run("nil reporter", func(t *testing.T) {
+		var p *Reporter
+		if got := p.Enabled(); got {
+			t.Fatalf("Enabled() = %v, want false for nil reporter", got)
+		}
+	})
+
+	t.Run("disabled reporter", func(t *testing.T) {
+		p := NewReporter(io.Discard, cli.ProgressNever, 100, true, time.Now(), false)
+		if got := p.Enabled(); got {
+			t.Fatalf("Enabled() = %v, want false", got)
+		}
+	})
+
+	t.Run("enabled reporter", func(t *testing.T) {
+		p := NewReporter(io.Discard, cli.ProgressAlways, 100, true, time.Now(), false)
+		if got := p.Enabled(); !got {
+			t.Fatalf("Enabled() = %v, want true", got)
+		}
+	})
+}
+
+func TestProgressReporterSetTotal(t *testing.T) {
+	t.Run("enabled reporter updates totals and renders", func(t *testing.T) {
+		var buf bytes.Buffer
+		p := NewReporter(&buf, cli.ProgressAlways, 100, true, time.Now().Add(-time.Second), false)
+		p.SetTotal(2048, true)
+
+		if p.total != 2048 {
+			t.Fatalf("total = %d, want 2048", p.total)
+		}
+		if !p.totalKnown {
+			t.Fatalf("totalKnown = %v, want true", p.totalKnown)
+		}
+		if got := buf.String(); !strings.Contains(got, "/2.0KiB") {
+			t.Fatalf("expected rendered output to include new total, got %q", got)
+		}
+	})
+
+	t.Run("negative total is clamped to zero", func(t *testing.T) {
+		var buf bytes.Buffer
+		p := NewReporter(&buf, cli.ProgressAlways, 100, true, time.Now().Add(-time.Second), false)
+		p.SetTotal(-1, true)
+
+		if p.total != 0 {
+			t.Fatalf("total = %d, want 0", p.total)
+		}
+		if !p.totalKnown {
+			t.Fatalf("totalKnown = %v, want true", p.totalKnown)
+		}
+	})
+
+	t.Run("disabled reporter is no-op", func(t *testing.T) {
+		var buf bytes.Buffer
+		p := NewReporter(&buf, cli.ProgressNever, 100, true, time.Now(), false)
+		p.SetTotal(2048, true)
+
+		if p.total != 100 {
+			t.Fatalf("total = %d, want unchanged 100", p.total)
+		}
+		if !p.totalKnown {
+			t.Fatalf("totalKnown = %v, want unchanged true", p.totalKnown)
+		}
+		if got := buf.String(); got != "" {
+			t.Fatalf("expected no output for disabled reporter, got %q", got)
+		}
+	})
 }
 
 func TestNewCountingReaderBypassesDisabledReporter(t *testing.T) {
 	src := strings.NewReader("payload")
-	reporter := newProgressReporter(io.Discard, cli.ProgressAuto, 0, false, time.Now(), false)
-	if got := newCountingReader(src, reporter); got != src {
-		t.Fatalf("newCountingReader() should return original reader when progress is disabled")
+	reporter := NewReporter(io.Discard, cli.ProgressAuto, 0, false, time.Now(), false)
+	if got := NewCountingReader(src, reporter); got != src {
+		t.Fatalf("NewCountingReader() should return original reader when progress is disabled")
 	}
 }
 
 func TestNewCountingReadCloserBypassesDisabledReporter(t *testing.T) {
 	src := io.NopCloser(strings.NewReader("payload"))
-	reporter := newProgressReporter(io.Discard, cli.ProgressAuto, 0, false, time.Now(), false)
-	if got := newCountingReadCloser(src, reporter); got != src {
-		t.Fatalf("newCountingReadCloser() should return original reader when progress is disabled")
+	reporter := NewReporter(io.Discard, cli.ProgressAuto, 0, false, time.Now(), false)
+	if got := NewCountingReadCloser(src, reporter); got != src {
+		t.Fatalf("NewCountingReadCloser() should return original reader when progress is disabled")
 	}
 }
 
-// newTopPinnedReporter creates a progressReporter with topPinned=true for
+// newTopPinnedReporter creates a ProgressReporter with topPinned=true for
 // testing the ANSI cursor-management code path that requires an interactive
 // TTY. Since bytes.Buffer is not a real TTY, we construct the struct directly.
-func newTopPinnedReporter(buf *bytes.Buffer, total int64, totalKnown bool, start time.Time) *progressReporter {
-	return &progressReporter{
+func newTopPinnedReporter(buf *bytes.Buffer, total int64, totalKnown bool, start time.Time) *Reporter {
+	return &Reporter{
 		writer:       buf,
 		enabled:      true,
 		topPinned:    true,
@@ -248,11 +249,11 @@ func TestAfterExternalLineOutputNoOpForTopPinned(t *testing.T) {
 	p := newTopPinnedReporter(&buf, 100, true, time.Now().Add(-time.Second))
 	p.AddDone(10)
 	before := buf.String()
-	p.afterExternalLineOutput()
-	p.afterExternalLineOutput()
+	p.AfterExternalLineOutput()
+	p.AfterExternalLineOutput()
 	after := buf.String()
 	if before != after {
-		t.Fatalf("afterExternalLineOutput should be no-op for topPinned, before=%q after=%q", before, after)
+		t.Fatalf("AfterExternalLineOutput should be no-op for topPinned, before=%q after=%q", before, after)
 	}
 }
 
@@ -274,85 +275,10 @@ func TestTopPinnedFinishResetsScrollRegion(t *testing.T) {
 func TestBeforeExternalLineOutputInitializesTopPinnedRegion(t *testing.T) {
 	var buf bytes.Buffer
 	p := newTopPinnedReporter(&buf, 100, true, time.Now().Add(-time.Second))
-	p.beforeExternalLineOutput()
+	p.BeforeExternalLineOutput()
 	if got := buf.String(); !strings.Contains(got, "\033[2;999r\033[999;1H") {
 		t.Fatalf("expected scroll region setup, got %q", got)
 	}
-}
-
-func Test_isInteractiveTTY(t *testing.T) {
-	t.Run("non-file writer", func(t *testing.T) {
-		if got := isInteractiveTTY(io.Discard); got {
-			t.Fatalf("isInteractiveTTY(io.Discard) = %v, want false", got)
-		}
-	})
-
-	t.Run("pipe writer is non-interactive", func(t *testing.T) {
-		r, w, err := os.Pipe()
-		if err != nil {
-			t.Fatalf("os.Pipe() error = %v", err)
-		}
-		defer func() {
-			_ = r.Close()
-			_ = w.Close()
-		}()
-
-		if got := isInteractiveTTY(w); got {
-			t.Fatalf("isInteractiveTTY(pipe writer) = %v, want false", got)
-		}
-	})
-
-	t.Run("dumb term disables tty", func(t *testing.T) {
-		ttyFile := findTTYFile(t)
-		if ttyFile == nil {
-			t.Skip("no character device available in stdio for tty detection tests")
-		}
-		t.Setenv("TERM", "dumb")
-		if got := isInteractiveTTY(ttyFile); got {
-			t.Fatalf("isInteractiveTTY(ttyFile) = %v, want false when TERM=dumb", got)
-		}
-	})
-
-	t.Run("empty TERM still counts as interactive", func(t *testing.T) {
-		ttyFile := findTTYFile(t)
-		if ttyFile == nil {
-			t.Skip("no character device available in stdio for tty detection tests")
-		}
-		t.Setenv("TERM", "")
-		if got := isInteractiveTTY(ttyFile); !got {
-			t.Fatalf("isInteractiveTTY(ttyFile) = %v, want true when TERM is empty", got)
-		}
-	})
-
-	t.Run("char device with non-dumb TERM is interactive", func(t *testing.T) {
-		ttyFile := findTTYFile(t)
-		if ttyFile == nil {
-			t.Skip("no character device available in stdio for tty detection tests")
-		}
-		t.Setenv("TERM", "xterm-256color")
-		if got := isInteractiveTTY(ttyFile); !got {
-			t.Fatalf("isInteractiveTTY(ttyFile) = %v, want true", got)
-		}
-	})
-}
-
-func findTTYFile(t *testing.T) *os.File {
-	t.Helper()
-	for _, candidate := range []*os.File{os.Stdin, os.Stdout, os.Stderr} {
-		if candidate == nil {
-			continue
-		}
-		info, err := candidate.Stat()
-		if err != nil {
-			t.Logf("stat %q: %v", candidate.Name(), err)
-			continue
-		}
-		if info.Mode()&os.ModeCharDevice != 0 {
-			return candidate
-		}
-		t.Logf("%q mode=%s is not a character device", candidate.Name(), info.Mode())
-	}
-	return nil
 }
 
 func TestShouldEnableProgress(t *testing.T) {

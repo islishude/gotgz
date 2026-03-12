@@ -16,6 +16,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/islishude/gotgz/packages/archivepath"
 	"github.com/islishude/gotgz/packages/cli"
 )
 
@@ -729,7 +730,7 @@ func TestCreateArchiveWithSuffix(t *testing.T) {
 	src := filepath.Join(root, "src")
 	out := filepath.Join(root, "out")
 	archiveBase := filepath.Join(root, "backup.tar.gz")
-	archiveWithSuffix := AddArchiveSuffix(archiveBase, "custom")
+	archiveWithSuffix := archivepath.AddSuffix(archiveBase, "custom")
 
 	if err := os.MkdirAll(src, 0o755); err != nil {
 		t.Fatal(err)

@@ -8,6 +8,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/islishude/gotgz/packages/archivepath"
+	"github.com/islishude/gotgz/packages/archiveprogress"
 	"github.com/islishude/gotgz/packages/archiveutil"
 	"github.com/islishude/gotgz/packages/cli"
 	"github.com/islishude/gotgz/packages/locator"
@@ -111,18 +113,20 @@ func (r *Runner) runCreate(ctx context.Context, opts cli.Options) (warnings int,
 	}
 	archiveRef = applyS3CacheControl(archiveRef, opts.S3CacheControl)
 	archiveRef = applyS3ObjectTags(archiveRef, opts.S3ObjectTags)
-	format := detectCreateArchiveFormat(archiveRef)
+	format := archiveutil.DetectCreateArchiveFormat(archiveRef)
 	switch format {
-	case archiveFormatZip:
+	case archiveutil.ArchiveFormatZip:
 		return r.runCreateZip(ctx, opts, archiveRef)
-	default:
+	case archiveutil.ArchiveFormatTar:
 		return r.runCreateTar(ctx, opts, archiveRef)
+	default:
+		return 0, fmt.Errorf("cannot determine archive format for %q; consider using -suffix", opts.Archive)
 	}
 }
 
 // runList dispatches list mode to tar or zip readers based on archive format.
 func (r *Runner) runList(ctx context.Context, opts cli.Options) (int, error) {
-	reporter := newProgressReporter(r.stderr, opts.Progress, 0, false, time.Now(), true)
+	reporter := archiveprogress.NewReporter(r.stderr, opts.Progress, 0, false, time.Now(), true)
 	defer reporter.Finish()
 	ref, ar, info, magic, err := r.openArchiveForRead(ctx, opts.Archive)
 	if err != nil {
@@ -130,17 +134,19 @@ func (r *Runner) runList(ctx context.Context, opts cli.Options) (int, error) {
 	}
 	defer ar.Close() //nolint:errcheck
 
-	switch detectReadArchiveFormat(magic, archiveutil.NameHint(ref), info.ContentType) {
-	case archiveFormatZip:
+	switch archiveutil.DetectReadArchiveFormat(magic, archiveutil.NameHint(ref), info.ContentType) {
+	case archiveutil.ArchiveFormatZip:
 		return r.runListZip(ctx, opts, reporter, ref, ar, info)
-	default:
+	case archiveutil.ArchiveFormatTar:
 		return r.runListTar(ctx, opts, reporter, ref, ar, info)
+	default:
+		return 0, fmt.Errorf("cannot determine archive format for %q; consider using -suffix", opts.Archive)
 	}
 }
 
 // runExtract dispatches extract mode to tar or zip readers based on archive format.
 func (r *Runner) runExtract(ctx context.Context, opts cli.Options) (int, error) {
-	reporter := newProgressReporter(r.stderr, opts.Progress, 0, false, time.Now(), opts.Verbose && !opts.ToStdout)
+	reporter := archiveprogress.NewReporter(r.stderr, opts.Progress, 0, false, time.Now(), opts.Verbose && !opts.ToStdout)
 	defer reporter.Finish()
 	ref, ar, info, magic, err := r.openArchiveForRead(ctx, opts.Archive)
 	if err != nil {
@@ -148,11 +154,13 @@ func (r *Runner) runExtract(ctx context.Context, opts cli.Options) (int, error) 
 	}
 	defer ar.Close() //nolint:errcheck
 
-	switch detectReadArchiveFormat(magic, archiveutil.NameHint(ref), info.ContentType) {
-	case archiveFormatZip:
+	switch archiveutil.DetectReadArchiveFormat(magic, archiveutil.NameHint(ref), info.ContentType) {
+	case archiveutil.ArchiveFormatZip:
 		return r.runExtractZip(ctx, opts, reporter, ref, ar, info)
-	default:
+	case archiveutil.ArchiveFormatTar:
 		return r.runExtractTar(ctx, opts, reporter, ref, ar, info)
+	default:
+		return 0, fmt.Errorf("cannot determine archive format for %q; consider using -suffix", opts.Archive)
 	}
 }
 
@@ -212,10 +220,10 @@ func applyArchiveSuffix(ref locator.Ref, suffix string) (locator.Ref, error) {
 
 	switch ref.Kind {
 	case locator.KindLocal:
-		ref.Path = AddArchiveSuffix(ref.Path, suffix)
+		ref.Path = archivepath.AddSuffix(ref.Path, suffix)
 		ref.Raw = ref.Path
 	case locator.KindS3:
-		ref.Key = AddArchiveSuffix(ref.Key, suffix)
+		ref.Key = archivepath.AddSuffix(ref.Key, suffix)
 	case locator.KindStdio:
 		return locator.Ref{}, fmt.Errorf("cannot use -suffix with -f -")
 	}

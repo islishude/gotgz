@@ -8,13 +8,14 @@ import (
 	"io"
 	"time"
 
+	"github.com/islishude/gotgz/packages/archiveprogress"
 	"github.com/islishude/gotgz/packages/cli"
 	"github.com/islishude/gotgz/packages/locator"
 )
 
 // runCreateZip writes create-mode output in zip format.
 func (r *Runner) runCreateZip(ctx context.Context, opts cli.Options, archiveRef locator.Ref) (warnings int, retErr error) {
-	reporter := newProgressReporter(r.stderr, opts.Progress, 0, false, time.Now(), opts.Verbose)
+	reporter := archiveprogress.NewReporter(r.stderr, opts.Progress, 0, false, time.Now(), opts.Verbose)
 	defer reporter.Finish()
 
 	archiveRef, err := applyArchiveSuffix(archiveRef, opts.Suffix)
@@ -86,7 +87,7 @@ func (r *Runner) runCreateZip(ctx context.Context, opts cli.Options, archiveRef 
 }
 
 // runListZip lists archive members from a zip input stream.
-func (r *Runner) runListZip(ctx context.Context, opts cli.Options, reporter *progressReporter, archiveRef locator.Ref, ar io.ReadCloser, info archiveReaderInfo) (int, error) {
+func (r *Runner) runListZip(ctx context.Context, opts cli.Options, reporter *archiveprogress.Reporter, archiveRef locator.Ref, ar io.ReadCloser, info archiveReaderInfo) (int, error) {
 	warnings := r.warnZipReadOptions(opts, reporter)
 	reporter.SetTotal(info.Size, info.SizeKnown)
 	memberMatcher := newMemberMatcher(opts)
@@ -101,9 +102,9 @@ func (r *Runner) runListZip(ctx context.Context, opts cli.Options, reporter *pro
 			if shouldSkipMemberWithMatcher(memberMatcher, zf.Name) {
 				continue
 			}
-			reporter.beforeExternalLineOutput()
+			reporter.BeforeExternalLineOutput()
 			_, _ = fmt.Fprintln(r.stdout, zf.Name)
-			reporter.afterExternalLineOutput()
+			reporter.AfterExternalLineOutput()
 		}
 		return innerWarnings, nil
 	})
@@ -111,7 +112,7 @@ func (r *Runner) runListZip(ctx context.Context, opts cli.Options, reporter *pro
 }
 
 // runExtractZip extracts archive members from a zip input stream.
-func (r *Runner) runExtractZip(ctx context.Context, opts cli.Options, reporter *progressReporter, archiveRef locator.Ref, ar io.ReadCloser, info archiveReaderInfo) (int, error) {
+func (r *Runner) runExtractZip(ctx context.Context, opts cli.Options, reporter *archiveprogress.Reporter, archiveRef locator.Ref, ar io.ReadCloser, info archiveReaderInfo) (int, error) {
 	policy := resolvePolicy(opts)
 	warnings := r.warnZipReadOptions(opts, reporter)
 
@@ -173,9 +174,9 @@ func (r *Runner) runExtractZip(ctx context.Context, opts cli.Options, reporter *
 				continue
 			}
 			if opts.Verbose {
-				reporter.beforeExternalLineOutput()
+				reporter.BeforeExternalLineOutput()
 				_, _ = fmt.Fprintln(r.stdout, extractName)
-				reporter.afterExternalLineOutput()
+				reporter.AfterExternalLineOutput()
 			}
 
 			w, err := r.dispatchExtractTarget(

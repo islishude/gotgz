@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/islishude/gotgz/packages/archiveprogress"
 	"github.com/islishude/gotgz/packages/archiveutil"
 	"github.com/islishude/gotgz/packages/cli"
 	"github.com/islishude/gotgz/packages/locator"
@@ -26,7 +27,7 @@ const (
 // otherwise prefers remote range reads before copying source bytes to a
 // temporary file to satisfy ReaderAt. copyReporter tracks archive bytes
 // consumed while preparing the zip reader.
-func (r *Runner) withZipReader(ctx context.Context, archiveRef locator.Ref, ar io.ReadCloser, info archiveReaderInfo, copyReporter *progressReporter, fn func(zr *zip.Reader) (int, error)) (int, error) {
+func (r *Runner) withZipReader(ctx context.Context, archiveRef locator.Ref, ar io.ReadCloser, info archiveReaderInfo, copyReporter *archiveprogress.Reporter, fn func(zr *zip.Reader) (int, error)) (int, error) {
 	if archiveRef.Kind == locator.KindLocal && info.SizeKnown && archiveRef.Path != "" {
 		f, err := os.Open(archiveRef.Path)
 		if err == nil {
@@ -65,7 +66,7 @@ func (r *Runner) withZipReader(ctx context.Context, archiveRef locator.Ref, ar i
 
 	copySrc := io.Reader(ar)
 	if copyReporter != nil {
-		copySrc = newCountingReader(ar, copyReporter)
+		copySrc = archiveprogress.NewCountingReader(ar, copyReporter)
 	}
 	if enforceStagingLimit {
 		if _, err := archiveutil.CopyWithContextLimit(ctx, tmp, copySrc, stagingLimit); err != nil {
@@ -151,7 +152,7 @@ func zipStagingLimitError(ref locator.Ref, limit int64) error {
 }
 
 // extractZipToStdout writes matching regular zip members to stdout.
-func (r *Runner) extractZipToStdout(ctx context.Context, zr *zip.Reader, memberMatcher *compiledPathMatcher, opts cli.Options, reporter *progressReporter) (int, error) {
+func (r *Runner) extractZipToStdout(ctx context.Context, zr *zip.Reader, memberMatcher *compiledPathMatcher, opts cli.Options, reporter *archiveprogress.Reporter) (int, error) {
 	warnings := 0
 	for _, zf := range zr.File {
 		select {
@@ -174,7 +175,7 @@ func (r *Runner) extractZipToStdout(ctx context.Context, zr *zip.Reader, memberM
 		if rc == nil {
 			continue
 		}
-		_, err = archiveutil.CopyWithContext(ctx, r.stdout, newCountingReader(rc, reporter))
+		_, err = archiveutil.CopyWithContext(ctx, r.stdout, archiveprogress.NewCountingReader(rc, reporter))
 		cerr := rc.Close()
 		if err != nil {
 			return warnings, err
@@ -188,7 +189,7 @@ func (r *Runner) extractZipToStdout(ctx context.Context, zr *zip.Reader, memberM
 
 // openZipEntry opens one zip file entry and downgrades unsupported algorithms
 // into warnings so extraction/list can continue.
-func (r *Runner) openZipEntry(zf *zip.File, reporter *progressReporter) (io.ReadCloser, int, error) {
+func (r *Runner) openZipEntry(zf *zip.File, reporter *archiveprogress.Reporter) (io.ReadCloser, int, error) {
 	rc, err := zf.Open()
 	if err == nil {
 		return rc, 0, nil
@@ -246,8 +247,8 @@ func isZipRegular(zf *zip.File) bool {
 
 // readZipSymlinkTarget reads a symlink target from a zip entry with a hard cap
 // to avoid unbounded memory growth on malformed archives.
-func readZipSymlinkTarget(zf *zip.File, rc io.Reader, reporter *progressReporter) (string, error) {
-	b, err := io.ReadAll(io.LimitReader(newCountingReader(rc, reporter), maxZipSymlinkTargetBytes+1))
+func readZipSymlinkTarget(zf *zip.File, rc io.Reader, reporter *archiveprogress.Reporter) (string, error) {
+	b, err := io.ReadAll(io.LimitReader(archiveprogress.NewCountingReader(rc, reporter), maxZipSymlinkTargetBytes+1))
 	if err != nil {
 		return "", err
 	}

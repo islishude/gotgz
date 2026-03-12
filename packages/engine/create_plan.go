@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/islishude/gotgz/packages/archiveprogress"
 	"github.com/islishude/gotgz/packages/cli"
 	"github.com/islishude/gotgz/packages/locator"
 )
@@ -80,8 +81,8 @@ func (r *Runner) buildCreatePlan(ctx context.Context, opts cli.Options, excludeM
 
 // buildCreatePlanIfEnabled creates a reusable plan only when progress output is
 // active and total-byte estimation is therefore useful.
-func (r *Runner) buildCreatePlanIfEnabled(ctx context.Context, opts cli.Options, excludeMatcher *compiledPathMatcher, reporter *progressReporter) (*createPlan, error) {
-	if reporter == nil || !reporter.enabled {
+func (r *Runner) buildCreatePlanIfEnabled(ctx context.Context, opts cli.Options, excludeMatcher *compiledPathMatcher, reporter *archiveprogress.Reporter) (*createPlan, error) {
+	if reporter == nil || !reporter.Enabled() {
 		return nil, nil
 	}
 	plan, err := r.buildCreatePlan(ctx, opts, excludeMatcher)

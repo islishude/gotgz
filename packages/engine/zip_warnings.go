@@ -3,11 +3,12 @@ package engine
 import (
 	"fmt"
 
+	"github.com/islishude/gotgz/packages/archiveprogress"
 	"github.com/islishude/gotgz/packages/cli"
 )
 
 // warnZipCreateOptions emits warnings for create flags that do not apply to zip.
-func (r *Runner) warnZipCreateOptions(opts cli.Options, reporter *progressReporter) int {
+func (r *Runner) warnZipCreateOptions(opts cli.Options, reporter *archiveprogress.Reporter) int {
 	warnings := 0
 	if opts.Xattrs {
 		warnings += r.warnf(reporter, "--xattrs is not supported for zip archives and will be ignored")
@@ -19,7 +20,7 @@ func (r *Runner) warnZipCreateOptions(opts cli.Options, reporter *progressReport
 }
 
 // warnZipReadOptions emits warnings for read-time flags that do not apply to zip.
-func (r *Runner) warnZipReadOptions(opts cli.Options, reporter *progressReporter) int {
+func (r *Runner) warnZipReadOptions(opts cli.Options, reporter *archiveprogress.Reporter) int {
 	warnings := 0
 	compression := normalizeCompressionHint(opts.Compression)
 	if compression != cli.CompressionAuto && compression != cli.CompressionNone {
@@ -49,13 +50,13 @@ func normalizeCompressionHint(v cli.CompressionHint) cli.CompressionHint {
 }
 
 // warnf prints one warning and returns 1 for warning-count accumulation.
-func (r *Runner) warnf(reporter *progressReporter, format string, args ...any) int {
+func (r *Runner) warnf(reporter *archiveprogress.Reporter, format string, args ...any) int {
 	if reporter != nil {
-		reporter.beforeExternalLineOutput()
+		reporter.BeforeExternalLineOutput()
 	}
 	_, _ = fmt.Fprintf(r.stderr, "gotgz: warning: "+format+"\n", args...)
 	if reporter != nil {
-		reporter.afterExternalLineOutput()
+		reporter.AfterExternalLineOutput()
 	}
 	return 1
 }

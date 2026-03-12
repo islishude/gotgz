@@ -8,11 +8,13 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/islishude/gotgz/packages/archive"
 )
 
 func TestComputeExtractPerm(t *testing.T) {
 	got := computeExtractPerm(0, 0o755, false)
-	want := fs.FileMode(0o755) &^ currentUmask()
+	want := fs.FileMode(0o755) &^ archive.CurrentUmask()
 	if got != want {
 		t.Fatalf("computeExtractPerm() = %#o, want %#o", got, want)
 	}

@@ -1,4 +1,4 @@
-package engine
+package archivepath
 
 import (
 	"fmt"
@@ -7,8 +7,8 @@ import (
 	"time"
 )
 
-// AddArchiveSuffix appends a custom/date suffix before the archive extension.
-func AddArchiveSuffix(fileName, suffix string) string {
+// AddSuffix appends a custom/date suffix before the archive extension.
+func AddSuffix(fileName, suffix string) string {
 	if suffix == "" {
 		return fileName
 	}

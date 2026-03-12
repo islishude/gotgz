@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/islishude/gotgz/packages/archive"
+	"github.com/islishude/gotgz/packages/archiveprogress"
 	"github.com/islishude/gotgz/packages/archiveutil"
 	"github.com/islishude/gotgz/packages/cli"
 	"github.com/islishude/gotgz/packages/compress"
@@ -18,7 +19,7 @@ import (
 )
 
 // runListTar lists archive members from a tar input stream or split-volume set.
-func (r *Runner) runListTar(ctx context.Context, opts cli.Options, reporter *progressReporter, ref locator.Ref, ar io.ReadCloser, info archiveReaderInfo) (int, error) {
+func (r *Runner) runListTar(ctx context.Context, opts cli.Options, reporter *archiveprogress.Reporter, ref locator.Ref, ar io.ReadCloser, info archiveReaderInfo) (int, error) {
 	volumes, err := r.resolveArchiveVolumes(ctx, ref, info)
 	if err != nil {
 		return 0, err
@@ -33,9 +34,9 @@ func (r *Runner) runListTar(ctx context.Context, opts cli.Options, reporter *pro
 				}
 				return 0, nil
 			}
-			reporter.beforeExternalLineOutput()
+			reporter.BeforeExternalLineOutput()
 			_, _ = fmt.Fprintln(r.stdout, hdr.Name)
-			reporter.afterExternalLineOutput()
+			reporter.AfterExternalLineOutput()
 			if _, err := archiveutil.CopyWithContext(ctx, io.Discard, tr); err != nil {
 				return 0, err
 			}
@@ -51,7 +52,7 @@ func (r *Runner) runListTar(ctx context.Context, opts cli.Options, reporter *pro
 }
 
 // runExtractTar extracts archive members from a tar input stream or split-volume set.
-func (r *Runner) runExtractTar(ctx context.Context, opts cli.Options, reporter *progressReporter, ref locator.Ref, ar io.ReadCloser, info archiveReaderInfo) (int, error) {
+func (r *Runner) runExtractTar(ctx context.Context, opts cli.Options, reporter *archiveprogress.Reporter, ref locator.Ref, ar io.ReadCloser, info archiveReaderInfo) (int, error) {
 	volumes, err := r.resolveArchiveVolumes(ctx, ref, info)
 	if err != nil {
 		return 0, err
@@ -69,7 +70,7 @@ func (r *Runner) runExtractTar(ctx context.Context, opts cli.Options, reporter *
 }
 
 // runExtractTarReader extracts archive members from a single tar volume reader.
-func (r *Runner) runExtractTarReader(ctx context.Context, opts cli.Options, reporter *progressReporter, ar io.ReadCloser, info archiveReaderInfo) (int, error) {
+func (r *Runner) runExtractTarReader(ctx context.Context, opts cli.Options, reporter *archiveprogress.Reporter, ar io.ReadCloser, info archiveReaderInfo) (int, error) {
 	policy := resolvePolicy(opts)
 	metadataPolicy := resolveMetadataPolicy(opts)
 	memberMatcher := newMemberMatcher(opts)
@@ -129,9 +130,9 @@ func (r *Runner) runExtractTarReader(ctx context.Context, opts cli.Options, repo
 		effectiveHdr := *hdr
 		effectiveHdr.Name = extractName
 		if opts.Verbose {
-			reporter.beforeExternalLineOutput()
+			reporter.BeforeExternalLineOutput()
 			_, _ = fmt.Fprintln(r.stdout, effectiveHdr.Name)
-			reporter.afterExternalLineOutput()
+			reporter.AfterExternalLineOutput()
 		}
 		return r.dispatchExtractTarget(
 			parsedTarget,
@@ -147,7 +148,7 @@ func (r *Runner) runExtractTarReader(ctx context.Context, opts cli.Options, repo
 }
 
 // extractToS3 writes one tar entry into S3 while preserving supported metadata.
-func (r *Runner) extractToS3(ctx context.Context, target locator.Ref, hdr *tar.Header, tr *tar.Reader, reporter *progressReporter) (int, error) {
+func (r *Runner) extractToS3(ctx context.Context, target locator.Ref, hdr *tar.Header, tr *tar.Reader, reporter *archiveprogress.Reporter) (int, error) {
 	warnings := 0
 	name := strings.TrimPrefix(hdr.Name, "./")
 	if name == "" {
@@ -163,9 +164,9 @@ func (r *Runner) extractToS3(ctx context.Context, target locator.Ref, hdr *tar.H
 	meta = mergeMetadata(target.Metadata, meta)
 	if !ok {
 		warnings++
-		reporter.beforeExternalLineOutput()
+		reporter.BeforeExternalLineOutput()
 		_, _ = fmt.Fprintf(r.stderr, "gotgz: warning: metadata exceeds S3 metadata limit for %s\n", hdr.Name)
-		reporter.afterExternalLineOutput()
+		reporter.AfterExternalLineOutput()
 	}
 
 	switch hdr.Typeflag {
@@ -189,7 +190,7 @@ func (r *Runner) extractToS3(ctx context.Context, target locator.Ref, hdr *tar.H
 }
 
 // extractToLocal writes one tar entry under base according to extraction policy.
-func (r *Runner) extractToLocal(ctx context.Context, base string, hdr *tar.Header, tr *tar.Reader, policy PermissionPolicy, metadataPolicy MetadataPolicy, safetyCache *pathSafetyCache, reporter *progressReporter) (int, error) {
+func (r *Runner) extractToLocal(ctx context.Context, base string, hdr *tar.Header, tr *tar.Reader, policy PermissionPolicy, metadataPolicy MetadataPolicy, safetyCache *pathSafetyCache, reporter *archiveprogress.Reporter) (int, error) {
 	target, err := safeJoin(base, hdr.Name)
 	if err != nil {
 		return 0, err
@@ -238,12 +239,12 @@ func (r *Runner) extractToLocal(ctx context.Context, base string, hdr *tar.Heade
 }
 
 // scanTarArchiveFromReader scans a tar stream with optional compression.
-func (r *Runner) scanTarArchiveFromReader(ctx context.Context, opts cli.Options, reporter *progressReporter, info archiveReaderInfo, hint string, ar io.ReadCloser, fn func(hdr *tar.Header, tr *tar.Reader) (int, error)) (int, error) {
+func (r *Runner) scanTarArchiveFromReader(ctx context.Context, opts cli.Options, reporter *archiveprogress.Reporter, info archiveReaderInfo, hint string, ar io.ReadCloser, fn func(hdr *tar.Header, tr *tar.Reader) (int, error)) (int, error) {
 	return r.scanTarArchiveStream(ctx, opts, reporter, info, hint, ar, fn)
 }
 
 // scanTarArchiveFromVolumes scans a discovered split archive volume-by-volume.
-func (r *Runner) scanTarArchiveFromVolumes(ctx context.Context, _ cli.Options, reporter *progressReporter, volumes []archiveVolume, first io.ReadCloser, scan func(io.ReadCloser, archiveReaderInfo) (int, error)) (int, error) {
+func (r *Runner) scanTarArchiveFromVolumes(ctx context.Context, _ cli.Options, reporter *archiveprogress.Reporter, volumes []archiveVolume, first io.ReadCloser, scan func(io.ReadCloser, archiveReaderInfo) (int, error)) (int, error) {
 	var total int64
 	totalKnown := true
 	for _, volume := range volumes {
@@ -284,8 +285,8 @@ func (r *Runner) scanTarArchiveFromVolumes(ctx context.Context, _ cli.Options, r
 }
 
 // scanTarArchiveStream scans one tar stream with optional compression.
-func (r *Runner) scanTarArchiveStream(ctx context.Context, opts cli.Options, reporter *progressReporter, info archiveReaderInfo, hint string, ar io.ReadCloser, fn func(hdr *tar.Header, tr *tar.Reader) (int, error)) (int, error) {
-	ar = newCountingReadCloser(ar, reporter)
+func (r *Runner) scanTarArchiveStream(ctx context.Context, opts cli.Options, reporter *archiveprogress.Reporter, info archiveReaderInfo, hint string, ar io.ReadCloser, fn func(hdr *tar.Header, tr *tar.Reader) (int, error)) (int, error) {
+	ar = archiveprogress.NewCountingReadCloser(ar, reporter)
 
 	cr, _, err := compress.NewReader(ar, compress.FromString(string(opts.Compression)), hint, info.ContentType)
 	if err != nil {

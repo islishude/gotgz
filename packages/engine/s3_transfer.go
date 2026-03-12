@@ -6,12 +6,13 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/islishude/gotgz/packages/archiveprogress"
 	"github.com/islishude/gotgz/packages/locator"
 )
 
 // streamS3MemberToArchive opens one S3 member, streams it into an archive writer callback,
 // and preserves the existing verbose/progress behavior shared by tar and zip creation.
-func (r *Runner) streamS3MemberToArchive(ctx context.Context, ref locator.Ref, verbose bool, reporter *progressReporter, write func(name string, size int64, modified time.Time, body io.Reader) error) (err error) {
+func (r *Runner) streamS3MemberToArchive(ctx context.Context, ref locator.Ref, verbose bool, reporter *archiveprogress.Reporter, write func(name string, size int64, modified time.Time, body io.Reader) error) (err error) {
 	body, meta, err := r.storage.openS3ObjectReader(ctx, ref)
 	if err != nil {
 		return err
@@ -23,13 +24,13 @@ func (r *Runner) streamS3MemberToArchive(ctx context.Context, ref locator.Ref, v
 	}()
 
 	name := filepath.ToSlash(ref.Key)
-	if err := write(name, meta.Size, time.Now(), newCountingReader(body, reporter)); err != nil {
+	if err := write(name, meta.Size, time.Now(), archiveprogress.NewCountingReader(body, reporter)); err != nil {
 		return err
 	}
 	if verbose {
-		reporter.beforeExternalLineOutput()
+		reporter.BeforeExternalLineOutput()
 		_, _ = io.WriteString(r.stdout, name+"\n")
-		reporter.afterExternalLineOutput()
+		reporter.AfterExternalLineOutput()
 	}
 	return nil
 }

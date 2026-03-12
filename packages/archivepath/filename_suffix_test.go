@@ -1,4 +1,4 @@
-package engine
+package archivepath
 
 import (
 	"fmt"
@@ -144,7 +144,7 @@ func TestAddFileSuffix(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := AddArchiveSuffix(tt.args.fileName, tt.args.suffix); got != tt.want {
+			if got := AddSuffix(tt.args.fileName, tt.args.suffix); got != tt.want {
 				t.Errorf("AddSuffix() = %v, want %v", got, tt.want)
 			}
 		})
