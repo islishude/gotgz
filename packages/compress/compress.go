@@ -289,7 +289,7 @@ type stackedWriteCloser struct {
 func (w *stackedWriteCloser) Write(p []byte) (int, error) { return w.writer.Write(p) }
 
 func (w *stackedWriteCloser) Flush() error {
-	if flusher, ok := w.writer.(interface{ Flush() error }); ok {
+	if flusher, ok := w.writer.(FlushWriteCloser); ok {
 		return flusher.Flush()
 	}
 	return nil
