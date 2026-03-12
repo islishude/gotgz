@@ -8,6 +8,7 @@ import (
 	"io"
 	"time"
 
+	"github.com/islishude/gotgz/packages/archivepath"
 	"github.com/islishude/gotgz/packages/archiveprogress"
 	"github.com/islishude/gotgz/packages/cli"
 	"github.com/islishude/gotgz/packages/locator"
@@ -123,7 +124,7 @@ func (r *Runner) runExtractZip(ctx context.Context, opts cli.Options, reporter *
 				if shouldSkipMemberWithMatcher(memberMatcher, zf.Name) {
 					return false
 				}
-				name, ok := stripPathComponents(zf.Name, opts.StripComponents)
+				name, ok := archivepath.StripPathComponents(zf.Name, opts.StripComponents)
 				if !ok {
 					return false
 				}
@@ -143,9 +144,9 @@ func (r *Runner) runExtractZip(ctx context.Context, opts cli.Options, reporter *
 	if target == "" {
 		target = "."
 	}
-	var safetyCache *pathSafetyCache
+	var safetyCache *archivepath.PathSafetyCache
 	if parsedTarget.Kind == locator.KindLocal || parsedTarget.Kind == locator.KindStdio {
-		safetyCache = newPathSafetyCache()
+		safetyCache = archivepath.NewPathSafetyCache()
 	}
 	memberMatcher := newMemberMatcher(opts)
 
@@ -154,7 +155,7 @@ func (r *Runner) runExtractZip(ctx context.Context, opts cli.Options, reporter *
 			if shouldSkipMemberWithMatcher(memberMatcher, zf.Name) {
 				return false
 			}
-			name, ok := stripPathComponents(zf.Name, opts.StripComponents)
+			name, ok := archivepath.StripPathComponents(zf.Name, opts.StripComponents)
 			return ok && name != ""
 		})
 		reporter.SetTotal(total, true)
@@ -169,7 +170,7 @@ func (r *Runner) runExtractZip(ctx context.Context, opts cli.Options, reporter *
 			if shouldSkipMemberWithMatcher(memberMatcher, zf.Name) {
 				continue
 			}
-			extractName, ok := stripPathComponents(zf.Name, opts.StripComponents)
+			extractName, ok := archivepath.StripPathComponents(zf.Name, opts.StripComponents)
 			if !ok || extractName == "" {
 				continue
 			}

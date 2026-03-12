@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/islishude/gotgz/packages/archive"
+	"github.com/islishude/gotgz/packages/archivepath"
 	"github.com/islishude/gotgz/packages/cli"
 	"github.com/islishude/gotgz/packages/locator"
 	localstore "github.com/islishude/gotgz/packages/storage/local"
@@ -266,14 +267,14 @@ func TestUploadToS3TargetPropagatesS3Options(t *testing.T) {
 }
 
 func TestSafeJoinBlocksTraversal(t *testing.T) {
-	_, err := safeJoin("/tmp/out", "../../etc/passwd")
+	_, err := archivepath.SafeJoin("/tmp/out", "../../etc/passwd")
 	if err == nil {
 		t.Fatalf("expected traversal error")
 	}
 }
 
 func TestSafeJoinNormal(t *testing.T) {
-	p, err := safeJoin("/tmp/out", "dir/file.txt")
+	p, err := archivepath.SafeJoin("/tmp/out", "dir/file.txt")
 	if err != nil {
 		t.Fatalf("safeJoin error = %v", err)
 	}
@@ -284,7 +285,7 @@ func TestSafeJoinNormal(t *testing.T) {
 }
 
 func TestStripPathComponents(t *testing.T) {
-	got, ok := stripPathComponents("parent/dir/file.txt", 1)
+	got, ok := archivepath.StripPathComponents("parent/dir/file.txt", 1)
 	if !ok {
 		t.Fatalf("expected keep")
 	}
@@ -294,7 +295,7 @@ func TestStripPathComponents(t *testing.T) {
 }
 
 func TestStripPathComponentsDrop(t *testing.T) {
-	_, ok := stripPathComponents("parent/file.txt", 2)
+	_, ok := archivepath.StripPathComponents("parent/file.txt", 2)
 	if ok {
 		t.Fatalf("expected drop")
 	}

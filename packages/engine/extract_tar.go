@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/islishude/gotgz/packages/archive"
+	"github.com/islishude/gotgz/packages/archivepath"
 	"github.com/islishude/gotgz/packages/archiveprogress"
 	"github.com/islishude/gotgz/packages/archiveutil"
 	"github.com/islishude/gotgz/packages/cli"
@@ -83,7 +84,7 @@ func (r *Runner) runExtractTarReader(ctx context.Context, opts cli.Options, repo
 				}
 				return 0, nil
 			}
-			if _, ok := stripPathComponents(hdr.Name, opts.StripComponents); !ok {
+			if _, ok := archivepath.StripPathComponents(hdr.Name, opts.StripComponents); !ok {
 				if _, err := archiveutil.CopyWithContext(ctx, io.Discard, io.LimitReader(tr, hdr.Size)); err != nil {
 					return 0, err
 				}
@@ -108,9 +109,9 @@ func (r *Runner) runExtractTarReader(ctx context.Context, opts cli.Options, repo
 	if target == "" {
 		target = "."
 	}
-	var safetyCache *pathSafetyCache
+	var safetyCache *archivepath.PathSafetyCache
 	if parsedTarget.Kind == locator.KindLocal || parsedTarget.Kind == locator.KindStdio {
-		safetyCache = newPathSafetyCache()
+		safetyCache = archivepath.NewPathSafetyCache()
 	}
 
 	return r.scanTarArchiveFromReader(ctx, opts, reporter, info, opts.Archive, ar, func(hdr *tar.Header, tr *tar.Reader) (int, error) {
@@ -120,7 +121,7 @@ func (r *Runner) runExtractTarReader(ctx context.Context, opts cli.Options, repo
 			}
 			return 0, nil
 		}
-		extractName, ok := stripPathComponents(hdr.Name, opts.StripComponents)
+		extractName, ok := archivepath.StripPathComponents(hdr.Name, opts.StripComponents)
 		if !ok {
 			if _, err := archiveutil.CopyWithContext(ctx, io.Discard, io.LimitReader(tr, hdr.Size)); err != nil {
 				return 0, err
@@ -190,8 +191,8 @@ func (r *Runner) extractToS3(ctx context.Context, target locator.Ref, hdr *tar.H
 }
 
 // extractToLocal writes one tar entry under base according to extraction policy.
-func (r *Runner) extractToLocal(ctx context.Context, base string, hdr *tar.Header, tr *tar.Reader, policy PermissionPolicy, metadataPolicy MetadataPolicy, safetyCache *pathSafetyCache, reporter *archiveprogress.Reporter) (int, error) {
-	target, err := safeJoin(base, hdr.Name)
+func (r *Runner) extractToLocal(ctx context.Context, base string, hdr *tar.Header, tr *tar.Reader, policy PermissionPolicy, metadataPolicy MetadataPolicy, safetyCache *archivepath.PathSafetyCache, reporter *archiveprogress.Reporter) (int, error) {
+	target, err := archivepath.SafeJoin(base, hdr.Name)
 	if err != nil {
 		return 0, err
 	}

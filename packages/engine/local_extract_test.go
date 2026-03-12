@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/islishude/gotgz/packages/archive"
+	"github.com/islishude/gotgz/packages/archivepath"
 )
 
 func TestComputeExtractPerm(t *testing.T) {
@@ -75,7 +76,7 @@ func TestReplaceLocalSymlinkTarget(t *testing.T) {
 
 func TestReplaceLocalSymlinkTargetInvalidatesCachedPrefixes(t *testing.T) {
 	base := t.TempDir()
-	cache := newPathSafetyCache()
+	cache := archivepath.NewPathSafetyCache()
 	oldDir := filepath.Join(base, "dir")
 	if err := os.MkdirAll(oldDir, 0o755); err != nil {
 		t.Fatalf("MkdirAll() error = %v", err)
@@ -84,23 +85,16 @@ func TestReplaceLocalSymlinkTargetInvalidatesCachedPrefixes(t *testing.T) {
 		t.Fatalf("MkdirAll() error = %v", err)
 	}
 
-	if err := ensureSymlinkFreePath(base, filepath.Join(oldDir, "file.txt"), cache); err != nil {
-		t.Fatalf("ensureSymlinkFreePath() error = %v", err)
-	}
-	if !cache.has(oldDir) {
-		t.Fatalf("expected cached prefix %q", oldDir)
+	if err := archivepath.EnsureSymlinkFreePath(base, filepath.Join(oldDir, "file.txt"), cache); err != nil {
+		t.Fatalf("EnsureSymlinkFreePath() error = %v", err)
 	}
 
 	if err := replaceLocalSymlinkTarget(base, oldDir, "elsewhere", cache); err != nil {
 		t.Fatalf("replaceLocalSymlinkTarget() error = %v", err)
 	}
-	if cache.has(oldDir) {
-		t.Fatalf("cached prefix %q should be invalidated after symlink replacement", oldDir)
-	}
-
-	err := ensureSymlinkFreePath(base, filepath.Join(oldDir, "child.txt"), cache)
+	err := archivepath.EnsureSymlinkFreePath(base, filepath.Join(oldDir, "child.txt"), cache)
 	if err == nil || !strings.Contains(err.Error(), "follow symlink") {
-		t.Fatalf("ensureSymlinkFreePath() err = %v, want symlink traversal error", err)
+		t.Fatalf("EnsureSymlinkFreePath() err = %v, want symlink traversal error", err)
 	}
 }
 

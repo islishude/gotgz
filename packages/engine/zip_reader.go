@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/islishude/gotgz/packages/archivepath"
 	"github.com/islishude/gotgz/packages/archiveprogress"
 	"github.com/islishude/gotgz/packages/archiveutil"
 	"github.com/islishude/gotgz/packages/cli"
@@ -163,7 +164,7 @@ func (r *Runner) extractZipToStdout(ctx context.Context, zr *zip.Reader, memberM
 		if shouldSkipMemberWithMatcher(memberMatcher, zf.Name) {
 			continue
 		}
-		name, ok := stripPathComponents(zf.Name, opts.StripComponents)
+		name, ok := archivepath.StripPathComponents(zf.Name, opts.StripComponents)
 		if !ok || name == "" || !isZipRegular(zf) {
 			continue
 		}

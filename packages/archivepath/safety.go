@@ -1,4 +1,4 @@
-package engine
+package archivepath
 
 import (
 	"errors"
@@ -10,20 +10,20 @@ import (
 	"sync"
 )
 
-// pathSafetyCache memoizes already-verified safe extraction prefixes within one
-// extraction run so repeated sibling entries avoid redundant lstat calls.
-type pathSafetyCache struct {
+// PathSafetyCache memoizes already-verified safe extraction prefixes within
+// one extraction run so repeated sibling entries avoid redundant lstat calls.
+type PathSafetyCache struct {
 	mu           sync.RWMutex
 	safePrefixes map[string]struct{}
 }
 
-// newPathSafetyCache creates an empty cache for one extraction run.
-func newPathSafetyCache() *pathSafetyCache {
-	return &pathSafetyCache{safePrefixes: make(map[string]struct{})}
+// NewPathSafetyCache creates an empty cache for one extraction run.
+func NewPathSafetyCache() *PathSafetyCache {
+	return &PathSafetyCache{safePrefixes: make(map[string]struct{})}
 }
 
 // has reports whether one cleaned path has already been verified safe.
-func (c *pathSafetyCache) has(path string) bool {
+func (c *PathSafetyCache) has(path string) bool {
 	if c == nil {
 		return false
 	}
@@ -34,7 +34,7 @@ func (c *pathSafetyCache) has(path string) bool {
 }
 
 // add marks one cleaned path as safe for future extraction checks.
-func (c *pathSafetyCache) add(path string) {
+func (c *PathSafetyCache) add(path string) {
 	if c == nil {
 		return
 	}
@@ -43,9 +43,9 @@ func (c *pathSafetyCache) add(path string) {
 	c.safePrefixes[path] = struct{}{}
 }
 
-// invalidate removes one path and any cached descendants after filesystem
+// Invalidate removes one path and any cached descendants after filesystem
 // mutations so future extraction checks re-stat the affected subtree.
-func (c *pathSafetyCache) invalidate(path string) {
+func (c *PathSafetyCache) Invalidate(path string) {
 	if c == nil {
 		return
 	}
@@ -61,12 +61,12 @@ func (c *pathSafetyCache) invalidate(path string) {
 	}
 }
 
-// safeSymlinkTarget validates that a symlink's target does not escape the
+// SafeSymlinkTarget validates that a symlink's target does not escape the
 // extraction base directory. linkname is the raw target from the archive;
 // symlinkPath is the absolute path where the symlink will be created.
 // Absolute symlink targets are always rejected because os.Symlink would
 // create a link pointing outside the extraction directory.
-func safeSymlinkTarget(base, symlinkPath, linkname string, cache *pathSafetyCache) error {
+func SafeSymlinkTarget(base, symlinkPath, linkname string, cache *PathSafetyCache) error {
 	if linkname == "" {
 		return fmt.Errorf("symlink target is empty")
 	}
@@ -85,14 +85,14 @@ func safeSymlinkTarget(base, symlinkPath, linkname string, cache *pathSafetyCach
 	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 		return fmt.Errorf("refusing symlink %q -> %q: target escapes extraction directory", symlinkPath, linkname)
 	}
-	if err := ensureSymlinkFreePath(base, resolved, cache); err != nil {
+	if err := EnsureSymlinkFreePath(base, resolved, cache); err != nil {
 		return fmt.Errorf("refusing symlink %q -> %q: %w", symlinkPath, linkname, err)
 	}
 	return nil
 }
 
-// safeJoin joins a member path under base and rejects path traversal escapes.
-func safeJoin(base, member string) (string, error) {
+// SafeJoin joins a member path under base and rejects path traversal escapes.
+func SafeJoin(base, member string) (string, error) {
 	base = filepath.Clean(base)
 	member = strings.TrimPrefix(member, "/")
 	candidate := filepath.Join(base, filepath.FromSlash(member))
@@ -107,19 +107,19 @@ func safeJoin(base, member string) (string, error) {
 	return candidate, nil
 }
 
-// ensureSymlinkFreeParentPath verifies that candidate's parent chain under
+// EnsureSymlinkFreeParentPath verifies that candidate's parent chain under
 // base does not traverse any pre-existing symbolic links.
-func ensureSymlinkFreeParentPath(base, candidate string, cache *pathSafetyCache) error {
+func EnsureSymlinkFreeParentPath(base, candidate string, cache *PathSafetyCache) error {
 	parent := filepath.Dir(filepath.Clean(candidate))
 	if parent == filepath.Clean(candidate) {
 		return nil
 	}
-	return ensureSymlinkFreePath(base, parent, cache)
+	return EnsureSymlinkFreePath(base, parent, cache)
 }
 
-// ensureSymlinkFreePath rejects existing symbolic links anywhere in the
+// EnsureSymlinkFreePath rejects existing symbolic links anywhere in the
 // already-present portion of candidate's path below base.
-func ensureSymlinkFreePath(base, candidate string, cache *pathSafetyCache) error {
+func EnsureSymlinkFreePath(base, candidate string, cache *PathSafetyCache) error {
 	base = filepath.Clean(base)
 	candidate = filepath.Clean(candidate)
 
@@ -155,8 +155,8 @@ func ensureSymlinkFreePath(base, candidate string, cache *pathSafetyCache) error
 	return nil
 }
 
-// stripPathComponents drops leading path components from a member name.
-func stripPathComponents(name string, count int) (string, bool) {
+// StripPathComponents drops leading path components from a member name.
+func StripPathComponents(name string, count int) (string, bool) {
 	if count <= 0 {
 		return name, true
 	}

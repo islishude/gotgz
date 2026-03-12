@@ -5,13 +5,14 @@ import (
 	"context"
 	"strings"
 
+	"github.com/islishude/gotgz/packages/archivepath"
 	"github.com/islishude/gotgz/packages/archiveprogress"
 	"github.com/islishude/gotgz/packages/locator"
 )
 
 // extractZipEntryToLocal extracts one zip entry into the local filesystem.
-func (r *Runner) extractZipEntryToLocal(ctx context.Context, base string, zf *zip.File, extractName string, policy PermissionPolicy, safetyCache *pathSafetyCache, reporter *archiveprogress.Reporter) (int, error) {
-	target, err := safeJoin(base, extractName)
+func (r *Runner) extractZipEntryToLocal(ctx context.Context, base string, zf *zip.File, extractName string, policy PermissionPolicy, safetyCache *archivepath.PathSafetyCache, reporter *archiveprogress.Reporter) (int, error) {
+	target, err := archivepath.SafeJoin(base, extractName)
 	if err != nil {
 		return 0, err
 	}
