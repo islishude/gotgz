@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/islishude/gotgz/packages/archiveutil"
 	"github.com/islishude/gotgz/packages/cli"
 	"github.com/islishude/gotgz/packages/locator"
 )
@@ -67,13 +68,13 @@ func (r *Runner) withZipReader(ctx context.Context, archiveRef locator.Ref, ar i
 		copySrc = newCountingReader(ar, copyReporter)
 	}
 	if enforceStagingLimit {
-		if _, err := copyWithContextLimit(ctx, tmp, copySrc, stagingLimit); err != nil {
-			if errors.Is(err, errCopyLimitExceeded) {
+		if _, err := archiveutil.CopyWithContextLimit(ctx, tmp, copySrc, stagingLimit); err != nil {
+			if errors.Is(err, archiveutil.ErrCopyLimitExceeded) {
 				return 0, zipStagingLimitError(archiveRef, stagingLimit)
 			}
 			return 0, err
 		}
-	} else if _, err := copyWithContext(ctx, tmp, copySrc); err != nil {
+	} else if _, err := archiveutil.CopyWithContext(ctx, tmp, copySrc); err != nil {
 		return 0, err
 	}
 	st, err := tmp.Stat()
@@ -173,7 +174,7 @@ func (r *Runner) extractZipToStdout(ctx context.Context, zr *zip.Reader, memberM
 		if rc == nil {
 			continue
 		}
-		_, err = copyWithContext(ctx, r.stdout, newCountingReader(rc, reporter))
+		_, err = archiveutil.CopyWithContext(ctx, r.stdout, newCountingReader(rc, reporter))
 		cerr := rc.Close()
 		if err != nil {
 			return warnings, err

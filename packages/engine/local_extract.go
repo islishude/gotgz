@@ -8,6 +8,8 @@ import (
 	"os"
 	"path/filepath"
 	"time"
+
+	"github.com/islishude/gotgz/packages/archiveutil"
 )
 
 // computeExtractPerm normalizes extracted file permissions with optional fallbacks.
@@ -42,7 +44,7 @@ func writeLocalRegularTarget(ctx context.Context, base string, target string, pe
 	if err != nil {
 		return err
 	}
-	_, err = copyWithContext(ctx, file, body)
+	_, err = archiveutil.CopyWithContext(ctx, file, body)
 	closeErr := file.Close()
 	if err != nil {
 		return err

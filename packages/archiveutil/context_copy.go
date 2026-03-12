@@ -1,4 +1,4 @@
-package engine
+package archiveutil
 
 import (
 	"context"
@@ -8,21 +8,21 @@ import (
 
 const contextCopyBufferSize = 32 * 1024
 
-// errInvalidWrite means that a write returned an impossible count.
-var errInvalidWrite = errors.New("invalid write result")
+// ErrInvalidWrite means that a write returned an impossible count.
+var ErrInvalidWrite = errors.New("invalid write result")
 
-// errCopyLimitExceeded means that a copy exceeded the configured byte limit.
-var errCopyLimitExceeded = errors.New("copy limit exceeded")
+// ErrCopyLimitExceeded means that a copy exceeded the configured byte limit.
+var ErrCopyLimitExceeded = errors.New("copy limit exceeded")
 
-// copyWithContext copies src into dst while checking ctx cancellation between
+// CopyWithContext copies src into dst while checking ctx cancellation between
 // read iterations so long-running staging copies can stop promptly.
-func copyWithContext(ctx context.Context, dst io.Writer, src io.Reader) (int64, error) {
-	return copyWithContextLimit(ctx, dst, src, -1)
+func CopyWithContext(ctx context.Context, dst io.Writer, src io.Reader) (int64, error) {
+	return CopyWithContextLimit(ctx, dst, src, -1)
 }
 
-// copyWithContextLimit copies src into dst while enforcing a hard byte limit.
+// CopyWithContextLimit copies src into dst while enforcing a hard byte limit.
 // A negative limit disables the bound.
-func copyWithContextLimit(ctx context.Context, dst io.Writer, src io.Reader, limit int64) (int64, error) {
+func CopyWithContextLimit(ctx context.Context, dst io.Writer, src io.Reader, limit int64) (int64, error) {
 	// copies and shrinks it for small limited readers.
 	size := contextCopyBufferSize
 	if l, ok := src.(*io.LimitedReader); ok && int64(size) > l.N {
@@ -60,7 +60,7 @@ func copyWithContextLimit(ctx context.Context, dst io.Writer, src io.Reader, lim
 			// When remaining is 0 the read was a 1-byte probe to detect
 			// overflow; skip the write and report the limit breach.
 			if enforceLimit && writeCount == 0 {
-				return written, errCopyLimitExceeded
+				return written, ErrCopyLimitExceeded
 			}
 
 			p := readBuf[:writeCount]
@@ -68,7 +68,7 @@ func copyWithContextLimit(ctx context.Context, dst io.Writer, src io.Reader, lim
 			if nw < 0 || len(p) < nw {
 				nw = 0
 				if werr == nil {
-					werr = errInvalidWrite
+					werr = ErrInvalidWrite
 				}
 			}
 			written += int64(nw)
@@ -79,7 +79,7 @@ func copyWithContextLimit(ctx context.Context, dst io.Writer, src io.Reader, lim
 				return written, io.ErrShortWrite
 			}
 			if enforceLimit && int64(nr) > remaining {
-				return written, errCopyLimitExceeded
+				return written, ErrCopyLimitExceeded
 			}
 		}
 		if rerr != nil {

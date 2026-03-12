@@ -1,4 +1,4 @@
-package engine
+package archiveutil
 
 import (
 	"bytes"
@@ -16,7 +16,7 @@ func TestCopyWithContext_Basic(t *testing.T) {
 	src := strings.NewReader("hello world")
 	var dst bytes.Buffer
 
-	n, err := copyWithContext(context.Background(), &dst, src)
+	n, err := CopyWithContext(context.Background(), &dst, src)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -34,7 +34,7 @@ func TestCopyWithContext_EmptySource(t *testing.T) {
 	src := strings.NewReader("")
 	var dst bytes.Buffer
 
-	n, err := copyWithContext(context.Background(), &dst, src)
+	n, err := CopyWithContext(context.Background(), &dst, src)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -51,7 +51,7 @@ func TestCopyWithContext_LargePayload(t *testing.T) {
 	src := bytes.NewReader(data)
 	var dst bytes.Buffer
 
-	n, err := copyWithContext(context.Background(), &dst, src)
+	n, err := CopyWithContext(context.Background(), &dst, src)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -72,7 +72,7 @@ func TestCopyWithContext_AlreadyCancelled(t *testing.T) {
 	src := strings.NewReader("should not be copied")
 	var dst bytes.Buffer
 
-	n, err := copyWithContext(ctx, &dst, src)
+	n, err := CopyWithContext(ctx, &dst, src)
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("expected context.Canceled, got %v", err)
 	}
@@ -95,7 +95,7 @@ func TestCopyWithContext_CancelledDuringCopy(t *testing.T) {
 	}
 
 	var dst bytes.Buffer
-	_, err := copyWithContext(ctx, &dst, sr)
+	_, err := CopyWithContext(ctx, &dst, sr)
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("expected context.Canceled, got %v", err)
 	}
@@ -107,7 +107,7 @@ func TestCopyWithContext_ReadError(t *testing.T) {
 	src := &errReader{err: readErr}
 	var dst bytes.Buffer
 
-	_, err := copyWithContext(context.Background(), &dst, src)
+	_, err := CopyWithContext(context.Background(), &dst, src)
 	if !errors.Is(err, readErr) {
 		t.Fatalf("expected %v, got %v", readErr, err)
 	}
@@ -119,7 +119,7 @@ func TestCopyWithContext_WriteError(t *testing.T) {
 	src := strings.NewReader("some data to write")
 	dst := &errWriter{err: writeErr}
 
-	_, err := copyWithContext(context.Background(), dst, src)
+	_, err := CopyWithContext(context.Background(), dst, src)
 	if !errors.Is(err, writeErr) {
 		t.Fatalf("expected %v, got %v", writeErr, err)
 	}
@@ -131,7 +131,7 @@ func TestCopyWithContext_ShortWrite(t *testing.T) {
 	src := strings.NewReader("hello world")
 	dst := &shortWriter{}
 
-	_, err := copyWithContext(context.Background(), dst, src)
+	_, err := CopyWithContext(context.Background(), dst, src)
 	if !errors.Is(err, io.ErrShortWrite) {
 		t.Fatalf("expected io.ErrShortWrite, got %v", err)
 	}
@@ -143,8 +143,8 @@ func TestCopyWithContext_NegativeWriteCount(t *testing.T) {
 	src := strings.NewReader("some data")
 	dst := &negativeWriter{}
 
-	n, err := copyWithContext(context.Background(), dst, src)
-	if !errors.Is(err, errInvalidWrite) {
+	n, err := CopyWithContext(context.Background(), dst, src)
+	if !errors.Is(err, ErrInvalidWrite) {
 		t.Fatalf("expected errInvalidWrite, got %v", err)
 	}
 	if n != 0 {
@@ -158,8 +158,8 @@ func TestCopyWithContext_OverreportedWriteCount(t *testing.T) {
 	src := strings.NewReader("data")
 	dst := &overreportWriter{}
 
-	n, err := copyWithContext(context.Background(), dst, src)
-	if !errors.Is(err, errInvalidWrite) {
+	n, err := CopyWithContext(context.Background(), dst, src)
+	if !errors.Is(err, ErrInvalidWrite) {
 		t.Fatalf("expected errInvalidWrite, got %v", err)
 	}
 	if n != 0 {
@@ -179,7 +179,7 @@ func TestCopyWithContext_DeadlineExceeded(t *testing.T) {
 	src := strings.NewReader("data")
 	var dst bytes.Buffer
 
-	_, err := copyWithContext(ctx, &dst, src)
+	_, err := CopyWithContext(ctx, &dst, src)
 	if !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("expected context.DeadlineExceeded, got %v", err)
 	}
@@ -197,7 +197,7 @@ func TestCopyWithContext_ReadErrorWithPartialData(t *testing.T) {
 	}
 	var dst bytes.Buffer
 
-	n, err := copyWithContext(context.Background(), &dst, src)
+	n, err := CopyWithContext(context.Background(), &dst, src)
 	if !errors.Is(err, readErr) {
 		t.Fatalf("expected %v, got %v", readErr, err)
 	}
@@ -215,7 +215,7 @@ func TestCopyWithContext_LimitedReaderSmallLimit(t *testing.T) {
 	src := &io.LimitedReader{R: inner, N: int64(len(data))}
 	var dst bytes.Buffer
 
-	n, err := copyWithContext(context.Background(), &dst, src)
+	n, err := CopyWithContext(context.Background(), &dst, src)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -235,7 +235,7 @@ func TestCopyWithContext_LimitedReaderZeroLimit(t *testing.T) {
 	src := &io.LimitedReader{R: inner, N: 0}
 	var dst bytes.Buffer
 
-	n, err := copyWithContext(context.Background(), &dst, src)
+	n, err := CopyWithContext(context.Background(), &dst, src)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -251,7 +251,7 @@ func TestCopyWithContext_LimitedReaderNegativeLimit(t *testing.T) {
 	src := &io.LimitedReader{R: inner, N: -5}
 	var dst bytes.Buffer
 
-	n, err := copyWithContext(context.Background(), &dst, src)
+	n, err := CopyWithContext(context.Background(), &dst, src)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -269,7 +269,7 @@ func TestCopyWithContext_LimitedReaderLargeLimit(t *testing.T) {
 	src := &io.LimitedReader{R: inner, N: int64(len(data))}
 	var dst bytes.Buffer
 
-	n, err := copyWithContext(context.Background(), &dst, src)
+	n, err := CopyWithContext(context.Background(), &dst, src)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -287,7 +287,7 @@ func TestCopyWithContextLimit_WithinLimit(t *testing.T) {
 	src := strings.NewReader("hello")
 	var dst bytes.Buffer
 
-	n, err := copyWithContextLimit(context.Background(), &dst, src, 10)
+	n, err := CopyWithContextLimit(context.Background(), &dst, src, 10)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -306,7 +306,7 @@ func TestCopyWithContextLimit_ExactLimit(t *testing.T) {
 	src := bytes.NewReader(data)
 	var dst bytes.Buffer
 
-	n, err := copyWithContextLimit(context.Background(), &dst, src, int64(len(data)))
+	n, err := CopyWithContextLimit(context.Background(), &dst, src, int64(len(data)))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -324,9 +324,9 @@ func TestCopyWithContextLimit_Exceeded(t *testing.T) {
 	src := strings.NewReader("overflow")
 	var dst bytes.Buffer
 
-	n, err := copyWithContextLimit(context.Background(), &dst, src, 5)
-	if !errors.Is(err, errCopyLimitExceeded) {
-		t.Fatalf("expected %v, got %v", errCopyLimitExceeded, err)
+	n, err := CopyWithContextLimit(context.Background(), &dst, src, 5)
+	if !errors.Is(err, ErrCopyLimitExceeded) {
+		t.Fatalf("expected %v, got %v", ErrCopyLimitExceeded, err)
 	}
 	if n != 5 {
 		t.Fatalf("expected 5 bytes written, got %d", n)
@@ -342,9 +342,9 @@ func TestCopyWithContextLimit_MinimalOverread(t *testing.T) {
 	src := &trackingReader{data: bytes.Repeat([]byte("Z"), 1024)}
 	var dst bytes.Buffer
 
-	n, err := copyWithContextLimit(context.Background(), &dst, src, 7)
-	if !errors.Is(err, errCopyLimitExceeded) {
-		t.Fatalf("expected %v, got %v", errCopyLimitExceeded, err)
+	n, err := CopyWithContextLimit(context.Background(), &dst, src, 7)
+	if !errors.Is(err, ErrCopyLimitExceeded) {
+		t.Fatalf("expected %v, got %v", ErrCopyLimitExceeded, err)
 	}
 	if n != 7 {
 		t.Fatalf("expected 7 bytes written, got %d", n)
@@ -360,9 +360,9 @@ func TestCopyWithContextLimit_ZeroLimit(t *testing.T) {
 	src := &trackingReader{data: []byte("blocked")}
 	var dst bytes.Buffer
 
-	n, err := copyWithContextLimit(context.Background(), &dst, src, 0)
-	if !errors.Is(err, errCopyLimitExceeded) {
-		t.Fatalf("expected %v, got %v", errCopyLimitExceeded, err)
+	n, err := CopyWithContextLimit(context.Background(), &dst, src, 0)
+	if !errors.Is(err, ErrCopyLimitExceeded) {
+		t.Fatalf("expected %v, got %v", ErrCopyLimitExceeded, err)
 	}
 	if n != 0 {
 		t.Fatalf("expected 0 bytes written, got %d", n)
@@ -381,7 +381,7 @@ func TestCopyWithContextLimit_NegativeLimitDisablesBound(t *testing.T) {
 	src := strings.NewReader("unbounded")
 	var dst bytes.Buffer
 
-	n, err := copyWithContextLimit(context.Background(), &dst, src, -1)
+	n, err := CopyWithContextLimit(context.Background(), &dst, src, -1)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

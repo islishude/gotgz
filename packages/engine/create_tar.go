@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/islishude/gotgz/packages/archive"
+	"github.com/islishude/gotgz/packages/archiveutil"
 	"github.com/islishude/gotgz/packages/cli"
 	"github.com/islishude/gotgz/packages/locator"
 )
@@ -83,7 +84,7 @@ func (r *Runner) addS3Member(ctx context.Context, tw tarArchiveWriter, ref locat
 		if err := tw.WriteHeader(hdr); err != nil {
 			return err
 		}
-		if _, err := copyWithContext(ctx, tw, body); err != nil {
+		if _, err := archiveutil.CopyWithContext(ctx, tw, body); err != nil {
 			return err
 		}
 		return tw.FinishEntry()
@@ -173,7 +174,7 @@ func (r *Runner) writeLocalTarEntry(ctx context.Context, tw tarArchiveWriter, en
 		if err != nil {
 			return warnings, err
 		}
-		_, err = copyWithContext(ctx, tw, newCountingReader(f, reporter))
+		_, err = archiveutil.CopyWithContext(ctx, tw, newCountingReader(f, reporter))
 		cerr := f.Close()
 		if err != nil {
 			return warnings, err

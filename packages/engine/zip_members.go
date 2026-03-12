@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/islishude/gotgz/packages/archiveutil"
 	"github.com/islishude/gotgz/packages/locator"
 )
 
@@ -27,7 +28,7 @@ func (r *Runner) addS3MemberZip(ctx context.Context, zw *zip.Writer, ref locator
 		if err != nil {
 			return err
 		}
-		_, err = copyWithContext(ctx, w, body)
+		_, err = archiveutil.CopyWithContext(ctx, w, body)
 		return err
 	})
 }
@@ -104,7 +105,7 @@ func (r *Runner) writeLocalZipEntry(ctx context.Context, zw *zip.Writer, entry l
 		if err != nil {
 			return 0, err
 		}
-		_, err = copyWithContext(ctx, w, newCountingReader(f, reporter))
+		_, err = archiveutil.CopyWithContext(ctx, w, newCountingReader(f, reporter))
 		cerr := f.Close()
 		if err != nil {
 			return 0, err
