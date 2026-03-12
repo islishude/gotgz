@@ -1,30 +1,40 @@
+// Package locator parses archive and member references into normalized
+// destination/source descriptors used by engine workflows.
 package locator
 
 import (
-	"fmt"
-	"net/url"
-	"sort"
 	"strings"
-
-	awsarn "github.com/aws/aws-sdk-go-v2/aws/arn"
 )
 
+// Kind identifies the backing storage protocol represented by a Ref.
 type Kind string
 
 const (
+	// KindLocal identifies a local filesystem path.
 	KindLocal Kind = "local"
+	// KindStdio identifies stdin/stdout stream usage.
 	KindStdio Kind = "stdio"
-	KindS3    Kind = "s3"
-	KindHTTP  Kind = "http"
+	// KindS3 identifies an S3 object reference.
+	KindS3 Kind = "s3"
+	// KindHTTP identifies an HTTP(S) archive URL.
+	KindHTTP Kind = "http"
 )
 
+// Ref is a normalized archive or member reference across supported backends.
 type Ref struct {
-	Kind     Kind
-	Raw      string
-	URL      string
-	Path     string
-	Bucket   string
-	Key      string
+	// Kind is the parsed backend type.
+	Kind Kind
+	// Raw is the original reference string from user input.
+	Raw string
+	// URL stores the HTTP(S) URL when Kind is KindHTTP.
+	URL string
+	// Path stores the local filesystem path when Kind is KindLocal.
+	Path string
+	// Bucket stores the S3 bucket name or access-point ARN when Kind is KindS3.
+	Bucket string
+	// Key stores the S3 object key when Kind is KindS3.
+	Key string
+	// Metadata stores parsed S3 URI query metadata for uploads.
 	Metadata map[string]string
 	// ObjectTags stores S3 object tags for upload targets.
 	ObjectTags map[string]string
@@ -32,6 +42,7 @@ type Ref struct {
 	CacheControl string
 }
 
+// ParseArchive parses an archive locator string into a normalized Ref.
 func ParseArchive(v string) (Ref, error) {
 	if v == "-" {
 		return Ref{Kind: KindStdio, Raw: v}, nil
@@ -48,6 +59,7 @@ func ParseArchive(v string) (Ref, error) {
 	return Ref{Kind: KindLocal, Raw: v, Path: v}, nil
 }
 
+// ParseMember parses a create/list member input into a normalized Ref.
 func ParseMember(v string) (Ref, error) {
 	if strings.HasPrefix(v, "s3://") {
 		return parseS3URI(v)
@@ -56,108 +68,4 @@ func ParseMember(v string) (Ref, error) {
 		return parseS3ARN(v)
 	}
 	return Ref{Kind: KindLocal, Raw: v, Path: v}, nil
-}
-
-func parseS3URI(v string) (Ref, error) {
-	u, err := url.Parse(v)
-	if err != nil {
-		return Ref{}, fmt.Errorf("invalid s3 uri %q: %w", v, err)
-	}
-	if u.Scheme != "s3" {
-		return Ref{}, fmt.Errorf("unsupported uri scheme %q", u.Scheme)
-	}
-	bucket := u.Host
-	key := strings.TrimPrefix(u.Path, "/")
-	if bucket == "" {
-		return Ref{}, fmt.Errorf("s3 uri must include bucket")
-	}
-	return Ref{Kind: KindS3, Raw: v, Bucket: bucket, Key: key, Metadata: parseQueryMetadata(u.Query())}, nil
-}
-
-func parseS3ARN(v string) (Ref, error) {
-	a, err := awsarn.Parse(v)
-	if err != nil {
-		return Ref{}, fmt.Errorf("invalid arn: %w", err)
-	}
-	if a.Service != "s3" {
-		return Ref{}, fmt.Errorf("unsupported arn service %q", a.Service)
-	}
-
-	if strings.HasPrefix(a.Resource, "accesspoint/") {
-		parts := strings.SplitN(a.Resource, "/object/", 2)
-		if len(parts) != 2 || parts[1] == "" {
-			return Ref{}, fmt.Errorf("unsupported accesspoint arn, expected /object/<key>")
-		}
-		bucketARN := fmt.Sprintf("arn:%s:%s:%s:%s:%s", a.Partition, a.Service, a.Region, a.AccountID, parts[0])
-		return Ref{Kind: KindS3, Raw: v, Bucket: bucketARN, Key: parts[1]}, nil
-	}
-
-	resource := a.Resource
-	if after, ok := strings.CutPrefix(resource, ":::"); ok {
-		resource = after
-	}
-	parts := strings.SplitN(resource, "/", 2)
-	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
-		return Ref{}, fmt.Errorf("unsupported s3 arn, expected object arn with bucket and key")
-	}
-	return Ref{Kind: KindS3, Raw: v, Bucket: parts[0], Key: parts[1]}, nil
-}
-
-// parseHTTPURI parses an HTTP(S) archive URI and validates its basic shape.
-func parseHTTPURI(v string) (Ref, error) {
-	u, err := url.Parse(v)
-	if err != nil {
-		return Ref{}, fmt.Errorf("invalid http uri %q: %w", v, err)
-	}
-	if u.Scheme != "http" && u.Scheme != "https" {
-		return Ref{}, fmt.Errorf("unsupported uri scheme %q", u.Scheme)
-	}
-	if strings.TrimSpace(u.Host) == "" {
-		return Ref{}, fmt.Errorf("http uri must include host")
-	}
-	return Ref{Kind: KindHTTP, Raw: v, URL: v}, nil
-}
-
-func JoinS3Prefix(prefix, name string) string {
-	prefix = strings.TrimPrefix(prefix, "/")
-	prefix = strings.TrimSuffix(prefix, "/")
-	name = strings.TrimPrefix(name, "/")
-	if prefix == "" {
-		return name
-	}
-	if name == "" {
-		return prefix
-	}
-	return prefix + "/" + name
-}
-
-func parseQueryMetadata(q url.Values) map[string]string {
-	if len(q) == 0 {
-		return nil
-	}
-	out := make(map[string]string, len(q))
-	keys := make([]string, 0, len(q))
-	for k := range q {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	for _, k := range keys {
-		key := strings.TrimSpace(k)
-		if key == "" {
-			continue
-		}
-		values := q[k]
-		switch len(values) {
-		case 0:
-			out[key] = ""
-		case 1:
-			out[key] = values[0]
-		default:
-			out[key] = strings.Join(values, ",")
-		}
-	}
-	if len(out) == 0 {
-		return nil
-	}
-	return out
 }

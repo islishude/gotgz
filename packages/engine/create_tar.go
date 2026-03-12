@@ -23,7 +23,7 @@ func (r *Runner) runCreateTar(ctx context.Context, opts cli.Options, archiveRef 
 	reporter := archiveprogress.NewReporter(r.stderr, opts.Progress, 0, false, time.Now(), opts.Verbose)
 	defer reporter.Finish()
 
-	archiveRef, err := applyArchiveSuffix(archiveRef, opts.Suffix)
+	archiveRef, err := archiveRef.WithArchiveSuffix(opts.Suffix)
 	if err != nil {
 		return 0, err
 	}

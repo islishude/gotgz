@@ -19,7 +19,7 @@ func (r *Runner) runCreateZip(ctx context.Context, opts cli.Options, archiveRef 
 	reporter := archiveprogress.NewReporter(r.stderr, opts.Progress, 0, false, time.Now(), opts.Verbose)
 	defer reporter.Finish()
 
-	archiveRef, err := applyArchiveSuffix(archiveRef, opts.Suffix)
+	archiveRef, err := archiveRef.WithArchiveSuffix(opts.Suffix)
 	if err != nil {
 		return 0, err
 	}
@@ -136,7 +136,7 @@ func (r *Runner) runExtractZip(ctx context.Context, opts cli.Options, reporter *
 		return warnings + zipWarnings, err
 	}
 
-	parsedTarget, err := parseExtractTarget(opts.Chdir, opts.S3CacheControl, opts.S3ObjectTags)
+	parsedTarget, err := locator.ParseExtractTarget(opts.Chdir, opts.S3CacheControl, opts.S3ObjectTags)
 	if err != nil {
 		return warnings, err
 	}

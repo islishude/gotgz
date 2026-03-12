@@ -250,6 +250,7 @@ func (p *Reporter) formatLine(now time.Time) string {
 	)
 }
 
+// Enabled reports whether progress updates are active.
 func (p *Reporter) Enabled() bool {
 	return p != nil && p.enabled
 }

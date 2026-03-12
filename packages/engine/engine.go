@@ -4,8 +4,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"maps"
-	"strings"
 	"time"
 
 	"github.com/islishude/gotgz/packages/archivepath"
@@ -111,8 +109,8 @@ func (r *Runner) runCreate(ctx context.Context, opts cli.Options) (warnings int,
 	if err != nil {
 		return 0, err
 	}
-	archiveRef = applyS3CacheControl(archiveRef, opts.S3CacheControl)
-	archiveRef = applyS3ObjectTags(archiveRef, opts.S3ObjectTags)
+	archiveRef = archiveRef.WithS3CacheControl(opts.S3CacheControl)
+	archiveRef = archiveRef.WithS3ObjectTags(opts.S3ObjectTags)
 	format := archiveutil.DetectCreateArchiveFormat(archiveRef)
 	switch format {
 	case archiveutil.ArchiveFormatZip:
@@ -210,62 +208,4 @@ func (r *Runner) dispatchExtractTarget(target locator.Ref, targetArg string, ext
 	default:
 		return 0, fmt.Errorf("unsupported extract target %q", targetArg)
 	}
-}
-
-// applyArchiveSuffix rewrites archive destinations when create mode uses -suffix.
-func applyArchiveSuffix(ref locator.Ref, suffix string) (locator.Ref, error) {
-	if suffix == "" {
-		return ref, nil
-	}
-
-	switch ref.Kind {
-	case locator.KindLocal:
-		ref.Path = archivepath.AddSuffix(ref.Path, suffix)
-		ref.Raw = ref.Path
-	case locator.KindS3:
-		ref.Key = archivepath.AddSuffix(ref.Key, suffix)
-	case locator.KindStdio:
-		return locator.Ref{}, fmt.Errorf("cannot use -suffix with -f -")
-	}
-	return ref, nil
-}
-
-// parseExtractTarget resolves the output target for extract mode and applies S3 options.
-func parseExtractTarget(chdir string, cacheControl string, objectTags map[string]string) (locator.Ref, error) {
-	target := chdir
-	if target == "" {
-		target = "."
-	}
-	ref, err := locator.ParseArchive(target)
-	if err != nil {
-		return locator.Ref{}, err
-	}
-	ref = applyS3CacheControl(ref, cacheControl)
-	ref = applyS3ObjectTags(ref, objectTags)
-	return ref, nil
-}
-
-// applyS3CacheControl sets Cache-Control on S3 refs when the option is provided.
-func applyS3CacheControl(ref locator.Ref, cacheControl string) locator.Ref {
-	if ref.Kind != locator.KindS3 {
-		return ref
-	}
-	cacheControl = strings.TrimSpace(cacheControl)
-	if cacheControl == "" {
-		return ref
-	}
-	ref.CacheControl = cacheControl
-	return ref
-}
-
-// applyS3ObjectTags sets S3 object tags on S3 refs when the option is provided.
-func applyS3ObjectTags(ref locator.Ref, objectTags map[string]string) locator.Ref {
-	if ref.Kind != locator.KindS3 {
-		return ref
-	}
-	if len(objectTags) == 0 {
-		return ref
-	}
-	ref.ObjectTags = maps.Clone(objectTags)
-	return ref
 }

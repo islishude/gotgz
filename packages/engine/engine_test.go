@@ -53,7 +53,7 @@ func TestResolvePolicyOverrides(t *testing.T) {
 
 func TestApplyS3CacheControl(t *testing.T) {
 	ref := locator.Ref{Kind: locator.KindS3, Bucket: "bucket", Key: "out.tar"}
-	got := applyS3CacheControl(ref, " max-age=3600 ")
+	got := ref.WithS3CacheControl(" max-age=3600 ")
 	if got.CacheControl != "max-age=3600" {
 		t.Fatalf("cache-control = %q, want %q", got.CacheControl, "max-age=3600")
 	}
@@ -61,7 +61,7 @@ func TestApplyS3CacheControl(t *testing.T) {
 
 func TestApplyS3CacheControlNonS3Ignored(t *testing.T) {
 	ref := locator.Ref{Kind: locator.KindLocal, Path: "/tmp/out.tar"}
-	got := applyS3CacheControl(ref, "no-store")
+	got := ref.WithS3CacheControl("no-store")
 	if got.CacheControl != "" {
 		t.Fatalf("non-s3 ref should ignore cache-control, got %q", got.CacheControl)
 	}
@@ -70,7 +70,7 @@ func TestApplyS3CacheControlNonS3Ignored(t *testing.T) {
 func TestApplyS3ObjectTags(t *testing.T) {
 	ref := locator.Ref{Kind: locator.KindS3, Bucket: "bucket", Key: "out.tar"}
 	tags := map[string]string{"team": "archive"}
-	got := applyS3ObjectTags(ref, tags)
+	got := ref.WithS3ObjectTags(tags)
 	if !reflect.DeepEqual(got.ObjectTags, tags) {
 		t.Fatalf("object tags = %#v, want %#v", got.ObjectTags, tags)
 	}
@@ -83,7 +83,7 @@ func TestApplyS3ObjectTags(t *testing.T) {
 
 func TestApplyS3ObjectTagsNonS3Ignored(t *testing.T) {
 	ref := locator.Ref{Kind: locator.KindLocal, Path: "/tmp/out.tar"}
-	got := applyS3ObjectTags(ref, map[string]string{"team": "archive"})
+	got := ref.WithS3ObjectTags(map[string]string{"team": "archive"})
 	if got.ObjectTags != nil {
 		t.Fatalf("non-s3 ref should ignore object tags, got %#v", got.ObjectTags)
 	}
@@ -91,9 +91,9 @@ func TestApplyS3ObjectTagsNonS3Ignored(t *testing.T) {
 
 func TestApplyArchiveSuffix(t *testing.T) {
 	t.Run("local", func(t *testing.T) {
-		got, err := applyArchiveSuffix(locator.Ref{Kind: locator.KindLocal, Path: "/tmp/out.tar.gz", Raw: "/tmp/out.tar.gz"}, "daily")
+		got, err := (locator.Ref{Kind: locator.KindLocal, Path: "/tmp/out.tar.gz", Raw: "/tmp/out.tar.gz"}).WithArchiveSuffix("daily")
 		if err != nil {
-			t.Fatalf("applyArchiveSuffix() error = %v", err)
+			t.Fatalf("WithArchiveSuffix() error = %v", err)
 		}
 		if got.Path != "/tmp/out-daily.tar.gz" || got.Raw != got.Path {
 			t.Fatalf("local suffix result = %+v", got)
@@ -101,9 +101,9 @@ func TestApplyArchiveSuffix(t *testing.T) {
 	})
 
 	t.Run("s3", func(t *testing.T) {
-		got, err := applyArchiveSuffix(locator.Ref{Kind: locator.KindS3, Bucket: "bucket", Key: "out.tar.gz"}, "daily")
+		got, err := (locator.Ref{Kind: locator.KindS3, Bucket: "bucket", Key: "out.tar.gz"}).WithArchiveSuffix("daily")
 		if err != nil {
-			t.Fatalf("applyArchiveSuffix() error = %v", err)
+			t.Fatalf("WithArchiveSuffix() error = %v", err)
 		}
 		if got.Key != "out-daily.tar.gz" {
 			t.Fatalf("s3 key = %q, want %q", got.Key, "out-daily.tar.gz")
@@ -111,17 +111,17 @@ func TestApplyArchiveSuffix(t *testing.T) {
 	})
 
 	t.Run("stdio rejected", func(t *testing.T) {
-		_, err := applyArchiveSuffix(locator.Ref{Kind: locator.KindStdio, Raw: "-"}, "daily")
+		_, err := (locator.Ref{Kind: locator.KindStdio, Raw: "-"}).WithArchiveSuffix("daily")
 		if err == nil || !strings.Contains(err.Error(), "cannot use -suffix") {
-			t.Fatalf("applyArchiveSuffix() err = %v, want stdio error", err)
+			t.Fatalf("WithArchiveSuffix() err = %v, want stdio error", err)
 		}
 	})
 }
 
 func TestParseExtractTarget(t *testing.T) {
-	got, err := parseExtractTarget("s3://bucket/prefix", " max-age=60 ", map[string]string{"team": "archive"})
+	got, err := locator.ParseExtractTarget("s3://bucket/prefix", " max-age=60 ", map[string]string{"team": "archive"})
 	if err != nil {
-		t.Fatalf("parseExtractTarget() error = %v", err)
+		t.Fatalf("ParseExtractTarget() error = %v", err)
 	}
 	if got.Kind != locator.KindS3 || got.Bucket != "bucket" || got.Key != "prefix" {
 		t.Fatalf("parsed target = %+v", got)
