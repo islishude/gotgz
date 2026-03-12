@@ -163,6 +163,48 @@ func TestUploadWriterCloseReturnsAsyncError(t *testing.T) {
 	}
 }
 
+// TestUploadGoroutinePropagatesErrorThroughPipe verifies that when the
+// background upload fails, ongoing writes to the PipeWriter see the real
+// upload error (not the generic io.ErrClosedPipe).
+func TestUploadGoroutinePropagatesErrorThroughPipe(t *testing.T) {
+	wantErr := errors.New("s3 upload failed")
+	pr, pw := io.Pipe()
+	errCh := make(chan error, 1)
+
+	// Simulate the goroutine in OpenWriter: upload reads one chunk then
+	// fails, closing the reader with the real error.
+	go func() {
+		buf := make([]byte, 256)
+		_, _ = pr.Read(buf)
+
+		_ = pr.CloseWithError(wantErr)
+		errCh <- wantErr
+		close(errCh)
+	}()
+
+	writer := &uploadWriter{pw: pw, errCh: errCh}
+
+	// First write delivers data to the goroutine (must fit in one Read).
+	if _, err := writer.Write([]byte("data")); err != nil {
+		t.Fatalf("first Write() error = %v", err)
+	}
+
+	// Subsequent writes must see the real upload error, not io.ErrClosedPipe.
+	for range 10 {
+		_, err := writer.Write([]byte("more data"))
+		if err != nil {
+			if errors.Is(err, io.ErrClosedPipe) {
+				t.Fatalf("Write() returned io.ErrClosedPipe; want the real upload error %q", wantErr)
+			}
+			if !errors.Is(err, wantErr) {
+				t.Fatalf("Write() error = %v, want %v", err, wantErr)
+			}
+			return
+		}
+	}
+	t.Fatal("expected a write error, but all writes succeeded")
+}
+
 // TestIntFromEnv verifies that integer environment settings are parsed only
 // when present and valid.
 func TestIntFromEnv(t *testing.T) {

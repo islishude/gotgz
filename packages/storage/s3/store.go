@@ -170,7 +170,14 @@ func (s *Store) OpenWriter(ctx context.Context, ref locator.Ref, metadata map[st
 	s.applyEncryption(in)
 	go func() {
 		_, err := s.tm.UploadObject(ctx, in)
-		_ = pr.Close()
+		// CloseWithError propagates the real upload failure through the pipe
+		// so that ongoing pw.Write calls see the original error instead of the
+		// generic io.ErrClosedPipe that bare pr.Close() would produce.
+		if err != nil {
+			_ = pr.CloseWithError(err)
+		} else {
+			_ = pr.Close()
+		}
 		errCh <- err
 		close(errCh)
 	}()
