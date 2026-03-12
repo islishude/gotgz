@@ -286,11 +286,5 @@ func shouldIncludeZipExtractEntry(zf *zip.File, memberMatcher *archivepath.Compi
 
 // addZipPayloadBytes accumulates payload totals while clamping on overflow.
 func addZipPayloadBytes(total int64, add int64) int64 {
-	if add <= 0 || total == math.MaxInt64 {
-		return total
-	}
-	if math.MaxInt64-total < add {
-		return math.MaxInt64
-	}
-	return total + add
+	return addArchiveVolumeSize(total, add)
 }
