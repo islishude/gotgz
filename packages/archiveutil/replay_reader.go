@@ -1,4 +1,4 @@
-package engine
+package archiveutil
 
 import (
 	"bytes"
@@ -41,12 +41,26 @@ func (r *replayReadCloser) Close() error {
 	return r.closer.Close()
 }
 
-// replayWithMagicPrefix reads up to prefixLen bytes and returns a reader that
-// yields those bytes again before streaming the remaining source bytes.
-func replayWithMagicPrefix(src io.ReadCloser, prefixLen int) ([]byte, io.ReadCloser, error) {
+// NewReplayReadCloser builds a reader that emits prefix first, then src.
+//
+// The returned closer is idempotent and closes src at most once.
+func NewReplayReadCloser(prefix []byte, src io.ReadCloser) io.ReadCloser {
 	closer := &closeOnceCloser{closer: src}
+	if len(prefix) == 0 {
+		return &replayReadCloser{reader: src, closer: closer}
+	}
+	prefetched := append([]byte(nil), prefix...)
+	return &replayReadCloser{
+		reader: io.MultiReader(bytes.NewReader(prefetched), src),
+		closer: closer,
+	}
+}
+
+// ReplayWithMagicPrefix reads up to prefixLen bytes and returns a reader that
+// yields those bytes again before streaming the remaining source bytes.
+func ReplayWithMagicPrefix(src io.ReadCloser, prefixLen int) ([]byte, io.ReadCloser, error) {
 	if prefixLen <= 0 {
-		return nil, &replayReadCloser{reader: src, closer: closer}, nil
+		return nil, NewReplayReadCloser(nil, src), nil
 	}
 	buf := make([]byte, prefixLen)
 	n, err := io.ReadFull(src, buf)
@@ -54,9 +68,6 @@ func replayWithMagicPrefix(src io.ReadCloser, prefixLen int) ([]byte, io.ReadClo
 		return nil, nil, err
 	}
 	prefix := append([]byte(nil), buf[:n]...)
-	replay := &replayReadCloser{
-		reader: io.MultiReader(bytes.NewReader(prefix), src),
-		closer: closer,
-	}
+	replay := NewReplayReadCloser(prefix, src)
 	return prefix, replay, nil
 }

@@ -5,12 +5,9 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"maps"
 	"math"
-	"mime"
 	"net/url"
 	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -20,6 +17,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/feature/s3/transfermanager"
 	tmtypes "github.com/aws/aws-sdk-go-v2/feature/s3/transfermanager/types"
 	awss3 "github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/islishude/gotgz/packages/archiveutil"
 	"github.com/islishude/gotgz/packages/locator"
 )
 
@@ -158,9 +156,9 @@ func (s *Store) OpenWriter(ctx context.Context, ref locator.Ref, metadata map[st
 		Bucket:   new(ref.Bucket),
 		Key:      new(ref.Key),
 		Body:     pr,
-		Metadata: mergeMetadata(ref.Metadata, metadata),
+		Metadata: archiveutil.MergeMetadata(ref.Metadata, metadata),
 	}
-	if contentType := contentTypeForKey(ref.Key); contentType != "" {
+	if contentType := archiveutil.ContentTypeForKey(ref.Key); contentType != "" {
 		in.ContentType = new(contentType)
 	}
 	if cacheControl := strings.TrimSpace(ref.CacheControl); cacheControl != "" {
@@ -187,9 +185,9 @@ func (s *Store) UploadStream(ctx context.Context, ref locator.Ref, body io.Reade
 		Bucket:   new(ref.Bucket),
 		Key:      new(ref.Key),
 		Body:     body,
-		Metadata: mergeMetadata(ref.Metadata, metadata),
+		Metadata: archiveutil.MergeMetadata(ref.Metadata, metadata),
 	}
-	if contentType := contentTypeForKey(ref.Key); contentType != "" {
+	if contentType := archiveutil.ContentTypeForKey(ref.Key); contentType != "" {
 		in.ContentType = new(contentType)
 	}
 	if cacheControl := strings.TrimSpace(ref.CacheControl); cacheControl != "" {
@@ -292,16 +290,6 @@ func defaultString(v, def string) string {
 	return v
 }
 
-func mergeMetadata(base, overlay map[string]string) map[string]string {
-	if len(base) == 0 && len(overlay) == 0 {
-		return nil
-	}
-	out := make(map[string]string, len(base)+len(overlay))
-	maps.Copy(out, base)
-	maps.Copy(out, overlay)
-	return out
-}
-
 // encodeObjectTagging builds the S3 object tagging header string for one upload.
 func encodeObjectTagging(tags map[string]string, createdAt time.Time) string {
 	values := make(url.Values, len(tags))
@@ -313,39 +301,6 @@ func encodeObjectTagging(tags map[string]string, createdAt time.Time) string {
 		trimmedValue := strings.TrimSpace(value)
 		values.Set(trimmedKey, trimmedValue)
 	}
-
-	// Keep the built-in created-at tag at the end while still relying on the
-	// standard library for query escaping and key ordering.
-	createdAtValues := url.Values{
-		createdAtObjectTagKey: []string{createdAt.UTC().Format(time.RFC3339)},
-	}
-	if encoded := values.Encode(); encoded != "" {
-		return encoded + "&" + createdAtValues.Encode()
-	}
-	return createdAtValues.Encode()
-}
-
-func contentTypeForKey(key string) string {
-	v := strings.ToLower(strings.TrimSpace(key))
-	switch {
-	case strings.HasSuffix(v, ".tar.gz"), strings.HasSuffix(v, ".tgz"), strings.HasSuffix(v, ".gz"):
-		return "application/gzip"
-	case strings.HasSuffix(v, ".tar.bz2"), strings.HasSuffix(v, ".tbz2"), strings.HasSuffix(v, ".tbz"), strings.HasSuffix(v, ".bz2"):
-		return "application/x-bzip2"
-	case strings.HasSuffix(v, ".tar.xz"), strings.HasSuffix(v, ".txz"), strings.HasSuffix(v, ".xz"):
-		return "application/x-xz"
-	case strings.HasSuffix(v, ".tar.zst"), strings.HasSuffix(v, ".tzst"), strings.HasSuffix(v, ".zstd"), strings.HasSuffix(v, ".zst"):
-		return "application/zstd"
-	case strings.HasSuffix(v, ".tar.lz4"), strings.HasSuffix(v, ".tlz4"), strings.HasSuffix(v, ".lz4"):
-		return "application/x-lz4"
-	case strings.HasSuffix(v, ".zip"):
-		return "application/zip"
-	case strings.HasSuffix(v, ".tar"), strings.HasSuffix(v, ".tape"):
-		return "application/x-tar"
-	}
-	ext := filepath.Ext(v)
-	if ext == "" {
-		return "application/octet-stream"
-	}
-	return mime.TypeByExtension(ext)
+	values.Set(createdAtObjectTagKey, createdAt.UTC().Format(time.RFC3339))
+	return values.Encode()
 }

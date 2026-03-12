@@ -162,7 +162,7 @@ func (r *Runner) extractToS3(ctx context.Context, target locator.Ref, hdr *tar.H
 		return warnings, nil
 	}
 	meta, ok := archive.HeaderToS3Metadata(hdr)
-	meta = mergeMetadata(target.Metadata, meta)
+	meta = archiveutil.MergeMetadata(target.Metadata, meta)
 	if !ok {
 		warnings++
 		reporter.BeforeExternalLineOutput()
