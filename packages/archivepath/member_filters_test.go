@@ -1,6 +1,10 @@
 package archivepath
 
 import (
+	"os"
+	"path/filepath"
+	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -48,5 +52,84 @@ func TestMatchExcludeWithMatcher(t *testing.T) {
 	}
 	if MatchExcludeWithMatcher(matcher, "cache.txt") {
 		t.Fatal("non-matching path should not be excluded")
+	}
+}
+
+func TestLoadExcludePatterns(t *testing.T) {
+	tmpDir := t.TempDir()
+	patternsFile := filepath.Join(tmpDir, "exclude.txt")
+	content := strings.Join([]string{
+		"# comment",
+		"",
+		"build/**",
+		"*.tmp",
+		"  logs/*.log  ",
+	}, "\n")
+	if err := os.WriteFile(patternsFile, []byte(content), 0o600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	got, err := LoadExcludePatterns([]string{"dist/*"}, []string{patternsFile})
+	if err != nil {
+		t.Fatalf("LoadExcludePatterns() error = %v", err)
+	}
+	want := []string{"dist/*", "build/**", "*.tmp", "logs/*.log"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("patterns = %#v, want %#v", got, want)
+	}
+}
+
+func TestLoadExcludePatternsRejectsInvalidInlinePattern(t *testing.T) {
+	_, err := LoadExcludePatterns([]string{"["}, nil)
+	if err == nil {
+		t.Fatal("expected invalid pattern error")
+	}
+	if !strings.Contains(err.Error(), "invalid exclude pattern") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestLoadExcludePatternsRejectsInvalidPatternInFile(t *testing.T) {
+	tmpDir := t.TempDir()
+	patternsFile := filepath.Join(tmpDir, "exclude.txt")
+	if err := os.WriteFile(patternsFile, []byte("*.tmp\n[\n"), 0o600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	_, err := LoadExcludePatterns(nil, []string{patternsFile})
+	if err == nil {
+		t.Fatal("expected invalid pattern error")
+	}
+	if !strings.Contains(err.Error(), "exclude.txt:2") {
+		t.Fatalf("error should include file and line: %v", err)
+	}
+}
+
+func TestLoadExcludePatternsMissingFile(t *testing.T) {
+	_, err := LoadExcludePatterns(nil, []string{"/path/that/does/not/exist"})
+	if err == nil {
+		t.Fatal("expected file read error")
+	}
+}
+
+func TestMatcherConstructorsEmptyInput(t *testing.T) {
+	if got := NewExactPathMatcher(nil); got != nil {
+		t.Fatalf("NewExactPathMatcher(nil) = %#v, want nil", got)
+	}
+	if got := NewCompiledPathMatcher(nil); got != nil {
+		t.Fatalf("NewCompiledPathMatcher(nil) = %#v, want nil", got)
+	}
+	if got := NewMemberMatcher(nil, true); got != nil {
+		t.Fatalf("NewMemberMatcher(nil, true) = %#v, want nil", got)
+	}
+}
+
+func TestCompiledPathMatcherNilReceiver(t *testing.T) {
+	var matcher *CompiledPathMatcher
+	if matcher.Matches("anything") {
+		t.Fatal("nil matcher should not match")
+	}
+	if MatchExcludeWithMatcher(matcher, "anything") {
+		t.Fatal("nil matcher should not match exclude")
 	}
 }

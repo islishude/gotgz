@@ -1,6 +1,9 @@
 package archivepath
 
-import "testing"
+import (
+	"regexp"
+	"testing"
+)
 
 // TestParseSplit reports parsed fields for supported split archive names.
 func TestParseSplit(t *testing.T) {
@@ -74,6 +77,18 @@ func TestParseSplit(t *testing.T) {
 	}
 }
 
+func TestParseSplitAtoiFailure(t *testing.T) {
+	original := splitPartPattern
+	splitPartPattern = regexp.MustCompile(`(?i)^(.*)\.part([^\.]+)(\..*)?$`)
+	t.Cleanup(func() {
+		splitPartPattern = original
+	})
+
+	if got, ok := ParseSplit("backup.part12x.tar.gz"); ok {
+		t.Fatalf("ParseSplit() = %#v, true; want false", got)
+	}
+}
+
 // TestFormatSplit inserts the part number before the full archive suffix.
 func TestFormatSplit(t *testing.T) {
 	tests := []struct {
@@ -103,6 +118,13 @@ func TestFormatSplit(t *testing.T) {
 			part:  12345,
 			width: 4,
 			want:  "/var/backups/archive.part12345.tar.zst",
+		},
+		{
+			name:  "dotfile keeps basename",
+			input: ".env",
+			part:  2,
+			width: 4,
+			want:  ".env.part0002",
 		},
 	}
 
@@ -147,6 +169,11 @@ func TestMatchSplit(t *testing.T) {
 		{
 			name:      "different stem",
 			candidate: "/tmp/other.part0002.tar.gz",
+			wantFound: false,
+		},
+		{
+			name:      "candidate is not split",
+			candidate: "/tmp/archive.tar.gz",
 			wantFound: false,
 		},
 	}
