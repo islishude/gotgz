@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"path/filepath"
 	"sort"
@@ -165,9 +166,20 @@ func sumArchiveVolumeSizes(volumes []archiveVolume) (int64, bool) {
 		if !volume.info.SizeKnown {
 			return 0, false
 		}
-		total += volume.info.Size
+		total = addArchiveVolumeSize(total, volume.info.Size)
 	}
 	return total, true
+}
+
+// addArchiveVolumeSize accumulates discovered volume sizes while clamping on overflow.
+func addArchiveVolumeSize(total int64, size int64) int64 {
+	if size <= 0 || total == math.MaxInt64 {
+		return total
+	}
+	if math.MaxInt64-total < size {
+		return math.MaxInt64
+	}
+	return total + size
 }
 
 // forEachArchiveVolume iterates split archive volumes in order and opens each reader on demand.

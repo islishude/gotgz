@@ -253,7 +253,7 @@ func (r *Runner) scanTarArchiveFromVolumes(ctx context.Context, _ cli.Options, r
 			totalKnown = false
 			continue
 		}
-		total += volume.info.Size
+		total = addArchiveVolumeSize(total, volume.info.Size)
 	}
 	reporter.SetTotal(total, totalKnown)
 

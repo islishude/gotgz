@@ -11,6 +11,8 @@ import (
 	"github.com/islishude/gotgz/packages/locator"
 )
 
+const splitZipEntryFinalizeLookaheadBytes int64 = 32
+
 // zipArchiveWriter writes zip entries and lets callers rotate only at member boundaries.
 type zipArchiveWriter interface {
 	CreateHeader(hdr *zip.FileHeader) (io.Writer, error)
@@ -128,10 +130,27 @@ func (w *splitZipArchiveWriter) FinishEntry() error {
 	if err := w.current.zw.Flush(); err != nil {
 		return err
 	}
-	if w.current.dst.count >= w.splitSize {
+	if shouldRotateSplitZipVolume(w.current.dst.count, w.splitSize) {
 		w.rotateOnEntry = true
 	}
 	return nil
+}
+
+// shouldRotateSplitZipVolume decides whether the next member must start in a new volume.
+//
+// zip.Writer.Flush only drains the archive's outer bufio.Writer; it does not finalize
+// the current member. Finalizing one zip entry appends a small deflate terminator
+// plus a 16/24-byte data descriptor, so split ZIP mode keeps a small safety margin
+// to avoid starting the next member on a volume that would exceed the threshold once
+// the current member is fully finalized.
+func shouldRotateSplitZipVolume(written int64, splitSize int64) bool {
+	if splitSize <= 0 {
+		return false
+	}
+	if splitSize <= splitZipEntryFinalizeLookaheadBytes {
+		return true
+	}
+	return written >= splitSize-splitZipEntryFinalizeLookaheadBytes
 }
 
 // Close finalizes the active volume without creating a trailing empty volume.
