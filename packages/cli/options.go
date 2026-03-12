@@ -588,9 +588,6 @@ func validateOptions(opts Options) (Options, error) {
 	if ref.Kind == locator.KindStdio {
 		return opts, fmt.Errorf("option --split-size does not support -f -")
 	}
-	if archiveutil.HasZipHint(archiveutil.NameHint(ref)) {
-		return opts, fmt.Errorf("option --split-size does not support zip archives")
-	}
 	switch opts.Compression {
 	case CompressionBzip2, CompressionXz:
 		return opts, fmt.Errorf("option --split-size does not support %s compression", opts.Compression)

@@ -515,11 +515,6 @@ func TestParseSplitSizeValidation(t *testing.T) {
 			errSub: "option --split-size does not support -f -",
 		},
 		{
-			name:   "zip unsupported",
-			args:   []string{"-c", "-f", "out.zip", "--split-size=1M", "dir"},
-			errSub: "option --split-size does not support zip archives",
-		},
-		{
 			name:   "bzip2 unsupported",
 			args:   []string{"-c", "-f", "out.tar.bz2", "--split-size=1M", "--bzip2", "dir"},
 			errSub: "option --split-size does not support bzip2 compression",
@@ -566,6 +561,16 @@ func TestParseSplitSizeValidation(t *testing.T) {
 				t.Fatalf("unexpected error: %v", err)
 			}
 		})
+	}
+}
+
+func TestParseSplitSizeAllowsZipArchives(t *testing.T) {
+	opts, err := Parse([]string{"-c", "-f", "out.zip", "--split-size=1M", "dir"})
+	if err != nil {
+		t.Fatalf("Parse() error = %v", err)
+	}
+	if opts.SplitSizeBytes != 1024*1024 {
+		t.Fatalf("split-size = %d, want %d", opts.SplitSizeBytes, 1024*1024)
 	}
 }
 

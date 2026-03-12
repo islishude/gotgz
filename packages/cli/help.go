@@ -24,7 +24,7 @@ Main Options:
   -suffix <value>, --suffix <value>
                     Add suffix to archive filename in create mode (built-in date format uses 20060102 layout)
   --split-size <size>
-                    Split tar-family output into partNNNN volumes (create mode only)
+                    Split archive output into partNNNN volumes (.zip and tar-family, create mode only)
   -C <dir|s3://...>, --cd <dir|s3://...>, --directory <dir|s3://...>
                     Change directory before create/extract
   --s3-cache-control <value>
