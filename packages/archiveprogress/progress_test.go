@@ -94,6 +94,9 @@ func TestProgressReporterNilSafe(t *testing.T) {
 	p.BeforeExternalLineOutput()
 	p.AfterExternalLineOutput()
 	p.Finish()
+	if got := p.Elapsed(); got != 0 {
+		t.Fatalf("Elapsed() = %v, want 0 for nil reporter", got)
+	}
 }
 
 func TestReporterEnabled(t *testing.T) {
@@ -115,6 +118,29 @@ func TestReporterEnabled(t *testing.T) {
 		p := NewReporter(io.Discard, cli.ProgressAlways, 100, true, time.Now(), false)
 		if got := p.Enabled(); !got {
 			t.Fatalf("Enabled() = %v, want true", got)
+		}
+	})
+}
+
+func TestReporterElapsed(t *testing.T) {
+	t.Run("running reporter uses start time", func(t *testing.T) {
+		p := NewReporter(io.Discard, cli.ProgressAlways, 100, true, time.Now().Add(-150*time.Millisecond), false)
+		if got := p.Elapsed(); got < 100*time.Millisecond {
+			t.Fatalf("Elapsed() = %v, want at least 100ms", got)
+		}
+	})
+
+	t.Run("finished disabled reporter freezes elapsed", func(t *testing.T) {
+		p := NewReporter(io.Discard, cli.ProgressNever, 100, true, time.Now().Add(-150*time.Millisecond), false)
+		p.Finish()
+		first := p.Elapsed()
+		if first < 100*time.Millisecond {
+			t.Fatalf("Elapsed() after Finish() = %v, want at least 100ms", first)
+		}
+
+		time.Sleep(20 * time.Millisecond)
+		if got := p.Elapsed(); got != first {
+			t.Fatalf("Elapsed() changed after Finish(): first=%v second=%v", first, got)
 		}
 	})
 }

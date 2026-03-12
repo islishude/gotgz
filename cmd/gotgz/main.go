@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"syscall"
 
+	"github.com/islishude/gotgz/packages/archiveprogress"
 	"github.com/islishude/gotgz/packages/cli"
 	"github.com/islishude/gotgz/packages/engine"
 )
@@ -36,6 +37,8 @@ func main() {
 	result := runner.Run(basectx, opts)
 	if result.Err != nil {
 		_, _ = fmt.Fprintf(os.Stderr, "gotgz: %v\n", result.Err)
+	} else if !result.ProgressEnabled {
+		_, _ = fmt.Fprintf(os.Stderr, "gotgz: completed in %s\n", archiveprogress.FormatClock(result.Elapsed))
 	}
 	os.Exit(result.ExitCode)
 }

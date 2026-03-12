@@ -121,8 +121,8 @@ func TestFormatRate(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.want, func(t *testing.T) {
-			if got := formatRate(tc.input); got != tc.want {
-				t.Fatalf("formatRate(%f) = %q, want %q", tc.input, got, tc.want)
+			if got := FormatRate(tc.input); got != tc.want {
+				t.Fatalf("FormatRate(%f) = %q, want %q", tc.input, got, tc.want)
 			}
 		})
 	}
@@ -143,8 +143,8 @@ func TestFormatClock(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.want, func(t *testing.T) {
-			if got := formatClock(tc.input); got != tc.want {
-				t.Fatalf("formatClock(%v) = %q, want %q", tc.input, got, tc.want)
+			if got := FormatClock(tc.input); got != tc.want {
+				t.Fatalf("FormatClock(%v) = %q, want %q", tc.input, got, tc.want)
 			}
 		})
 	}

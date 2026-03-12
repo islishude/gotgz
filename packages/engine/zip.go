@@ -6,7 +6,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"time"
 
 	"github.com/islishude/gotgz/packages/archivepath"
 	"github.com/islishude/gotgz/packages/archiveprogress"
@@ -15,10 +14,7 @@ import (
 )
 
 // runCreateZip writes create-mode output in zip format.
-func (r *Runner) runCreateZip(ctx context.Context, opts cli.Options, archiveRef locator.Ref) (warnings int, retErr error) {
-	reporter := archiveprogress.NewReporter(r.stderr, opts.Progress, 0, false, time.Now(), opts.Verbose)
-	defer reporter.Finish()
-
+func (r *Runner) runCreateZip(ctx context.Context, opts cli.Options, archiveRef locator.Ref, reporter *archiveprogress.Reporter) (warnings int, retErr error) {
 	archiveRef, err := archiveRef.WithArchiveSuffix(opts.Suffix)
 	if err != nil {
 		return 0, err

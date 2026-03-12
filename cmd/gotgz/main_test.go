@@ -10,9 +10,9 @@ import (
 	"testing"
 )
 
-// TestMainNoProgressOmitsStandaloneCompletionLine verifies that successful runs
-// without progress do not emit a separate completion-time line.
-func TestMainNoProgressOmitsStandaloneCompletionLine(t *testing.T) {
+// TestMainNoProgressPrintsStandaloneCompletionLine verifies that successful
+// runs with --no-progress still report the total elapsed time.
+func TestMainNoProgressPrintsStandaloneCompletionLine(t *testing.T) {
 	root := t.TempDir()
 	srcDir := filepath.Join(root, "src")
 	archive := filepath.Join(root, "out.tar")
@@ -33,11 +33,11 @@ func TestMainNoProgressOmitsStandaloneCompletionLine(t *testing.T) {
 	if exitCode != 0 {
 		t.Fatalf("exit code = %d, want 0; stderr:\n%s", exitCode, stderr)
 	}
-	if strings.Contains(stderr, "completed in") {
-		t.Fatalf("stderr = %q, did not expect completion line", stderr)
+	if !strings.Contains(stderr, "gotgz: completed in ") {
+		t.Fatalf("stderr = %q, want completion line", stderr)
 	}
-	if stderr != "" {
-		t.Fatalf("stderr = %q, want empty output", stderr)
+	if !strings.HasSuffix(stderr, "\n") {
+		t.Fatalf("stderr = %q, want trailing newline", stderr)
 	}
 }
 

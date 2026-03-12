@@ -2,6 +2,7 @@ package engine
 
 import (
 	"archive/tar"
+	"bytes"
 	"context"
 	"io"
 	"os"
@@ -131,6 +132,62 @@ func TestParseExtractTarget(t *testing.T) {
 	}
 	if !reflect.DeepEqual(got.ObjectTags, map[string]string{"team": "archive"}) {
 		t.Fatalf("object tags = %#v", got.ObjectTags)
+	}
+}
+
+func TestRunReturnsReporterState(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		progress    cli.ProgressMode
+		wantEnabled bool
+	}{
+		{name: "no progress", progress: cli.ProgressNever, wantEnabled: false},
+		{name: "forced progress", progress: cli.ProgressAlways, wantEnabled: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			srcDir := filepath.Join(root, "src")
+			archive := filepath.Join(root, "out.tar")
+			if err := os.MkdirAll(srcDir, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(srcDir, "note.txt"), []byte("payload"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+
+			var stderr bytes.Buffer
+			r := newRunner(&localstore.ArchiveStore{}, nil, nil, io.Discard, &stderr)
+			got := r.Run(context.Background(), cli.Options{
+				Mode:     cli.ModeCreate,
+				Archive:  archive,
+				Chdir:    root,
+				Progress: tc.progress,
+				Members:  []string{"src"},
+			})
+
+			if got.ExitCode != ExitSuccess {
+				t.Fatalf("Run().ExitCode = %d, want %d (err=%v)", got.ExitCode, ExitSuccess, got.Err)
+			}
+			if got.Err != nil {
+				t.Fatalf("Run().Err = %v, want nil", got.Err)
+			}
+			if got.ProgressEnabled != tc.wantEnabled {
+				t.Fatalf("Run().ProgressEnabled = %v, want %v", got.ProgressEnabled, tc.wantEnabled)
+			}
+			if got.Elapsed <= 0 {
+				t.Fatalf("Run().Elapsed = %v, want > 0", got.Elapsed)
+			}
+
+			if tc.wantEnabled {
+				if !strings.Contains(stderr.String(), "elapsed ") {
+					t.Fatalf("stderr = %q, want progress output", stderr.String())
+				}
+				return
+			}
+			if gotErr := stderr.String(); gotErr != "" {
+				t.Fatalf("stderr = %q, want no engine-level output when progress is disabled", gotErr)
+			}
+		})
 	}
 }
 

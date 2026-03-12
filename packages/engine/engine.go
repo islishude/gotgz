@@ -32,9 +32,12 @@ type Runner struct {
 	stdout  io.Writer
 }
 
+// RunResult summarizes one completed CLI operation together with progress metadata.
 type RunResult struct {
-	ExitCode int
-	Err      error
+	ExitCode        int
+	Err             error
+	Elapsed         time.Duration
+	ProgressEnabled bool
 }
 
 // archiveReaderInfo holds metadata returned alongside an opened archive reader.
@@ -70,18 +73,42 @@ func newRunner(local localArchiveStore, s3 s3ArchiveStore, http httpArchiveStore
 
 // Run executes one CLI mode and maps warnings/errors to a process exit code.
 func (r *Runner) Run(ctx context.Context, opts cli.Options) RunResult {
+	reporter := newRunReporter(r.stderr, opts)
+	if reporter == nil {
+		return RunResult{ExitCode: ExitFatal, Err: fmt.Errorf("unsupported mode %q", opts.Mode)}
+	}
+
+	var warnings int
+	var err error
 	switch opts.Mode {
 	case cli.ModeCreate:
-		warnings, err := r.runCreate(ctx, opts)
-		return classifyResult(err, warnings)
+		warnings, err = r.runCreate(ctx, opts, reporter)
 	case cli.ModeExtract:
-		warnings, err := r.runExtract(ctx, opts)
-		return classifyResult(err, warnings)
+		warnings, err = r.runExtract(ctx, opts, reporter)
 	case cli.ModeList:
-		warnings, err := r.runList(ctx, opts)
-		return classifyResult(err, warnings)
+		warnings, err = r.runList(ctx, opts, reporter)
 	default:
 		return RunResult{ExitCode: ExitFatal, Err: fmt.Errorf("unsupported mode %q", opts.Mode)}
+	}
+
+	reporter.Finish()
+	result := classifyResult(err, warnings)
+	result.Elapsed = reporter.Elapsed()
+	result.ProgressEnabled = reporter.Enabled()
+	return result
+}
+
+// newRunReporter creates the reporter shared by the entire engine run.
+func newRunReporter(stderr io.Writer, opts cli.Options) *archiveprogress.Reporter {
+	switch opts.Mode {
+	case cli.ModeCreate:
+		return archiveprogress.NewReporter(stderr, opts.Progress, 0, false, time.Now(), opts.Verbose)
+	case cli.ModeExtract:
+		return archiveprogress.NewReporter(stderr, opts.Progress, 0, false, time.Now(), opts.Verbose && !opts.ToStdout)
+	case cli.ModeList:
+		return archiveprogress.NewReporter(stderr, opts.Progress, 0, false, time.Now(), true)
+	default:
+		return nil
 	}
 }
 
@@ -97,7 +124,7 @@ func classifyResult(err error, warnings int) RunResult {
 }
 
 // runCreate dispatches create mode to the archive-format specific implementation.
-func (r *Runner) runCreate(ctx context.Context, opts cli.Options) (warnings int, retErr error) {
+func (r *Runner) runCreate(ctx context.Context, opts cli.Options, reporter *archiveprogress.Reporter) (warnings int, retErr error) {
 	archiveRef, err := locator.ParseArchive(opts.Archive)
 	if err != nil {
 		return 0, err
@@ -107,18 +134,16 @@ func (r *Runner) runCreate(ctx context.Context, opts cli.Options) (warnings int,
 	format := archiveutil.DetectCreateArchiveFormat(archiveRef)
 	switch format {
 	case archiveutil.ArchiveFormatZip:
-		return r.runCreateZip(ctx, opts, archiveRef)
+		return r.runCreateZip(ctx, opts, archiveRef, reporter)
 	case archiveutil.ArchiveFormatTar:
-		return r.runCreateTar(ctx, opts, archiveRef)
+		return r.runCreateTar(ctx, opts, archiveRef, reporter)
 	default:
 		return 0, fmt.Errorf("cannot determine archive format for %q; consider using -suffix", opts.Archive)
 	}
 }
 
 // runList dispatches list mode to tar or zip readers based on archive format.
-func (r *Runner) runList(ctx context.Context, opts cli.Options) (int, error) {
-	reporter := archiveprogress.NewReporter(r.stderr, opts.Progress, 0, false, time.Now(), true)
-	defer reporter.Finish()
+func (r *Runner) runList(ctx context.Context, opts cli.Options, reporter *archiveprogress.Reporter) (int, error) {
 	ref, ar, info, magic, err := r.openArchiveForRead(ctx, opts.Archive)
 	if err != nil {
 		return 0, err
@@ -136,9 +161,7 @@ func (r *Runner) runList(ctx context.Context, opts cli.Options) (int, error) {
 }
 
 // runExtract dispatches extract mode to tar or zip readers based on archive format.
-func (r *Runner) runExtract(ctx context.Context, opts cli.Options) (int, error) {
-	reporter := archiveprogress.NewReporter(r.stderr, opts.Progress, 0, false, time.Now(), opts.Verbose && !opts.ToStdout)
-	defer reporter.Finish()
+func (r *Runner) runExtract(ctx context.Context, opts cli.Options, reporter *archiveprogress.Reporter) (int, error) {
 	ref, ar, info, magic, err := r.openArchiveForRead(ctx, opts.Archive)
 	if err != nil {
 		return 0, err

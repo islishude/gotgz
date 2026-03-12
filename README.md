@@ -13,7 +13,7 @@ A Linux `tar`-compatible CLI tool written in Go, with native AWS S3 support as b
 - **Exclude patterns** — `--exclude` and `--exclude-from` (glob matching)
 - **Member filtering on extract/list** — explicit member names, optionally with `--wildcards`
 - **Path stripping on extract** — `--strip-components <count>` removes leading path segments
-- **Progress + timing** — byte-based progress with ETA and elapsed time on TTY (or force with `--progress`)
+- **Progress + timing** — byte-based progress with ETA and elapsed time on TTY (or force with `--progress`); `--no-progress` still prints the final elapsed time
 - **S3 encryption** — configurable server-side encryption (AES256, SSE-KMS)
 - **S3 object tags** — repeat `--s3-tag key=value` on S3 writes
 
@@ -267,7 +267,7 @@ gotgz cvf archive.tar dir/
 
 # Progress behavior
 gotgz -xvf archive.tar --progress
-gotgz -cvf out.tar --no-progress dir/
+gotgz -cvf out.tar --no-progress dir/   # hides live updates but still prints "completed in ..."
 ```
 
 ## Environment Variables

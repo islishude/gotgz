@@ -36,7 +36,7 @@ Main Options:
   -v                Verbose output
   -O, --to-stdout   Extract regular file data to stdout
   --progress        Force progress output (writes to stderr)
-  --no-progress     Disable progress output
+  --no-progress     Disable live progress output but still print final elapsed time
   -h, --help        Show this help message
 
 Compression:

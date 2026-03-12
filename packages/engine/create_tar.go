@@ -18,10 +18,8 @@ import (
 )
 
 // runCreateTar writes create-mode output in tar format.
-func (r *Runner) runCreateTar(ctx context.Context, opts cli.Options, archiveRef locator.Ref) (warnings int, retErr error) {
+func (r *Runner) runCreateTar(ctx context.Context, opts cli.Options, archiveRef locator.Ref, reporter *archiveprogress.Reporter) (warnings int, retErr error) {
 	metadataPolicy := opts.ResolveMetadataPolicy()
-	reporter := archiveprogress.NewReporter(r.stderr, opts.Progress, 0, false, time.Now(), opts.Verbose)
-	defer reporter.Finish()
 
 	archiveRef, err := archiveRef.WithArchiveSuffix(opts.Suffix)
 	if err != nil {

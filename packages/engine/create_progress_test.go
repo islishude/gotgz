@@ -5,7 +5,9 @@ import (
 	"io"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/islishude/gotgz/packages/archiveprogress"
 	"github.com/islishude/gotgz/packages/cli"
 	"github.com/islishude/gotgz/packages/locator"
 	"github.com/islishude/gotgz/packages/storage/s3"
@@ -13,7 +15,7 @@ import (
 
 // runCreateWithProgressMode executes one create-mode writer and returns how
 // many times the fake S3 store's Stat path was used for progress estimation.
-func runCreateWithProgressMode(t *testing.T, progress cli.ProgressMode, run func(*Runner, context.Context, cli.Options, locator.Ref) (int, error), archiveRef locator.Ref) int {
+func runCreateWithProgressMode(t *testing.T, progress cli.ProgressMode, run func(*Runner, context.Context, cli.Options, locator.Ref, *archiveprogress.Reporter) (int, error), archiveRef locator.Ref) int {
 	t.Helper()
 
 	statCalls := 0
@@ -54,7 +56,9 @@ func runCreateWithProgressMode(t *testing.T, progress cli.ProgressMode, run func
 		Progress: progress,
 		Members:  []string{"s3://bucket/object.txt"},
 	}
-	warnings, err := run(runner, context.Background(), opts, archiveRef)
+	reporter := archiveprogress.NewReporter(io.Discard, progress, 0, false, time.Now(), false)
+	warnings, err := run(runner, context.Background(), opts, archiveRef, reporter)
+	reporter.Finish()
 	if err != nil {
 		t.Fatalf("create error = %v", err)
 	}
@@ -73,7 +77,7 @@ func TestCreateModeSkipsS3SizeEstimationWhenProgressDisabled(t *testing.T) {
 	cases := []struct {
 		name       string
 		archiveRef locator.Ref
-		run        func(*Runner, context.Context, cli.Options, locator.Ref) (int, error)
+		run        func(*Runner, context.Context, cli.Options, locator.Ref, *archiveprogress.Reporter) (int, error)
 	}{
 		{
 			name:       "tar",
@@ -102,7 +106,7 @@ func TestCreateModeEstimatesS3SizeWhenProgressEnabled(t *testing.T) {
 	cases := []struct {
 		name       string
 		archiveRef locator.Ref
-		run        func(*Runner, context.Context, cli.Options, locator.Ref) (int, error)
+		run        func(*Runner, context.Context, cli.Options, locator.Ref, *archiveprogress.Reporter) (int, error)
 	}{
 		{
 			name:       "tar",

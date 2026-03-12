@@ -66,8 +66,8 @@ func FormatBytes(v int64) string {
 	return fmt.Sprintf("%.1f%s", value, units[unit])
 }
 
-// formatRate formats byte-per-second throughput values.
-func formatRate(v float64) string {
+// FormatRate formats byte-per-second throughput values.
+func FormatRate(v float64) string {
 	if v <= 0 {
 		return "0B"
 	}
@@ -84,8 +84,8 @@ func formatRate(v float64) string {
 	return fmt.Sprintf("%.1f%s", value, units[unit])
 }
 
-// formatClock formats a duration as MM:SS or HH:MM:SS.
-func formatClock(d time.Duration) string {
+// FormatClock formats a duration as MM:SS or HH:MM:SS for user-facing output.
+func FormatClock(d time.Duration) string {
 	if d < 0 {
 		d = 0
 	}

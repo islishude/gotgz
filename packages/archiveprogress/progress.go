@@ -32,6 +32,7 @@ type Reporter struct {
 	lastDrawUnix atomic.Int64
 	rendered     bool
 	finished     bool
+	elapsed      time.Duration
 }
 
 // NewReporter creates a progress reporter configured for the requested mode.
@@ -70,7 +71,7 @@ func (p *Reporter) SetTotal(total int64, known bool) {
 
 	p.total = total
 	p.totalKnown = known
-	p.renderLocked(false)
+	p.renderLocked(time.Now(), false)
 }
 
 // AddDone increments processed bytes and triggers a throttled refresh.
@@ -80,8 +81,9 @@ func (p *Reporter) AddDone(n int64) {
 	}
 	p.done.Add(n)
 
+	now := time.Now()
 	lastDraw := p.lastDrawUnix.Load()
-	if lastDraw != 0 && time.Now().UnixNano()-lastDraw < int64(RefreshInterval) {
+	if lastDraw != 0 && now.UnixNano()-lastDraw < int64(RefreshInterval) {
 		return
 	}
 
@@ -91,7 +93,7 @@ func (p *Reporter) AddDone(n int64) {
 	if p.finished {
 		return
 	}
-	p.renderLocked(false)
+	p.renderLocked(now, false)
 }
 
 // Finish forces a final render and terminates the progress line.
@@ -103,14 +105,18 @@ func (p *Reporter) Finish() {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	if !p.enabled || p.finished {
+	if p.finished {
 		return
 	}
-	p.renderLocked(true)
-	if p.topPinned {
-		p.resetScrollRegionLocked()
-	} else if p.rendered {
-		_, _ = fmt.Fprint(p.writer, "\n")
+	now := time.Now()
+	p.elapsed = max(now.Sub(p.startTime), time.Millisecond)
+	if p.enabled {
+		p.renderLocked(now, true)
+		if p.topPinned {
+			p.resetScrollRegionLocked()
+		} else if p.rendered {
+			_, _ = fmt.Fprint(p.writer, "\n")
+		}
 	}
 	p.finished = true
 }
@@ -155,11 +161,10 @@ func (p *Reporter) AfterExternalLineOutput() {
 }
 
 // renderLocked prints one progress line if refresh throttling allows it.
-func (p *Reporter) renderLocked(force bool) {
+func (p *Reporter) renderLocked(now time.Time, force bool) {
 	if !p.enabled {
 		return
 	}
-	now := time.Now()
 	lastDrawUnix := p.lastDrawUnix.Load()
 	if !force && lastDrawUnix != 0 && now.UnixNano()-lastDrawUnix < int64(RefreshInterval) {
 		return
@@ -206,7 +211,7 @@ func (p *Reporter) resetScrollRegionLocked() {
 
 // formatLine renders one line with either known-total or unknown-total layout.
 func (p *Reporter) formatLine(now time.Time) string {
-	elapsed := max(now.Sub(p.startTime), time.Millisecond)
+	elapsed := p.elapsedLocked(now)
 	done := p.done.Load()
 	speed := float64(done) / elapsed.Seconds()
 
@@ -236,21 +241,41 @@ func (p *Reporter) formatLine(now time.Time) string {
 			ratio*100,
 			FormatBytes(done),
 			FormatBytes(p.total),
-			formatRate(speed),
-			formatClock(eta),
-			formatClock(elapsed),
+			FormatRate(speed),
+			FormatClock(eta),
+			FormatClock(elapsed),
 		)
 	}
 
 	return fmt.Sprintf(
 		"gotgz: [working] %s processed %s/s elapsed %s",
 		FormatBytes(done),
-		formatRate(speed),
-		formatClock(elapsed),
+		FormatRate(speed),
+		FormatClock(elapsed),
 	)
 }
 
 // Enabled reports whether progress updates are active.
 func (p *Reporter) Enabled() bool {
 	return p != nil && p.enabled
+}
+
+// Elapsed reports the run duration tracked by the reporter.
+func (p *Reporter) Elapsed() time.Duration {
+	if p == nil {
+		return 0
+	}
+
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	return p.elapsedLocked(time.Now())
+}
+
+// elapsedLocked returns the elapsed duration using the finished value when available.
+func (p *Reporter) elapsedLocked(now time.Time) time.Duration {
+	if p.finished {
+		return p.elapsed
+	}
+	return max(now.Sub(p.startTime), time.Millisecond)
 }
