@@ -4,33 +4,10 @@ import (
 	"archive/tar"
 	"errors"
 	"fmt"
-	"os"
 	"strings"
 
 	"github.com/islishude/gotgz/packages/archive"
-	"github.com/islishude/gotgz/packages/cli"
 )
-
-// resolvePolicy converts CLI options into effective permission policy.
-func resolvePolicy(opts cli.Options) PermissionPolicy {
-	isRoot := os.Geteuid() == 0
-	policy := PermissionPolicy{SameOwner: isRoot, SamePerms: isRoot, NumericOwner: opts.NumericOwner}
-	if opts.SameOwner != nil {
-		policy.SameOwner = *opts.SameOwner
-	}
-	if opts.SamePermissions != nil {
-		policy.SamePerms = *opts.SamePermissions
-	}
-	return policy
-}
-
-// resolveMetadataPolicy converts CLI options into effective metadata policy.
-func resolveMetadataPolicy(opts cli.Options) MetadataPolicy {
-	return MetadataPolicy{
-		Xattrs: opts.Xattrs,
-		ACL:    opts.ACL,
-	}
-}
 
 // filterACLLikeXattrs removes xattrs that appear to contain ACL payloads.
 func filterACLLikeXattrs(attrs map[string][]byte) map[string][]byte {

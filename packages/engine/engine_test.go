@@ -39,7 +39,7 @@ func (f fakeLocalArchiveStore) OpenWriter(ref locator.Ref) (io.WriteCloser, erro
 func TestResolvePolicyOverrides(t *testing.T) {
 	so := false
 	sp := true
-	p := resolvePolicy(cli.Options{SameOwner: &so, SamePermissions: &sp, NumericOwner: true})
+	p := (cli.Options{SameOwner: &so, SamePermissions: &sp, NumericOwner: true}).ResolvePermissionPolicy()
 	if p.SameOwner {
 		t.Fatalf("SameOwner should be false")
 	}
@@ -324,7 +324,7 @@ func TestFilterACLLikeXattrs(t *testing.T) {
 }
 
 func TestResolveMetadataPolicy(t *testing.T) {
-	p := resolveMetadataPolicy(cli.Options{Xattrs: true, ACL: false})
+	p := (cli.Options{Xattrs: true, ACL: false}).ResolveMetadataPolicy()
 	if !p.Xattrs {
 		t.Fatalf("Xattrs should be true")
 	}

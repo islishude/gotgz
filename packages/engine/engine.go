@@ -22,16 +22,9 @@ const (
 	ExitFatal   = 2
 )
 
-type PermissionPolicy struct {
-	SameOwner    bool
-	SamePerms    bool
-	NumericOwner bool
-}
+type PermissionPolicy = cli.PermissionPolicy
 
-type MetadataPolicy struct {
-	Xattrs bool
-	ACL    bool
-}
+type MetadataPolicy = cli.MetadataPolicy
 
 type Runner struct {
 	storage *storageRouter

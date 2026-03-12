@@ -3,6 +3,7 @@ package cli
 import (
 	"fmt"
 	"math"
+	"os"
 	"regexp"
 	"strconv"
 	"strings"
@@ -66,6 +67,40 @@ type Options struct {
 	SamePermissions  *bool
 	Progress         ProgressMode
 	Members          []string
+}
+
+// PermissionPolicy captures ownership and permission restore behavior for extraction.
+type PermissionPolicy struct {
+	SameOwner    bool
+	SamePerms    bool
+	NumericOwner bool
+}
+
+// MetadataPolicy controls whether extended attributes and ACL metadata are preserved.
+type MetadataPolicy struct {
+	Xattrs bool
+	ACL    bool
+}
+
+// ResolvePermissionPolicy converts parsed options into an effective permission policy.
+func (opts Options) ResolvePermissionPolicy() PermissionPolicy {
+	isRoot := os.Geteuid() == 0
+	policy := PermissionPolicy{SameOwner: isRoot, SamePerms: isRoot, NumericOwner: opts.NumericOwner}
+	if opts.SameOwner != nil {
+		policy.SameOwner = *opts.SameOwner
+	}
+	if opts.SamePermissions != nil {
+		policy.SamePerms = *opts.SamePermissions
+	}
+	return policy
+}
+
+// ResolveMetadataPolicy converts parsed options into an effective metadata policy.
+func (opts Options) ResolveMetadataPolicy() MetadataPolicy {
+	return MetadataPolicy{
+		Xattrs: opts.Xattrs,
+		ACL:    opts.ACL,
+	}
 }
 
 // optionParser incrementally parses CLI arguments into Options.

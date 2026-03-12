@@ -114,7 +114,7 @@ func (r *Runner) runListZip(ctx context.Context, opts cli.Options, reporter *arc
 
 // runExtractZip extracts archive members from a zip input stream.
 func (r *Runner) runExtractZip(ctx context.Context, opts cli.Options, reporter *archiveprogress.Reporter, archiveRef locator.Ref, ar io.ReadCloser, info archiveReaderInfo) (int, error) {
-	policy := resolvePolicy(opts)
+	policy := opts.ResolvePermissionPolicy()
 	warnings := r.warnZipReadOptions(opts, reporter)
 
 	if opts.ToStdout {

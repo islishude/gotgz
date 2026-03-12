@@ -19,7 +19,7 @@ import (
 
 // runCreateTar writes create-mode output in tar format.
 func (r *Runner) runCreateTar(ctx context.Context, opts cli.Options, archiveRef locator.Ref) (warnings int, retErr error) {
-	metadataPolicy := resolveMetadataPolicy(opts)
+	metadataPolicy := opts.ResolveMetadataPolicy()
 	reporter := archiveprogress.NewReporter(r.stderr, opts.Progress, 0, false, time.Now(), opts.Verbose)
 	defer reporter.Finish()
 

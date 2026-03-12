@@ -72,8 +72,8 @@ func (r *Runner) runExtractTar(ctx context.Context, opts cli.Options, reporter *
 
 // runExtractTarReader extracts archive members from a single tar volume reader.
 func (r *Runner) runExtractTarReader(ctx context.Context, opts cli.Options, reporter *archiveprogress.Reporter, ar io.ReadCloser, info archiveReaderInfo) (int, error) {
-	policy := resolvePolicy(opts)
-	metadataPolicy := resolveMetadataPolicy(opts)
+	policy := opts.ResolvePermissionPolicy()
+	metadataPolicy := opts.ResolveMetadataPolicy()
 	memberMatcher := archivepath.NewMemberMatcher(opts.Members, opts.Wildcards)
 
 	if opts.ToStdout {

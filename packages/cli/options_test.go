@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"os"
 	"reflect"
 	"strings"
 	"testing"
@@ -808,5 +809,52 @@ func TestParseProgressLastFlagWins(t *testing.T) {
 	}
 	if opts.Progress != ProgressAlways {
 		t.Fatalf("progress = %q, want %q", opts.Progress, ProgressAlways)
+	}
+}
+
+func TestResolvePermissionPolicyDefaults(t *testing.T) {
+	opts := Options{NumericOwner: true}
+	got := opts.ResolvePermissionPolicy()
+
+	isRoot := os.Geteuid() == 0
+	if got.SameOwner != isRoot {
+		t.Fatalf("SameOwner = %v, want %v", got.SameOwner, isRoot)
+	}
+	if got.SamePerms != isRoot {
+		t.Fatalf("SamePerms = %v, want %v", got.SamePerms, isRoot)
+	}
+	if !got.NumericOwner {
+		t.Fatalf("NumericOwner should be true")
+	}
+}
+
+func TestResolvePermissionPolicyOverrides(t *testing.T) {
+	sameOwner := false
+	samePerms := true
+	opts := Options{
+		NumericOwner:    false,
+		SameOwner:       &sameOwner,
+		SamePermissions: &samePerms,
+	}
+
+	got := opts.ResolvePermissionPolicy()
+	if got.SameOwner {
+		t.Fatalf("SameOwner should be false")
+	}
+	if !got.SamePerms {
+		t.Fatalf("SamePerms should be true")
+	}
+	if got.NumericOwner {
+		t.Fatalf("NumericOwner should be false")
+	}
+}
+
+func TestResolveMetadataPolicy(t *testing.T) {
+	got := (Options{Xattrs: true, ACL: false}).ResolveMetadataPolicy()
+	if !got.Xattrs {
+		t.Fatalf("Xattrs should be true")
+	}
+	if got.ACL {
+		t.Fatalf("ACL should be false")
 	}
 }
