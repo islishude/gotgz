@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/islishude/gotgz/packages/archivepath"
 	"github.com/islishude/gotgz/packages/archiveprogress"
 	"github.com/islishude/gotgz/packages/archiveutil"
 	"github.com/islishude/gotgz/packages/locator"
@@ -35,7 +36,7 @@ func (r *Runner) addS3MemberZip(ctx context.Context, zw *zip.Writer, ref locator
 }
 
 // addLocalPathZip walks a local member and writes entries into the zip archive.
-func (r *Runner) addLocalPathZip(ctx context.Context, zw *zip.Writer, member, chdir string, excludeMatcher *compiledPathMatcher, verbose bool, reporter *archiveprogress.Reporter) (int, error) {
+func (r *Runner) addLocalPathZip(ctx context.Context, zw *zip.Writer, member, chdir string, excludeMatcher *archivepath.CompiledPathMatcher, verbose bool, reporter *archiveprogress.Reporter) (int, error) {
 	warnings := 0
 	err := walkLocalCreateMember(ctx, member, chdir, excludeMatcher, func(entry localCreateEntry) error {
 		w, err := r.writeLocalZipEntry(ctx, zw, entry, verbose, reporter)

@@ -165,7 +165,7 @@ func (r *Runner) runExtract(ctx context.Context, opts cli.Options) (int, error) 
 }
 
 // processCreateMembers parses create-mode members once and dispatches them by backend kind.
-func (r *Runner) processCreateMembers(ctx context.Context, opts cli.Options, excludeMatcher *compiledPathMatcher, handleS3 func(ref locator.Ref) error, handleLocal func(member string) (int, error)) (int, error) {
+func (r *Runner) processCreateMembers(ctx context.Context, opts cli.Options, excludeMatcher *archivepath.CompiledPathMatcher, handleS3 func(ref locator.Ref) error, handleLocal func(member string) (int, error)) (int, error) {
 	warnings := 0
 	for _, member := range opts.Members {
 		select {
@@ -181,7 +181,7 @@ func (r *Runner) processCreateMembers(ctx context.Context, opts cli.Options, exc
 
 		switch ref.Kind {
 		case locator.KindS3:
-			if matchExcludeWithMatcher(excludeMatcher, ref.Key) {
+			if archivepath.MatchExcludeWithMatcher(excludeMatcher, ref.Key) {
 				continue
 			}
 			if err := handleS3(ref); err != nil {

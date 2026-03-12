@@ -1,38 +1,36 @@
-package engine
+package archivepath
 
 import (
 	"fmt"
 	"os"
 	"path"
 	"strings"
-
-	"github.com/islishude/gotgz/packages/cli"
 )
 
-// compiledPathMatcher matches path-like names against exact strings and globs.
-type compiledPathMatcher struct {
+// CompiledPathMatcher matches path-like names against exact strings and globs.
+type CompiledPathMatcher struct {
 	exact map[string]struct{}
 	globs []string
 }
 
-// newExactPathMatcher stores every value as an exact match.
-func newExactPathMatcher(values []string) *compiledPathMatcher {
+// NewExactPathMatcher stores every value as an exact match.
+func NewExactPathMatcher(values []string) *CompiledPathMatcher {
 	if len(values) == 0 {
 		return nil
 	}
-	m := &compiledPathMatcher{exact: make(map[string]struct{}, len(values))}
+	m := &CompiledPathMatcher{exact: make(map[string]struct{}, len(values))}
 	for _, value := range values {
 		m.exact[value] = struct{}{}
 	}
 	return m
 }
 
-// newCompiledPathMatcher classifies patterns so exact matches avoid path.Match.
-func newCompiledPathMatcher(patterns []string) *compiledPathMatcher {
+// NewCompiledPathMatcher classifies patterns so exact matches avoid path.Match.
+func NewCompiledPathMatcher(patterns []string) *CompiledPathMatcher {
 	if len(patterns) == 0 {
 		return nil
 	}
-	m := &compiledPathMatcher{
+	m := &CompiledPathMatcher{
 		exact: make(map[string]struct{}),
 		globs: make([]string, 0),
 	}
@@ -49,8 +47,8 @@ func newCompiledPathMatcher(patterns []string) *compiledPathMatcher {
 	return m
 }
 
-// matches reports whether name matches at least one stored exact or glob rule.
-func (m *compiledPathMatcher) matches(name string) bool {
+// Matches reports whether name matches at least one stored exact or glob rule.
+func (m *CompiledPathMatcher) Matches(name string) bool {
 	if m == nil {
 		return false
 	}
@@ -65,28 +63,28 @@ func (m *compiledPathMatcher) matches(name string) bool {
 	return false
 }
 
-// newMemberMatcher compiles member filters once for list/extract scans.
-func newMemberMatcher(opts cli.Options) *compiledPathMatcher {
-	if len(opts.Members) == 0 {
+// NewMemberMatcher compiles member filters once for list/extract scans.
+func NewMemberMatcher(members []string, wildcards bool) *CompiledPathMatcher {
+	if len(members) == 0 {
 		return nil
 	}
-	if !opts.Wildcards {
-		return newExactPathMatcher(opts.Members)
+	if !wildcards {
+		return NewExactPathMatcher(members)
 	}
-	return newCompiledPathMatcher(opts.Members)
+	return NewCompiledPathMatcher(members)
 }
 
-// shouldSkipMemberWithMatcher reports whether name should be skipped by the
+// ShouldSkipMemberWithMatcher reports whether name should be skipped by the
 // already-compiled member matcher.
-func shouldSkipMemberWithMatcher(matcher *compiledPathMatcher, name string) bool {
+func ShouldSkipMemberWithMatcher(matcher *CompiledPathMatcher, name string) bool {
 	if matcher == nil {
 		return false
 	}
-	return !matcher.matches(name)
+	return !matcher.Matches(name)
 }
 
-// loadExcludePatterns loads and validates exclude patterns from CLI args and files.
-func loadExcludePatterns(inline []string, files []string) ([]string, error) {
+// LoadExcludePatterns loads and validates exclude patterns from CLI args and files.
+func LoadExcludePatterns(inline []string, files []string) ([]string, error) {
 	out := make([]string, 0, len(inline))
 	for _, pattern := range inline {
 		if _, err := path.Match(pattern, ""); err != nil {
@@ -115,8 +113,8 @@ func loadExcludePatterns(inline []string, files []string) ([]string, error) {
 	return out, nil
 }
 
-// matchExcludeWithMatcher reports whether name matches at least one compiled
+// MatchExcludeWithMatcher reports whether name matches at least one compiled
 // exclude pattern.
-func matchExcludeWithMatcher(matcher *compiledPathMatcher, name string) bool {
-	return matcher.matches(name)
+func MatchExcludeWithMatcher(matcher *CompiledPathMatcher, name string) bool {
+	return matcher.Matches(name)
 }

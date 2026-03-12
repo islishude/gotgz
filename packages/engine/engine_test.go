@@ -142,7 +142,7 @@ func TestProcessCreateMembers(t *testing.T) {
 	warnings, err := (&Runner{}).processCreateMembers(
 		ctx,
 		opts,
-		newCompiledPathMatcher([]string{"skip.txt"}),
+		archivepath.NewCompiledPathMatcher([]string{"skip.txt"}),
 		func(ref locator.Ref) error {
 			seen = append(seen, "s3:"+ref.Key)
 			return nil
@@ -444,7 +444,7 @@ func TestDecodeMetadataForExtract(t *testing.T) {
 }
 
 func TestLoadExcludePatternsRejectsInvalidInlinePattern(t *testing.T) {
-	_, err := loadExcludePatterns([]string{"["}, nil)
+	_, err := archivepath.LoadExcludePatterns([]string{"["}, nil)
 	if err == nil {
 		t.Fatalf("expected invalid pattern error")
 	}
@@ -460,7 +460,7 @@ func TestLoadExcludePatternsRejectsInvalidPatternInFile(t *testing.T) {
 		t.Fatalf("write patterns file: %v", err)
 	}
 
-	_, err := loadExcludePatterns(nil, []string{patternsFile})
+	_, err := archivepath.LoadExcludePatterns(nil, []string{patternsFile})
 	if err == nil {
 		t.Fatalf("expected invalid pattern error")
 	}

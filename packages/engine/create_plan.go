@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/islishude/gotgz/packages/archivepath"
 	"github.com/islishude/gotgz/packages/archiveprogress"
 	"github.com/islishude/gotgz/packages/cli"
 	"github.com/islishude/gotgz/packages/locator"
@@ -26,7 +27,7 @@ type createPlanMember struct {
 
 // buildCreatePlan parses create members once, caches local walk results, and
 // computes progress totals when possible.
-func (r *Runner) buildCreatePlan(ctx context.Context, opts cli.Options, excludeMatcher *compiledPathMatcher) (*createPlan, error) {
+func (r *Runner) buildCreatePlan(ctx context.Context, opts cli.Options, excludeMatcher *archivepath.CompiledPathMatcher) (*createPlan, error) {
 	plan := &createPlan{
 		totalKnown: true,
 		members:    make([]createPlanMember, 0, len(opts.Members)),
@@ -46,7 +47,7 @@ func (r *Runner) buildCreatePlan(ctx context.Context, opts cli.Options, excludeM
 
 		switch ref.Kind {
 		case locator.KindS3:
-			if matchExcludeWithMatcher(excludeMatcher, ref.Key) {
+			if archivepath.MatchExcludeWithMatcher(excludeMatcher, ref.Key) {
 				continue
 			}
 			plan.members = append(plan.members, createPlanMember{ref: ref})
@@ -81,7 +82,7 @@ func (r *Runner) buildCreatePlan(ctx context.Context, opts cli.Options, excludeM
 
 // buildCreatePlanIfEnabled creates a reusable plan only when progress output is
 // active and total-byte estimation is therefore useful.
-func (r *Runner) buildCreatePlanIfEnabled(ctx context.Context, opts cli.Options, excludeMatcher *compiledPathMatcher, reporter *archiveprogress.Reporter) (*createPlan, error) {
+func (r *Runner) buildCreatePlanIfEnabled(ctx context.Context, opts cli.Options, excludeMatcher *archivepath.CompiledPathMatcher, reporter *archiveprogress.Reporter) (*createPlan, error) {
 	if reporter == nil || !reporter.Enabled() {
 		return nil, nil
 	}

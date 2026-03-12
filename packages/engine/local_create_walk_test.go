@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/islishude/gotgz/packages/archivepath"
 )
 
 func TestWalkLocalCreateMember(t *testing.T) {
@@ -21,7 +23,7 @@ func TestWalkLocalCreateMember(t *testing.T) {
 	}
 
 	var seen []string
-	err := walkLocalCreateMember(context.Background(), "dir", root, newCompiledPathMatcher([]string{"dir/skipme"}), func(entry localCreateEntry) error {
+	err := walkLocalCreateMember(context.Background(), "dir", root, archivepath.NewCompiledPathMatcher([]string{"dir/skipme"}), func(entry localCreateEntry) error {
 		seen = append(seen, entry.archiveName)
 		return nil
 	})

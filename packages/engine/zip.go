@@ -50,11 +50,11 @@ func (r *Runner) runCreateZip(ctx context.Context, opts cli.Options, archiveRef 
 		})
 	}
 
-	excludes, err := loadExcludePatterns(opts.Exclude, opts.ExcludeFrom)
+	excludes, err := archivepath.LoadExcludePatterns(opts.Exclude, opts.ExcludeFrom)
 	if err != nil {
 		return warnings, err
 	}
-	excludeMatcher := newCompiledPathMatcher(excludes)
+	excludeMatcher := archivepath.NewCompiledPathMatcher(excludes)
 	plan, err := r.buildCreatePlanIfEnabled(ctx, opts, excludeMatcher, reporter)
 	if err != nil {
 		return warnings, err
@@ -91,7 +91,7 @@ func (r *Runner) runCreateZip(ctx context.Context, opts cli.Options, archiveRef 
 func (r *Runner) runListZip(ctx context.Context, opts cli.Options, reporter *archiveprogress.Reporter, archiveRef locator.Ref, ar io.ReadCloser, info archiveReaderInfo) (int, error) {
 	warnings := r.warnZipReadOptions(opts, reporter)
 	reporter.SetTotal(info.Size, info.SizeKnown)
-	memberMatcher := newMemberMatcher(opts)
+	memberMatcher := archivepath.NewMemberMatcher(opts.Members, opts.Wildcards)
 	zipWarnings, err := r.withZipReader(ctx, archiveRef, ar, info, reporter, func(zr *zip.Reader) (int, error) {
 		innerWarnings := 0
 		for _, zf := range zr.File {
@@ -100,7 +100,7 @@ func (r *Runner) runListZip(ctx context.Context, opts cli.Options, reporter *arc
 				return innerWarnings, ctx.Err()
 			default:
 			}
-			if shouldSkipMemberWithMatcher(memberMatcher, zf.Name) {
+			if archivepath.ShouldSkipMemberWithMatcher(memberMatcher, zf.Name) {
 				continue
 			}
 			reporter.BeforeExternalLineOutput()
@@ -118,10 +118,10 @@ func (r *Runner) runExtractZip(ctx context.Context, opts cli.Options, reporter *
 	warnings := r.warnZipReadOptions(opts, reporter)
 
 	if opts.ToStdout {
-		memberMatcher := newMemberMatcher(opts)
+		memberMatcher := archivepath.NewMemberMatcher(opts.Members, opts.Wildcards)
 		zipWarnings, err := r.withZipReader(ctx, archiveRef, ar, info, nil, func(zr *zip.Reader) (int, error) {
 			total := totalZipPayloadBytes(zr, func(zf *zip.File) bool {
-				if shouldSkipMemberWithMatcher(memberMatcher, zf.Name) {
+				if archivepath.ShouldSkipMemberWithMatcher(memberMatcher, zf.Name) {
 					return false
 				}
 				name, ok := archivepath.StripPathComponents(zf.Name, opts.StripComponents)
@@ -148,11 +148,11 @@ func (r *Runner) runExtractZip(ctx context.Context, opts cli.Options, reporter *
 	if parsedTarget.Kind == locator.KindLocal || parsedTarget.Kind == locator.KindStdio {
 		safetyCache = archivepath.NewPathSafetyCache()
 	}
-	memberMatcher := newMemberMatcher(opts)
+	memberMatcher := archivepath.NewMemberMatcher(opts.Members, opts.Wildcards)
 
 	zipWarnings, err := r.withZipReader(ctx, archiveRef, ar, info, nil, func(zr *zip.Reader) (int, error) {
 		total := totalZipPayloadBytes(zr, func(zf *zip.File) bool {
-			if shouldSkipMemberWithMatcher(memberMatcher, zf.Name) {
+			if archivepath.ShouldSkipMemberWithMatcher(memberMatcher, zf.Name) {
 				return false
 			}
 			name, ok := archivepath.StripPathComponents(zf.Name, opts.StripComponents)
@@ -167,7 +167,7 @@ func (r *Runner) runExtractZip(ctx context.Context, opts cli.Options, reporter *
 				return innerWarnings, ctx.Err()
 			default:
 			}
-			if shouldSkipMemberWithMatcher(memberMatcher, zf.Name) {
+			if archivepath.ShouldSkipMemberWithMatcher(memberMatcher, zf.Name) {
 				continue
 			}
 			extractName, ok := archivepath.StripPathComponents(zf.Name, opts.StripComponents)

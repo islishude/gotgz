@@ -7,6 +7,8 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
+
+	"github.com/islishude/gotgz/packages/archivepath"
 )
 
 // localCreateEntry describes one local filesystem entry normalized for archive creation.
@@ -17,7 +19,7 @@ type localCreateEntry struct {
 }
 
 // walkLocalCreateMember normalizes one local create member and visits all non-excluded entries.
-func walkLocalCreateMember(ctx context.Context, member string, chdir string, excludeMatcher *compiledPathMatcher, visit func(entry localCreateEntry) error) error {
+func walkLocalCreateMember(ctx context.Context, member string, chdir string, excludeMatcher *archivepath.CompiledPathMatcher, visit func(entry localCreateEntry) error) error {
 	basePath := member
 	if chdir != "" {
 		basePath = filepath.Join(chdir, member)
@@ -40,7 +42,7 @@ func walkLocalCreateMember(ctx context.Context, member string, chdir string, exc
 		if err != nil {
 			return err
 		}
-		if matchExcludeWithMatcher(excludeMatcher, archiveName) {
+		if archivepath.MatchExcludeWithMatcher(excludeMatcher, archiveName) {
 			if d.IsDir() {
 				return filepath.SkipDir
 			}

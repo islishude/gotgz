@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/islishude/gotgz/packages/archive"
+	"github.com/islishude/gotgz/packages/archivepath"
 	"github.com/islishude/gotgz/packages/archiveprogress"
 	"github.com/islishude/gotgz/packages/archiveutil"
 	"github.com/islishude/gotgz/packages/cli"
@@ -36,11 +37,11 @@ func (r *Runner) runCreateTar(ctx context.Context, opts cli.Options, archiveRef 
 		}
 	}()
 
-	excludes, err := loadExcludePatterns(opts.Exclude, opts.ExcludeFrom)
+	excludes, err := archivepath.LoadExcludePatterns(opts.Exclude, opts.ExcludeFrom)
 	if err != nil {
 		return 0, err
 	}
-	excludeMatcher := newCompiledPathMatcher(excludes)
+	excludeMatcher := archivepath.NewCompiledPathMatcher(excludes)
 	plan, err := r.buildCreatePlanIfEnabled(ctx, opts, excludeMatcher, reporter)
 	if err != nil {
 		return 0, err
@@ -94,7 +95,7 @@ func (r *Runner) addS3Member(ctx context.Context, tw tarArchiveWriter, ref locat
 
 // addLocalPath walks one local member path and writes entries into the tar
 // stream, returning any metadata warnings emitted along the way.
-func (r *Runner) addLocalPath(ctx context.Context, tw tarArchiveWriter, member, chdir string, excludeMatcher *compiledPathMatcher, verbose bool, metadataPolicy MetadataPolicy, reporter *archiveprogress.Reporter) (int, error) {
+func (r *Runner) addLocalPath(ctx context.Context, tw tarArchiveWriter, member, chdir string, excludeMatcher *archivepath.CompiledPathMatcher, verbose bool, metadataPolicy MetadataPolicy, reporter *archiveprogress.Reporter) (int, error) {
 	warnings := 0
 	err := walkLocalCreateMember(ctx, member, chdir, excludeMatcher, func(entry localCreateEntry) error {
 		w, err := r.writeLocalTarEntry(ctx, tw, entry, verbose, metadataPolicy, reporter)
@@ -106,7 +107,7 @@ func (r *Runner) addLocalPath(ctx context.Context, tw tarArchiveWriter, member, 
 
 // collectLocalCreateEntries walks one local member once and returns the
 // normalized archive entries together with their total regular-file size.
-func (r *Runner) collectLocalCreateEntries(ctx context.Context, member, chdir string, excludeMatcher *compiledPathMatcher) ([]localCreateEntry, int64, error) {
+func (r *Runner) collectLocalCreateEntries(ctx context.Context, member, chdir string, excludeMatcher *archivepath.CompiledPathMatcher) ([]localCreateEntry, int64, error) {
 	entries := make([]localCreateEntry, 0)
 	var total int64
 	err := walkLocalCreateMember(ctx, member, chdir, excludeMatcher, func(entry localCreateEntry) error {
