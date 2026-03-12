@@ -178,6 +178,49 @@ func TestExplicitCompressionMismatch(t *testing.T) {
 	}
 }
 
+func TestNewReaderAllowsShortProbe(t *testing.T) {
+	payload := []byte("plain")
+	r, detected, err := NewReader(io.NopCloser(bytes.NewReader(payload)), Auto, "archive.tar", "")
+	if err != nil {
+		t.Fatalf("NewReader() error = %v", err)
+	}
+	if detected != None {
+		t.Fatalf("detected = %q, want none", detected)
+	}
+	got, err := io.ReadAll(r)
+	if err != nil {
+		t.Fatalf("ReadAll() error = %v", err)
+	}
+	if err := r.Close(); err != nil {
+		t.Fatalf("Close() error = %v", err)
+	}
+	if !bytes.Equal(got, payload) {
+		t.Fatalf("payload mismatch")
+	}
+}
+
+func TestNewReaderReturnsProbeError(t *testing.T) {
+	probeErr := io.ErrClosedPipe
+	_, detected, err := NewReader(&errReadCloser{err: probeErr}, Auto, "archive.tar", "")
+	if err == nil {
+		t.Fatalf("expected probe error")
+	}
+	if detected != Auto {
+		t.Fatalf("detected = %q, want auto", detected)
+	}
+	if err != probeErr {
+		t.Fatalf("error = %v, want %v", err, probeErr)
+	}
+}
+
 type nopWriteCloser struct{ io.Writer }
 
 func (n nopWriteCloser) Close() error { return nil }
+
+type errReadCloser struct {
+	err error
+}
+
+func (r *errReadCloser) Read([]byte) (int, error) { return 0, r.err }
+
+func (r *errReadCloser) Close() error { return nil }

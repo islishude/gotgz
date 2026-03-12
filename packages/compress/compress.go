@@ -126,7 +126,10 @@ func NewWriter(dst io.WriteCloser, t Type, opts WriterOptions) (io.WriteCloser, 
 // Auto detection uses this order: magic bytes, filename hint extension, then content type.
 func NewReader(src io.ReadCloser, explicit Type, hint string, contentType string) (io.ReadCloser, Type, error) {
 	br := bufio.NewReader(src)
-	magic, _ := br.Peek(8)
+	magic, err := br.Peek(8)
+	if err != nil && err != io.EOF {
+		return nil, Auto, err
+	}
 	detected := detectByMagic(magic)
 
 	if explicit != Auto {
