@@ -10,7 +10,6 @@ import (
 	"os"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
@@ -44,8 +43,6 @@ type ListedObject struct {
 	Key  string
 	Size int64
 }
-
-const createdAtObjectTagKey = "gotgz-created-at"
 
 func New(ctx context.Context) (*Store, error) {
 	retryMax, ok := intFromEnv("GOTGZ_S3_MAX_RETRIES")
@@ -164,7 +161,7 @@ func (s *Store) OpenWriter(ctx context.Context, ref locator.Ref, metadata map[st
 	if cacheControl := strings.TrimSpace(ref.CacheControl); cacheControl != "" {
 		in.CacheControl = new(cacheControl)
 	}
-	if tagging := encodeObjectTagging(ref.ObjectTags, time.Now().UTC()); tagging != "" {
+	if tagging := encodeObjectTagging(ref.ObjectTags); tagging != "" {
 		in.Tagging = new(tagging)
 	}
 	s.applyEncryption(in)
@@ -200,7 +197,7 @@ func (s *Store) UploadStream(ctx context.Context, ref locator.Ref, body io.Reade
 	if cacheControl := strings.TrimSpace(ref.CacheControl); cacheControl != "" {
 		in.CacheControl = new(cacheControl)
 	}
-	if tagging := encodeObjectTagging(ref.ObjectTags, time.Now().UTC()); tagging != "" {
+	if tagging := encodeObjectTagging(ref.ObjectTags); tagging != "" {
 		in.Tagging = new(tagging)
 	}
 	s.applyEncryption(in)
@@ -298,16 +295,14 @@ func defaultString(v, def string) string {
 }
 
 // encodeObjectTagging builds the S3 object tagging header string for one upload.
-func encodeObjectTagging(tags map[string]string, createdAt time.Time) string {
+func encodeObjectTagging(tags map[string]string) string {
 	values := make(url.Values, len(tags))
 	for key, value := range tags {
 		trimmedKey := strings.TrimSpace(key)
-		if trimmedKey == "" || trimmedKey == createdAtObjectTagKey {
+		if trimmedKey == "" {
 			continue
 		}
-		trimmedValue := strings.TrimSpace(value)
-		values.Set(trimmedKey, trimmedValue)
+		values.Set(trimmedKey, strings.TrimSpace(value))
 	}
-	values.Set(createdAtObjectTagKey, createdAt.UTC().Format(time.RFC3339))
 	return values.Encode()
 }

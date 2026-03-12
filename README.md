@@ -15,7 +15,7 @@ A Linux `tar`-compatible CLI tool written in Go, with native AWS S3 support as b
 - **Path stripping on extract** — `--strip-components <count>` removes leading path segments
 - **Progress + timing** — byte-based progress with ETA and elapsed time on TTY (or force with `--progress`)
 - **S3 encryption** — configurable server-side encryption (AES256, SSE-KMS)
-- **S3 object tags** — repeat `--s3-tag key=value` on S3 writes; `gotgz-created-at` is added automatically
+- **S3 object tags** — repeat `--s3-tag key=value` on S3 writes
 
 ## Installation
 
@@ -64,7 +64,7 @@ gotgz -cvf s3://my-bucket/backups/archive.tar.gz dir1 file1.txt
 # Local files → S3 with Cache-Control
 gotgz -cvf s3://my-bucket/backups/archive.tar.gz --s3-cache-control "max-age=3600,public" dir1 file1.txt
 
-# Local files → S3 with object tags (gotgz-created-at is added automatically)
+# Local files → S3 with object tags
 gotgz -cvf s3://my-bucket/backups/archive.tar.gz --s3-tag team=archive --s3-tag env=prod dir1 file1.txt
 
 # S3 objects → local archive
@@ -104,7 +104,7 @@ gotgz -xvf archive.tar -C s3://my-bucket/restored/
 # Local archive → S3 with Cache-Control
 gotgz -xvf archive.tar -C s3://my-bucket/restored/ --s3-cache-control no-store
 
-# Local archive → S3 with object tags (gotgz-created-at is added automatically)
+# Local archive → S3 with object tags
 gotgz -xvf archive.tar -C s3://my-bucket/restored/ --s3-tag team=restore --s3-tag env=prod
 ```
 
@@ -166,20 +166,20 @@ gotgz -cvzf "s3://my-bucket/backups/archive.tgz?env=prod&owner=platform" dir/
 ```
 
 Use `--s3-cache-control` to set the S3 `Cache-Control` header for archive uploads (`-f s3://...`) and extract targets (`-C s3://...`) without URL-encoding.
-Use repeatable `--s3-tag key=value` flags to add S3 object tags for archive uploads and extract targets. Every S3 write also adds the built-in `gotgz-created-at=<RFC3339 UTC>` tag automatically.
+Use repeatable `--s3-tag key=value` flags to add S3 object tags for archive uploads and extract targets.
 
 ### Required S3 permissions
 
 `gotgz` only uses a small set of S3 data-plane permissions. The exact IAM policy depends on which S3 features you use:
 
 - **Read S3 archives or S3 member objects**: `s3:GetObject`
-- **Write S3 archives (`-f s3://...`) or extract to S3 (`-C s3://...`)**: `s3:PutObject`, `s3:PutObjectTagging`, `s3:AbortMultipartUpload`
+- **Write S3 archives (`-f s3://...`) or extract to S3 (`-C s3://...`)**: `s3:PutObject`, `s3:AbortMultipartUpload`
+- **Write S3 object tags with `--s3-tag`**: `s3:PutObjectTagging`
 - **Open split archives from S3 (`*.part0001.tar*`)**: `s3:ListBucket`
 
 Notes:
 
 - `gotgz` uses `GetObject` for normal reads and range reads, and `HeadObject` for metadata/progress checks. In IAM, `HeadObject` is covered by `s3:GetObject`; there is no separate `s3:HeadObject` action.
-- `gotgz` always writes the built-in object tag `gotgz-created-at`, so S3 write paths require `s3:PutObjectTagging` even if you do not pass `--s3-tag`.
 - Large or streaming S3 writes may use multipart upload. For these uploads, S3 still maps create/upload/complete calls to `s3:PutObject`, and failed uploads are cleaned up with `s3:AbortMultipartUpload`.
 - `s3:ListBucket` is only needed when `gotgz` must discover sibling split volumes under the same prefix.
 - If you use SSE-KMS (`GOTGZ_S3_SSE=aws:kms`) or the bucket enforces a customer-managed KMS key, you also need KMS permissions on that key, typically `kms:Decrypt` and `kms:GenerateDataKey`.
@@ -202,7 +202,6 @@ Example bucket policy for a bucket-based read/write workflow:
       "Action": [
         "s3:GetObject",
         "s3:PutObject",
-        "s3:PutObjectTagging",
         "s3:AbortMultipartUpload"
       ],
       "Resource": "arn:aws:s3:::my-bucket/*"
@@ -211,7 +210,7 @@ Example bucket policy for a bucket-based read/write workflow:
 }
 ```
 
-If your workflow is read-only or write-only, remove the actions you do not need. For access point ARNs, the same actions apply, but the IAM `Resource` values must use the corresponding access-point object ARNs.
+If your workflow is read-only or write-only, remove the actions you do not need. If you use `--s3-tag`, add `s3:PutObjectTagging` to the object actions. For access point ARNs, the same actions apply, but the IAM `Resource` values must use the corresponding access-point object ARNs.
 
 ### HTTP archive source
 

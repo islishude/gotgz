@@ -9,7 +9,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
@@ -113,23 +112,6 @@ func getObjectTags(t *testing.T, ctx context.Context, client *awss3.Client, buck
 		tags[aws.ToString(tag.Key)] = aws.ToString(tag.Value)
 	}
 	return tags
-}
-
-// assertCreatedAtTag verifies that the built-in gotgz-created-at tag is present
-// and encoded as an RFC3339 UTC timestamp.
-func assertCreatedAtTag(t *testing.T, tags map[string]string) {
-	t.Helper()
-	value, ok := tags["gotgz-created-at"]
-	if !ok {
-		t.Fatalf("missing gotgz-created-at tag in %#v", tags)
-	}
-	parsed, err := time.Parse(time.RFC3339, value)
-	if err != nil {
-		t.Fatalf("gotgz-created-at = %q, want RFC3339 time: %v", value, err)
-	}
-	if parsed.Location() != time.UTC {
-		t.Fatalf("gotgz-created-at location = %v, want UTC", parsed.Location())
-	}
 }
 
 // newRunnerWithEndpoint creates a Runner pointing at the given S3 endpoint.
@@ -847,8 +829,7 @@ func TestS3ArchiveUploadObjectTagsFromFlag(t *testing.T) {
 		Chdir:          root,
 		S3CacheControl: "max-age=300,public",
 		S3ObjectTags: map[string]string{
-			"team":             "archive",
-			"gotgz-created-at": "user-value-ignored",
+			"team": "archive",
 		},
 		Members: []string{"data"},
 	}
@@ -880,9 +861,8 @@ func TestS3ArchiveUploadObjectTagsFromFlag(t *testing.T) {
 	if tags["team"] != "archive" {
 		t.Fatalf("tags[team]=%q, want %q", tags["team"], "archive")
 	}
-	assertCreatedAtTag(t, tags)
-	if tags["gotgz-created-at"] == "user-value-ignored" {
-		t.Fatalf("built-in created-at tag should override user value")
+	if _, ok := tags["gotgz-created-at"]; ok {
+		t.Fatalf("unexpected default gotgz-created-at tag in %#v", tags)
 	}
 }
 
@@ -1047,7 +1027,9 @@ func TestS3ExtractToS3ObjectTagsFromFlag(t *testing.T) {
 	if tags["team"] != "restore" {
 		t.Fatalf("tags[team]=%q, want %q", tags["team"], "restore")
 	}
-	assertCreatedAtTag(t, tags)
+	if _, ok := tags["gotgz-created-at"]; ok {
+		t.Fatalf("unexpected default gotgz-created-at tag in %#v", tags)
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -1154,7 +1136,9 @@ func TestS3ExtractZipToS3ObjectTagsFromFlag(t *testing.T) {
 	if tags["team"] != "zip-restore" {
 		t.Fatalf("tags[team]=%q, want %q", tags["team"], "zip-restore")
 	}
-	assertCreatedAtTag(t, tags)
+	if _, ok := tags["gotgz-created-at"]; ok {
+		t.Fatalf("unexpected default gotgz-created-at tag in %#v", tags)
+	}
 }
 
 // ---------------------------------------------------------------------------
