@@ -391,6 +391,88 @@ func TestCreateLocalSplitSingleVolumeStillUsesPart0001(t *testing.T) {
 	}
 }
 
+func TestCreateExtractLocalSplitBzip2RoundTrip(t *testing.T) {
+	root := t.TempDir()
+	archive := filepath.Join(root, "bundle.tar.bz2")
+	out := filepath.Join(root, "out")
+
+	if err := os.WriteFile(filepath.Join(root, "one.txt"), []byte("one"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "two.txt"), []byte("two"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	r, err := New(context.Background(), io.Discard, io.Discard)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	create := cli.Options{
+		Mode:           cli.ModeCreate,
+		Archive:        archive,
+		Chdir:          root,
+		Compression:    cli.CompressionBzip2,
+		SplitSizeBytes: 1,
+		Members:        []string{"one.txt", "two.txt"},
+	}
+	if got := r.Run(context.Background(), create); got.ExitCode != ExitSuccess {
+		t.Fatalf("create exit=%d err=%v", got.ExitCode, got.Err)
+	}
+
+	firstPart := filepath.Join(root, "bundle.part0001.tar.bz2")
+	secondPart := filepath.Join(root, "bundle.part0002.tar.bz2")
+	if _, err := os.Stat(firstPart); err != nil {
+		t.Fatalf("expected first split archive: %v", err)
+	}
+	if _, err := os.Stat(secondPart); err != nil {
+		t.Fatalf("expected second split archive: %v", err)
+	}
+
+	var listBuf bytes.Buffer
+	rList, err := New(context.Background(), &listBuf, io.Discard)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	list := cli.Options{Mode: cli.ModeList, Archive: firstPart}
+	if got := rList.Run(context.Background(), list); got.ExitCode != ExitSuccess {
+		t.Fatalf("list exit=%d err=%v", got.ExitCode, got.Err)
+	}
+	for _, want := range []string{"one.txt", "two.txt"} {
+		if !strings.Contains(listBuf.String(), want) {
+			t.Fatalf("split bzip2 listing missing %q:\n%s", want, listBuf.String())
+		}
+	}
+
+	if err := os.MkdirAll(out, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	rExtract, err := New(context.Background(), io.Discard, io.Discard)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	extract := cli.Options{Mode: cli.ModeExtract, Archive: firstPart, Chdir: out}
+	if got := rExtract.Run(context.Background(), extract); got.ExitCode != ExitSuccess {
+		t.Fatalf("extract exit=%d err=%v", got.ExitCode, got.Err)
+	}
+
+	for _, tc := range []struct {
+		name string
+		want string
+	}{
+		{name: "one.txt", want: "one"},
+		{name: "two.txt", want: "two"},
+	} {
+		b, err := os.ReadFile(filepath.Join(out, tc.name))
+		if err != nil {
+			t.Fatalf("read %s: %v", tc.name, err)
+		}
+		if string(b) != tc.want {
+			t.Fatalf("%s = %q, want %q", tc.name, string(b), tc.want)
+		}
+	}
+}
+
 func TestListSplitArchiveFailsWhenVolumeMissing(t *testing.T) {
 	root := t.TempDir()
 	archive := filepath.Join(root, "bundle.tar")
