@@ -283,3 +283,139 @@ func TestProgressAlwaysUsesCombinedTotalForSplitArchives(t *testing.T) {
 		t.Fatalf("final progress line = %q, want elapsed output", final)
 	}
 }
+
+func TestProgressAlwaysUsesCombinedTotalForSplitZipArchives(t *testing.T) {
+	root := t.TempDir()
+	archive := filepath.Join(root, "bundle.zip")
+	for _, tc := range []struct {
+		name string
+		body string
+	}{
+		{name: "one.txt", body: "one"},
+		{name: "two.txt", body: "two"},
+	} {
+		if err := os.WriteFile(filepath.Join(root, tc.name), []byte(tc.body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	rCreate, err := New(context.Background(), io.Discard, io.Discard)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	create := cli.Options{
+		Mode:           cli.ModeCreate,
+		Archive:        archive,
+		Chdir:          root,
+		SplitSizeBytes: 1,
+		Members:        []string{"one.txt", "two.txt"},
+	}
+	if got := rCreate.Run(context.Background(), create); got.ExitCode != ExitSuccess {
+		t.Fatalf("create exit=%d err=%v", got.ExitCode, got.Err)
+	}
+
+	var total int64
+	for _, path := range []string{
+		filepath.Join(root, "bundle.part0001.zip"),
+		filepath.Join(root, "bundle.part0002.zip"),
+	} {
+		info, err := os.Stat(path)
+		if err != nil {
+			t.Fatalf("Stat(%s) error = %v", path, err)
+		}
+		total += info.Size()
+	}
+
+	var stderr bytes.Buffer
+	rList, err := New(context.Background(), io.Discard, &stderr)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	list := cli.Options{
+		Mode:     cli.ModeList,
+		Archive:  filepath.Join(root, "bundle.part0001.zip"),
+		Progress: cli.ProgressAlways,
+	}
+	if got := rList.Run(context.Background(), list); got.ExitCode != ExitSuccess {
+		t.Fatalf("list exit=%d err=%v", got.ExitCode, got.Err)
+	}
+
+	final := stderr.String()
+	index := strings.LastIndex(final, "gotgz:")
+	if index < 0 {
+		t.Fatalf("stderr missing progress output:\n%s", final)
+	}
+	final = final[index:]
+	want := archiveprogress.FormatBytes(total) + "/" + archiveprogress.FormatBytes(total)
+	if !strings.Contains(final, want) {
+		t.Fatalf("final progress line = %q, want combined total %q", final, want)
+	}
+	if !strings.Contains(final, "elapsed ") {
+		t.Fatalf("final progress line = %q, want elapsed output", final)
+	}
+}
+
+func TestProgressAlwaysUsesPayloadTotalForSplitZipExtract(t *testing.T) {
+	root := t.TempDir()
+	archive := filepath.Join(root, "bundle.zip")
+	out := filepath.Join(root, "out")
+	for _, tc := range []struct {
+		name string
+		body string
+	}{
+		{name: "one.txt", body: "one"},
+		{name: "two.txt", body: "two"},
+	} {
+		if err := os.WriteFile(filepath.Join(root, tc.name), []byte(tc.body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	rCreate, err := New(context.Background(), io.Discard, io.Discard)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	create := cli.Options{
+		Mode:           cli.ModeCreate,
+		Archive:        archive,
+		Chdir:          root,
+		SplitSizeBytes: 1,
+		Members:        []string{"one.txt", "two.txt"},
+	}
+	if got := rCreate.Run(context.Background(), create); got.ExitCode != ExitSuccess {
+		t.Fatalf("create exit=%d err=%v", got.ExitCode, got.Err)
+	}
+
+	if err := os.MkdirAll(out, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	var stderr bytes.Buffer
+	rExtract, err := New(context.Background(), io.Discard, &stderr)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	extract := cli.Options{
+		Mode:     cli.ModeExtract,
+		Archive:  filepath.Join(root, "bundle.part0001.zip"),
+		Chdir:    out,
+		Progress: cli.ProgressAlways,
+	}
+	if got := rExtract.Run(context.Background(), extract); got.ExitCode != ExitSuccess {
+		t.Fatalf("extract exit=%d err=%v", got.ExitCode, got.Err)
+	}
+
+	final := stderr.String()
+	index := strings.LastIndex(final, "gotgz:")
+	if index < 0 {
+		t.Fatalf("stderr missing progress output:\n%s", final)
+	}
+	final = final[index:]
+	want := archiveprogress.FormatBytes(int64(len("one")+len("two"))) + "/" + archiveprogress.FormatBytes(int64(len("one")+len("two")))
+	if !strings.Contains(final, want) {
+		t.Fatalf("final progress line = %q, want payload total %q", final, want)
+	}
+	if !strings.Contains(final, "elapsed ") {
+		t.Fatalf("final progress line = %q, want elapsed output", final)
+	}
+}

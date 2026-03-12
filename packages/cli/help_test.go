@@ -45,6 +45,7 @@ func TestHelpTextMentionsZipAutoDetectAndWarnings(t *testing.T) {
 		"--s3-cache-control <value>",
 		"--s3-tag <key=value>",
 		"--split-size <size>",
+		"Split archive output into partNNNN volumes (.zip and tar-family, create mode only)",
 	}
 	for _, want := range wantContains {
 		if !strings.Contains(got, want) {

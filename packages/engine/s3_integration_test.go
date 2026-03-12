@@ -359,6 +359,201 @@ func TestS3SplitArchiveRoundTrip(t *testing.T) {
 	}
 }
 
+func TestS3SplitBzip2ArchiveRoundTrip(t *testing.T) {
+	ctx := context.Background()
+	ep := s3Endpoint(t)
+	client, bucket := setupS3Bucket(t, ctx, ep)
+
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "one.txt"), []byte("one"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "two.txt"), []byte("two"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	archiveURI := fmt.Sprintf("s3://%s/archives/split.tar.bz2", bucket)
+
+	r := newRunnerWithEndpoint(t, ep, io.Discard, io.Discard)
+	create := cli.Options{
+		Mode:           cli.ModeCreate,
+		Archive:        archiveURI,
+		Chdir:          root,
+		Compression:    cli.CompressionBzip2,
+		SplitSizeBytes: 1,
+		Members:        []string{"one.txt", "two.txt"},
+	}
+	res := r.Run(ctx, create)
+	if res.ExitCode != ExitSuccess {
+		t.Fatalf("create exit=%d err=%v", res.ExitCode, res.Err)
+	}
+
+	list, err := client.ListObjectsV2(ctx, &awss3.ListObjectsV2Input{
+		Bucket: new(bucket),
+		Prefix: new("archives/split.part"),
+	})
+	if err != nil {
+		t.Fatalf("list split objects: %v", err)
+	}
+	if len(list.Contents) != 2 {
+		t.Fatalf("split object count = %d, want 2", len(list.Contents))
+	}
+
+	firstKey := "archives/split.part0001.tar.bz2"
+	secondKey := "archives/split.part0002.tar.bz2"
+	var foundFirst, foundSecond bool
+	for _, obj := range list.Contents {
+		switch aws.ToString(obj.Key) {
+		case firstKey:
+			foundFirst = true
+		case secondKey:
+			foundSecond = true
+		}
+	}
+	if !foundFirst || !foundSecond {
+		t.Fatalf("split objects missing keys: first=%v second=%v", foundFirst, foundSecond)
+	}
+
+	head, err := client.HeadObject(ctx, &awss3.HeadObjectInput{
+		Bucket: new(bucket),
+		Key:    new(firstKey),
+	})
+	if err != nil {
+		t.Fatalf("head split object: %v", err)
+	}
+	if got := aws.ToString(head.ContentType); got != "application/x-bzip2" {
+		t.Fatalf("content type = %q, want %q", got, "application/x-bzip2")
+	}
+
+	out := filepath.Join(root, "out")
+	if err := os.MkdirAll(out, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	rExtract := newRunnerWithEndpoint(t, ep, io.Discard, io.Discard)
+	extract := cli.Options{
+		Mode:    cli.ModeExtract,
+		Archive: fmt.Sprintf("s3://%s/%s", bucket, firstKey),
+		Chdir:   out,
+	}
+	res = rExtract.Run(ctx, extract)
+	if res.ExitCode != ExitSuccess {
+		t.Fatalf("extract exit=%d err=%v", res.ExitCode, res.Err)
+	}
+
+	for _, tc := range []struct {
+		name string
+		want string
+	}{
+		{name: "one.txt", want: "one"},
+		{name: "two.txt", want: "two"},
+	} {
+		b, err := os.ReadFile(filepath.Join(out, tc.name))
+		if err != nil {
+			t.Fatalf("read %s: %v", tc.name, err)
+		}
+		if string(b) != tc.want {
+			t.Fatalf("%s = %q, want %q", tc.name, string(b), tc.want)
+		}
+	}
+}
+
+func TestS3SplitZipArchiveRoundTrip(t *testing.T) {
+	ctx := context.Background()
+	ep := s3Endpoint(t)
+	client, bucket := setupS3Bucket(t, ctx, ep)
+
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "one.txt"), []byte("one"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "two.txt"), []byte("two"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	archiveURI := fmt.Sprintf("s3://%s/archives/split.zip", bucket)
+
+	r := newRunnerWithEndpoint(t, ep, io.Discard, io.Discard)
+	create := cli.Options{
+		Mode:           cli.ModeCreate,
+		Archive:        archiveURI,
+		Chdir:          root,
+		SplitSizeBytes: 1,
+		Members:        []string{"one.txt", "two.txt"},
+	}
+	res := r.Run(ctx, create)
+	if res.ExitCode != ExitSuccess {
+		t.Fatalf("create exit=%d err=%v", res.ExitCode, res.Err)
+	}
+
+	list, err := client.ListObjectsV2(ctx, &awss3.ListObjectsV2Input{
+		Bucket: new(bucket),
+		Prefix: new("archives/split.part"),
+	})
+	if err != nil {
+		t.Fatalf("list split objects: %v", err)
+	}
+	if len(list.Contents) != 2 {
+		t.Fatalf("split object count = %d, want 2", len(list.Contents))
+	}
+
+	firstKey := "archives/split.part0001.zip"
+	secondKey := "archives/split.part0002.zip"
+	var foundFirst, foundSecond bool
+	for _, obj := range list.Contents {
+		switch aws.ToString(obj.Key) {
+		case firstKey:
+			foundFirst = true
+		case secondKey:
+			foundSecond = true
+		}
+	}
+	if !foundFirst || !foundSecond {
+		t.Fatalf("split objects missing keys: first=%v second=%v", foundFirst, foundSecond)
+	}
+
+	head, err := client.HeadObject(ctx, &awss3.HeadObjectInput{
+		Bucket: new(bucket),
+		Key:    new(firstKey),
+	})
+	if err != nil {
+		t.Fatalf("head split object: %v", err)
+	}
+	if got := aws.ToString(head.ContentType); got != "application/zip" {
+		t.Fatalf("content type = %q, want %q", got, "application/zip")
+	}
+
+	out := filepath.Join(root, "out")
+	if err := os.MkdirAll(out, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	rExtract := newRunnerWithEndpoint(t, ep, io.Discard, io.Discard)
+	extract := cli.Options{
+		Mode:    cli.ModeExtract,
+		Archive: fmt.Sprintf("s3://%s/%s", bucket, firstKey),
+		Chdir:   out,
+	}
+	res = rExtract.Run(ctx, extract)
+	if res.ExitCode != ExitSuccess {
+		t.Fatalf("extract exit=%d err=%v", res.ExitCode, res.Err)
+	}
+
+	for _, tc := range []struct {
+		name string
+		want string
+	}{
+		{name: "one.txt", want: "one"},
+		{name: "two.txt", want: "two"},
+	} {
+		b, err := os.ReadFile(filepath.Join(out, tc.name))
+		if err != nil {
+			t.Fatalf("read %s: %v", tc.name, err)
+		}
+		if string(b) != tc.want {
+			t.Fatalf("%s = %q, want %q", tc.name, string(b), tc.want)
+		}
+	}
+}
+
 // ---------------------------------------------------------------------------
 // Test: create a compressed archive to S3 and extract it back
 // ---------------------------------------------------------------------------

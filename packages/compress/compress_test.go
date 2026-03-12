@@ -79,6 +79,50 @@ func TestRoundTripWithCompressionLevel(t *testing.T) {
 	}
 }
 
+func TestBzip2WriterFlushEmitsData(t *testing.T) {
+	var buf bytes.Buffer
+	w, err := NewWriter(nopWriteCloser{Writer: &buf}, Bzip2, WriterOptions{})
+	if err != nil {
+		t.Fatalf("NewWriter() error = %v", err)
+	}
+
+	flusher, ok := w.(FlushWriteCloser)
+	if !ok {
+		t.Fatalf("NewWriter(Bzip2) does not implement FlushWriteCloser")
+	}
+
+	if _, err := w.Write([]byte("flush-me")); err != nil {
+		t.Fatalf("Write() error = %v", err)
+	}
+	if err := flusher.Flush(); err != nil {
+		t.Fatalf("Flush() error = %v", err)
+	}
+	if buf.Len() == 0 {
+		t.Fatalf("Flush() did not emit any compressed bytes")
+	}
+	if err := w.Close(); err != nil {
+		t.Fatalf("Close() error = %v", err)
+	}
+
+	r, _, err := NewReader(io.NopCloser(bytes.NewReader(buf.Bytes())), Bzip2, "archive.tar.bz2", "")
+	if err != nil {
+		t.Fatalf("NewReader() error = %v", err)
+	}
+	defer func() {
+		if err := r.Close(); err != nil {
+			t.Fatalf("Close() error = %v", err)
+		}
+	}()
+
+	got, err := io.ReadAll(r)
+	if err != nil {
+		t.Fatalf("ReadAll() error = %v", err)
+	}
+	if !bytes.Equal(got, []byte("flush-me")) {
+		t.Fatalf("payload = %q, want %q", got, "flush-me")
+	}
+}
+
 func TestDetectByExtension(t *testing.T) {
 	var buf bytes.Buffer
 	gw := gzip.NewWriter(&buf)

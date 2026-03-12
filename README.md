@@ -55,8 +55,9 @@ gotgz --zstd -cvf archive.tar.zst dir1 file1.txt
 # You can also specify a custom suffix with `-suffix` flag, for example `-suffix backup` will generate `archive-backup.tar.gz`
 gotgz -cvf archive.tar.gz -suffix date dir1 file1.txt
 
-# Split large tar-family output into independently extractable volumes
+# Split large archive output into independently extractable volumes
 gotgz -cvf archive.tar.gz --split-size 2GiB dir1 file1.txt
+gotgz -cvf archive.zip --split-size 2GiB dir1 file1.txt
 
 # Local files → S3
 gotgz -cvf s3://my-bucket/backups/archive.tar.gz dir1 file1.txt
@@ -91,6 +92,7 @@ gotgz -xvf s3://my-bucket/backups/archive.tar.gz -C /tmp/output
 
 # Split archive → local directory (pass the first volume only)
 gotgz -xvf backup.part0001.tar.gz -C /tmp/output
+gotgz -xvf backup.part0001.zip -C /tmp/output
 
 # HTTP archive → local directory
 gotgz -xvf https://example.com/backups/archive.tar.gz -C /tmp/output
@@ -113,6 +115,7 @@ gotgz -xvf archive.tar -C s3://my-bucket/restored/ --s3-tag team=restore --s3-ta
 ```bash
 gotgz -tf archive.tar.gz
 gotgz -tf archive.zip
+gotgz -tf backup.part0001.zip
 gotgz -tf s3://my-bucket/backups/archive.tar.gz
 gotgz -tf https://example.com/backups/archive.tar.gz
 ```
@@ -136,13 +139,13 @@ Supported suffixes are `.tar.gz/.tgz/.gz`, `.tar.bz2/.tbz2/.tbz/.bz2`, `.tar.xz/
 `.tar` and `.tape` mean uncompressed tar, and unknown suffixes default to uncompressed tar.  
 If you do pass an explicit tar-family compression flag in create mode, it must match the archive suffix. The only exception is `-f -`, because stdout has no filename.
 
-Use `--split-size=<size>` in create mode to emit tar-family output as `partNNNN` volumes such as `archive.part0001.tar.gz`.  
+Use `--split-size=<size>` in create mode to emit `.zip` or tar-family output as `partNNNN` volumes such as `archive.part0001.zip` or `archive.part0001.tar.gz`.  
 Split archives are discovered automatically from `part0001` during list/extract for local files and S3 objects.
 
 When extracting or listing, archive/compression format is auto-detected by magic bytes first, then filename extension, then content type.
 
 For extract/list on `.zip` archives, tar-specific compression flags (`-z/-j/-J/--zstd/--lz4`) and tar metadata-owner flags (`--xattrs`, `--acl`, `--same-owner`, `--numeric-owner`) are ignored with warnings. `--compression-level` still applies and maps to zip Deflate level during create.
-`--split-size` currently supports uncompressed tar plus gzip/zstd/lz4 output, but not zip, bzip2, xz, `-f -`, or HTTP multi-volume input.
+`--split-size` supports `.zip` plus uncompressed tar and gzip/bzip2/zstd/lz4 tar output, but not xz, `-f -`, or HTTP multi-volume input.
 
 ### S3 addressing
 
@@ -175,7 +178,7 @@ Use repeatable `--s3-tag key=value` flags to add S3 object tags for archive uplo
 - **Read S3 archives or S3 member objects**: `s3:GetObject`
 - **Write S3 archives (`-f s3://...`) or extract to S3 (`-C s3://...`)**: `s3:PutObject`, `s3:AbortMultipartUpload`
 - **Write S3 object tags with `--s3-tag`**: `s3:PutObjectTagging`
-- **Open split archives from S3 (`*.part0001.tar*`)**: `s3:ListBucket`
+- **Open split archives from S3 (`*.part0001.zip`, `*.part0001.tar*`)**: `s3:ListBucket`
 
 Notes:
 
@@ -230,9 +233,10 @@ gotgz -xOf archive.tar path/to/file.txt
 # Exclude patterns
 gotgz -cvf archive.tar --exclude='*.log' --exclude-from=excludes.txt dir/
 
-# Split local or S3 tar output into 512 MiB volumes
+# Split local or S3 archive output into 512 MiB volumes
 gotgz -cvf archive.tar --split-size 512MiB dir/
 gotgz -cvzf s3://my-bucket/backups/archive.tar.gz --split-size 512MiB dir/
+gotgz -cvf archive.zip --split-size 512MiB dir/
 
 # Wildcard member filtering for list/extract
 gotgz -tf archive.tar --wildcards 'src/*.go'
