@@ -52,6 +52,7 @@ type Options struct {
 	Xattrs           bool
 	Verbose          bool
 	Help             bool
+	Version          bool
 	CompressionLevel *int
 	StripComponents  int
 	Chdir            string
@@ -344,6 +345,8 @@ func (p *optionParser) applyLongOption(name, value string, hasValue bool, i int)
 		p.opts.ToStdout = true
 	case "help":
 		p.opts.Help = true
+	case "version":
+		p.opts.Version = true
 	case "progress":
 		p.opts.Progress = ProgressAlways
 	case "no-progress":
@@ -376,6 +379,8 @@ func (p *optionParser) parseShortOptions(i int, arg string) (int, error) {
 			p.opts.Verbose = true
 		case 'h':
 			p.opts.Help = true
+		case 'V':
+			p.opts.Version = true
 		case 'O':
 			p.opts.ToStdout = true
 		case 'z':
@@ -465,7 +470,7 @@ func (p *optionParser) setSamePermissions(v bool) {
 
 // finalizeOptions applies post-parse validation and required-field checks.
 func finalizeOptions(opts Options) (Options, error) {
-	if opts.Help {
+	if opts.Help || opts.Version {
 		return opts, nil
 	}
 	validated, err := validateOptions(opts)

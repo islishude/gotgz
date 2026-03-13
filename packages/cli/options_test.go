@@ -614,6 +614,42 @@ func TestParseHelpLong(t *testing.T) {
 	}
 }
 
+func TestParseVersionShort(t *testing.T) {
+	opts, err := Parse([]string{"-V"})
+	if err != nil {
+		t.Fatalf("Parse() error = %v", err)
+	}
+	if !opts.Version {
+		t.Fatalf("expected Version=true")
+	}
+	if opts.Verbose {
+		t.Fatalf("expected Verbose=false")
+	}
+}
+
+func TestParseVersionLong(t *testing.T) {
+	opts, err := Parse([]string{"--version"})
+	if err != nil {
+		t.Fatalf("Parse() error = %v", err)
+	}
+	if !opts.Version {
+		t.Fatalf("expected Version=true")
+	}
+}
+
+func TestParseVerboseShortRemainsVerbose(t *testing.T) {
+	opts, err := Parse([]string{"-cvf", "out.tar", "dir"})
+	if err != nil {
+		t.Fatalf("Parse() error = %v", err)
+	}
+	if !opts.Verbose {
+		t.Fatalf("expected Verbose=true")
+	}
+	if opts.Version {
+		t.Fatalf("expected Version=false")
+	}
+}
+
 func TestParseStripComponentsInvalid(t *testing.T) {
 	_, err := Parse([]string{"-x", "-f", "in.tar", "--strip-components=-1"})
 	if err == nil {

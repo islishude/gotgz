@@ -3,12 +3,76 @@ package main
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 )
+
+func TestMainVersionLong(t *testing.T) {
+	stdout, stderr, exitCode := runMainProcess(t, "--version")
+	if exitCode != 0 {
+		t.Fatalf("exit code = %d, want 0; stderr:\n%s", exitCode, stderr)
+	}
+
+	want := fmt.Sprintf("gotgz %s\n", buildVersion())
+	if stdout != want {
+		t.Fatalf("stdout = %q, want %q", stdout, want)
+	}
+	if stderr != "" {
+		t.Fatalf("stderr = %q, want empty", stderr)
+	}
+}
+
+func TestMainVersionShort(t *testing.T) {
+	stdout, stderr, exitCode := runMainProcess(t, "-V")
+	if exitCode != 0 {
+		t.Fatalf("exit code = %d, want 0; stderr:\n%s", exitCode, stderr)
+	}
+
+	want := fmt.Sprintf("gotgz %s\n", buildVersion())
+	if stdout != want {
+		t.Fatalf("stdout = %q, want %q", stdout, want)
+	}
+	if stderr != "" {
+		t.Fatalf("stderr = %q, want empty", stderr)
+	}
+}
+
+func TestMainHelpIncludesVersion(t *testing.T) {
+	stdout, stderr, exitCode := runMainProcess(t, "--help")
+	if exitCode != 0 {
+		t.Fatalf("exit code = %d, want 0; stderr:\n%s", exitCode, stderr)
+	}
+
+	header := fmt.Sprintf("gotgz %s - tar-compatible archiver", buildVersion())
+	if !strings.HasPrefix(stdout, header) {
+		t.Fatalf("stdout header = %q, want prefix %q", stdout, header)
+	}
+	if !strings.Contains(stdout, "-V, --version") {
+		t.Fatalf("stdout = %q, want version flag in help", stdout)
+	}
+	if stderr != "" {
+		t.Fatalf("stderr = %q, want empty", stderr)
+	}
+}
+
+func TestMainHelpShortIncludesVersion(t *testing.T) {
+	stdout, stderr, exitCode := runMainProcess(t, "-h")
+	if exitCode != 0 {
+		t.Fatalf("exit code = %d, want 0; stderr:\n%s", exitCode, stderr)
+	}
+
+	header := fmt.Sprintf("gotgz %s - tar-compatible archiver", buildVersion())
+	if !strings.HasPrefix(stdout, header) {
+		t.Fatalf("stdout header = %q, want prefix %q", stdout, header)
+	}
+	if stderr != "" {
+		t.Fatalf("stderr = %q, want empty", stderr)
+	}
+}
 
 // TestMainNoProgressPrintsStandaloneCompletionLine verifies that successful
 // runs with --no-progress still report the total elapsed time.
@@ -23,7 +87,7 @@ func TestMainNoProgressPrintsStandaloneCompletionLine(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	stderr, exitCode := runMainProcess(t,
+	_, stderr, exitCode := runMainProcess(t,
 		"--create",
 		"-f", archive,
 		"--directory", root,
@@ -55,7 +119,7 @@ func TestMainProgressOmitsStandaloneCompletionLine(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	stderr, exitCode := runMainProcess(t,
+	_, stderr, exitCode := runMainProcess(t,
 		"--create",
 		"-f", archive,
 		"--directory", root,
@@ -102,8 +166,8 @@ func TestMainProcess(t *testing.T) {
 }
 
 // runMainProcess executes the CLI entrypoint in a subprocess and returns its
-// stderr output together with the process exit code.
-func runMainProcess(t *testing.T, args ...string) (string, int) {
+// stdout, stderr, and process exit code.
+func runMainProcess(t *testing.T, args ...string) (string, string, int) {
 	t.Helper()
 
 	exe, err := os.Executable()
@@ -114,13 +178,14 @@ func runMainProcess(t *testing.T, args ...string) (string, int) {
 	cmd := exec.Command(exe, append([]string{"-test.run=TestMainProcess", "--"}, args...)...)
 	cmd.Env = append(os.Environ(), "GOTGZ_TEST_MAIN_PROCESS=1")
 
+	var stdout bytes.Buffer
 	var stderr bytes.Buffer
-	cmd.Stdout = &bytes.Buffer{}
+	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
 	err = cmd.Run()
 	if err == nil {
-		return stderr.String(), 0
+		return stdout.String(), stderr.String(), 0
 	}
 
 	var exitErr *exec.ExitError
@@ -128,5 +193,5 @@ func runMainProcess(t *testing.T, args ...string) (string, int) {
 		t.Fatalf("cmd.Run() error = %v", err)
 	}
 
-	return stderr.String(), exitErr.ExitCode()
+	return stdout.String(), stderr.String(), exitErr.ExitCode()
 }

@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"runtime/debug"
 	"syscall"
 
 	"github.com/islishude/gotgz/packages/archiveprogress"
@@ -14,13 +15,20 @@ import (
 )
 
 func main() {
+	version := buildVersion()
 	opts, err := cli.Parse(os.Args[1:])
 	if err != nil {
 		_, _ = fmt.Fprintf(os.Stderr, "gotgz: %v\n", err)
 		os.Exit(engine.ExitFatal)
 	}
-	if opts.Help {
-		_, _ = fmt.Fprint(os.Stdout, cli.HelpText(filepath.Base(os.Args[0])))
+
+	program := filepath.Base(os.Args[0])
+	switch {
+	case opts.Help:
+		_, _ = fmt.Fprint(os.Stdout, cli.HelpText(program, version))
+		os.Exit(0)
+	case opts.Version:
+		_, _ = fmt.Fprintf(os.Stdout, "%s %s\n", program, version)
 		os.Exit(0)
 	}
 
@@ -41,4 +49,13 @@ func main() {
 		_, _ = fmt.Fprintf(os.Stderr, "gotgz: completed in %s\n", archiveprogress.FormatClock(result.Elapsed))
 	}
 	os.Exit(result.ExitCode)
+}
+
+// buildVersion returns the embedded module version for the running binary.
+func buildVersion() string {
+	info, ok := debug.ReadBuildInfo()
+	if !ok || info == nil || info.Main.Version == "" {
+		return "devel"
+	}
+	return info.Main.Version
 }

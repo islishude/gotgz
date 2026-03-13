@@ -6,8 +6,8 @@ import (
 )
 
 func TestHelpTextDefaultProgram(t *testing.T) {
-	got := HelpText("")
-	if !strings.HasPrefix(got, "gotgz - tar-compatible archiver") {
+	got := HelpText("", "v1.2.3")
+	if !strings.HasPrefix(got, "gotgz v1.2.3 - tar-compatible archiver") {
 		t.Fatalf("unexpected help header: %q", got)
 	}
 	if !strings.Contains(got, "gotgz -c -f <archive> [members...]") {
@@ -16,8 +16,8 @@ func TestHelpTextDefaultProgram(t *testing.T) {
 }
 
 func TestHelpTextCustomProgram(t *testing.T) {
-	got := HelpText("mytar")
-	if !strings.HasPrefix(got, "mytar - tar-compatible archiver") {
+	got := HelpText("mytar", "v9.9.9")
+	if !strings.HasPrefix(got, "mytar v9.9.9 - tar-compatible archiver") {
 		t.Fatalf("unexpected help header: %q", got)
 	}
 	if !strings.Contains(got, "mytar -x -f <archive> [members...]") {
@@ -26,7 +26,7 @@ func TestHelpTextCustomProgram(t *testing.T) {
 }
 
 func TestHelpTextMentionsZipAutoDetectAndWarnings(t *testing.T) {
-	got := HelpText("gotgz")
+	got := HelpText("gotgz", "v0.0.5")
 	wantContains := []string{
 		"-c, --create",
 		"-x, --extract",
@@ -45,6 +45,7 @@ func TestHelpTextMentionsZipAutoDetectAndWarnings(t *testing.T) {
 		"--s3-cache-control <value>",
 		"--s3-tag <key=value>",
 		"--split-size <size>",
+		"-V, --version",
 		"Split archive output into partNNNN volumes (.zip and tar-family, create mode only)",
 	}
 	for _, want := range wantContains {

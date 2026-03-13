@@ -2,11 +2,15 @@ package cli
 
 import "fmt"
 
-func HelpText(program string) string {
+// HelpText renders the CLI usage text with the resolved program name and version.
+func HelpText(program string, version string) string {
 	if program == "" {
 		program = "gotgz"
 	}
-	return fmt.Sprintf(`%s - tar-compatible archiver with S3 and HTTP source support
+	if version == "" {
+		version = "devel"
+	}
+	return fmt.Sprintf(`%s %s - tar-compatible archiver with S3 and HTTP source support
 
 Usage:
   %s -c -f <archive> [members...]
@@ -38,6 +42,7 @@ Main Options:
   --progress        Force progress output (writes to stderr)
   --no-progress     Disable live progress output but still print final elapsed time
   -h, --help        Show this help message
+  -V, --version     Show version information
 
 Compression:
   -z, --gzip, --gunzip
@@ -67,5 +72,5 @@ Exclude:
   --exclude <pattern>
   --exclude-from <file>
   --wildcards
-`, program, program, program, program, program, program)
+`, program, version, program, program, program, program, program)
 }

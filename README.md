@@ -35,6 +35,16 @@ go build -o gotgz ./cmd/gotgz
 
 `gotgz` follows the same CLI conventions as GNU `tar`:
 
+### Help and version
+
+```bash
+gotgz --help
+gotgz --version
+gotgz -V
+```
+
+`-v` remains the tar-compatible verbose flag in bundled forms such as `-cvf` and `-xvf`.
+
 ### Create an archive
 
 ```bash
