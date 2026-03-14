@@ -15,7 +15,7 @@ require (
 	golang.org/x/sys v0.41.0
 )
 
-replace github.com/dsnet/compress => github.com/islishude/dnsnet-compress v0.0.0-20260312141931-3b707c4fc855
+replace github.com/dsnet/compress => ./internal/compress
 
 require (
 	github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream v1.7.5 // indirect

@@ -19,19 +19,17 @@ A Linux `tar`-compatible CLI tool written in Go, with native AWS S3 support as b
 
 ## Installation
 
-Download from the [releases page](https://github.com/islishude/gotgz/releases/latest)
+```bash
+go install github.com/islishude/gotgz/cmd/gotgz@latest
+```
 
-Build from source with the Makefile(requires Go 1.26+):
+Or build from source (requires Go 1.26+):
 
 ```bash
 git clone https://github.com/islishude/gotgz.git
 cd gotgz
 make install
 ```
-
-Note: The `go install` does not work with the current module structure, so you must use the Makefile or build from source manually:
-
-~~go install github.com/islishude/gotgz/cmd/gotgz@latest~~
 
 ## Usage
 
