@@ -2,7 +2,7 @@ build:
 	go build -o gotgz ./cmd/gotgz
 
 install:
-	go install ./cmd/gotgz
+	go install -trimpath -ldflags="-s -w" ./cmd/gotgz
 
 lint:
 	go vet ./...

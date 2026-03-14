@@ -19,17 +19,19 @@ A Linux `tar`-compatible CLI tool written in Go, with native AWS S3 support as b
 
 ## Installation
 
-```bash
-go install github.com/islishude/gotgz/cmd/gotgz@latest
-```
+Download from the [releases page](https://github.com/islishude/gotgz/releases/latest)
 
-Or build from source:
+Build from source with the Makefile(requires Go 1.26+):
 
 ```bash
 git clone https://github.com/islishude/gotgz.git
 cd gotgz
-go build -o gotgz ./cmd/gotgz
+make install
 ```
+
+Note: The `go install` does not work with the current module structure, so you must use the Makefile or build from source manually:
+
+~~go install github.com/islishude/gotgz/cmd/gotgz@latest~~
 
 ## Usage
 
@@ -212,11 +214,7 @@ Example bucket policy for a bucket-based read/write workflow:
     {
       "Sid": "GotgzReadWriteObjects",
       "Effect": "Allow",
-      "Action": [
-        "s3:GetObject",
-        "s3:PutObject",
-        "s3:AbortMultipartUpload"
-      ],
+      "Action": ["s3:GetObject", "s3:PutObject", "s3:AbortMultipartUpload"],
       "Resource": "arn:aws:s3:::my-bucket/*"
     }
   ]
