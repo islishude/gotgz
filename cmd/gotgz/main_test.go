@@ -17,7 +17,7 @@ func TestMainVersionLong(t *testing.T) {
 		t.Fatalf("exit code = %d, want 0; stderr:\n%s", exitCode, stderr)
 	}
 
-	want := fmt.Sprintf("gotgz %s\n", buildVersion())
+	want := fmt.Sprintf("%s\n", buildVersion())
 	if stdout != want {
 		t.Fatalf("stdout = %q, want %q", stdout, want)
 	}
@@ -32,7 +32,7 @@ func TestMainVersionShort(t *testing.T) {
 		t.Fatalf("exit code = %d, want 0; stderr:\n%s", exitCode, stderr)
 	}
 
-	want := fmt.Sprintf("gotgz %s\n", buildVersion())
+	want := fmt.Sprintf("%s\n", buildVersion())
 	if stdout != want {
 		t.Fatalf("stdout = %q, want %q", stdout, want)
 	}
