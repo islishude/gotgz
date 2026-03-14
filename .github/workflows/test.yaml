@@ -37,3 +37,6 @@ jobs:
         env:
           GOTGZ_TEST_S3_ENDPOINT: "http://localhost:4566"
       - run: go tool cover -func=coverage.txt
+      - name: Test vendors
+        run: go test -v -race -count=1 ./...
+        working-directory: internal/compress
