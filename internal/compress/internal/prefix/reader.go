@@ -263,10 +263,7 @@ func (pr *Reader) PullBits(nb uint) error {
 				// The computation for cntPeek computes the minimum number of
 				// bytes to Peek to fill nb bits.
 				var err error
-				cntPeek := int(nb+(-nb&7)) / 8
-				if cntPeek < pr.bufRd.Buffered() {
-					cntPeek = pr.bufRd.Buffered()
-				}
+				cntPeek := max(int(nb+(-nb&7))/8, pr.bufRd.Buffered())
 				pr.bufPeek, err = pr.bufRd.Peek(cntPeek)
 				pr.bufPeek = pr.bufPeek[int(pr.numBits/8):] // Skip buffered bits
 				if len(pr.bufPeek) == 0 {

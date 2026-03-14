@@ -55,11 +55,11 @@ const (
 	blockSize = 100000
 )
 
-func errorf(c int, f string, a ...interface{}) error {
+func errorf(c int, f string, a ...any) error {
 	return errors.Error{Code: c, Pkg: "bzip2", Msg: fmt.Sprintf(f, a...)}
 }
 
-func panicf(c int, f string, a ...interface{}) {
+func panicf(c int, f string, a ...any) {
 	errors.Panic(errorf(c, f, a...))
 }
 
@@ -98,10 +98,7 @@ type crc struct {
 func (c *crc) update(buf []byte) {
 	cval := internal.ReverseUint32(c.val)
 	for len(buf) > 0 {
-		n := len(buf)
-		if n > len(c.buf) {
-			n = len(c.buf)
-		}
+		n := min(len(buf), len(c.buf))
 		for i, b := range buf[:n] {
 			c.buf[i] = internal.ReverseLUT[b]
 		}

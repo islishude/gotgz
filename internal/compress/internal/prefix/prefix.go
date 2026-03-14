@@ -13,11 +13,11 @@ import (
 	"github.com/dsnet/compress/internal/errors"
 )
 
-func errorf(c int, f string, a ...interface{}) error {
+func errorf(c int, f string, a ...any) error {
 	return errors.Error{Code: c, Pkg: "prefix", Msg: fmt.Sprintf(f, a...)}
 }
 
-func panicf(c int, f string, a ...interface{}) {
+func panicf(c int, f string, a ...any) {
 	errors.Panic(errorf(c, f, a...))
 }
 
