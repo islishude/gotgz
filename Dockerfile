@@ -1,10 +1,7 @@
 # syntax=docker/dockerfile:1
 FROM golang:1.26.1 AS compiler
 WORKDIR /app
-COPY go.mod go.sum ./
-RUN --mount=type=cache,target=/go/pkg/mod go mod download
-COPY cmd ./cmd
-COPY packages ./packages
+COPY . ./
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
     go build -o gotgz -trimpath -ldflags="-s -w" ./cmd/gotgz
