@@ -517,6 +517,97 @@ func TestListSplitArchiveFailsWhenVolumeMissing(t *testing.T) {
 	}
 }
 
+func testCreateExtractLocalSplitRoundTripWithCompressionLevel(t *testing.T, compression cli.CompressionHint, archiveExt string, level int) {
+	t.Helper()
+
+	root := t.TempDir()
+	archive := filepath.Join(root, "bundle."+archiveExt)
+	out := filepath.Join(root, "out")
+
+	if err := os.WriteFile(filepath.Join(root, "one.txt"), []byte("one"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "two.txt"), []byte("two"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	r, err := New(context.Background(), io.Discard, io.Discard)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	create := cli.Options{
+		Mode:             cli.ModeCreate,
+		Archive:          archive,
+		Chdir:            root,
+		Compression:      compression,
+		CompressionLevel: &level,
+		SplitSizeBytes:   1,
+		Members:          []string{"one.txt", "two.txt"},
+	}
+	if got := r.Run(context.Background(), create); got.ExitCode != ExitSuccess {
+		t.Fatalf("create exit=%d err=%v", got.ExitCode, got.Err)
+	}
+
+	firstPart := filepath.Join(root, "bundle.part0001."+archiveExt)
+	secondPart := filepath.Join(root, "bundle.part0002."+archiveExt)
+	if _, err := os.Stat(firstPart); err != nil {
+		t.Fatalf("expected first split archive: %v", err)
+	}
+	if _, err := os.Stat(secondPart); err != nil {
+		t.Fatalf("expected second split archive: %v", err)
+	}
+
+	if err := os.MkdirAll(out, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	rExtract, err := New(context.Background(), io.Discard, io.Discard)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	extract := cli.Options{Mode: cli.ModeExtract, Archive: firstPart, Chdir: out}
+	if got := rExtract.Run(context.Background(), extract); got.ExitCode != ExitSuccess {
+		t.Fatalf("extract exit=%d err=%v", got.ExitCode, got.Err)
+	}
+
+	for _, tc := range []struct {
+		name string
+		want string
+	}{
+		{name: "one.txt", want: "one"},
+		{name: "two.txt", want: "two"},
+	} {
+		b, err := os.ReadFile(filepath.Join(out, tc.name))
+		if err != nil {
+			t.Fatalf("read %s: %v", tc.name, err)
+		}
+		if string(b) != tc.want {
+			t.Fatalf("%s = %q, want %q", tc.name, string(b), tc.want)
+		}
+	}
+}
+
+func TestCreateExtractLocalSplitRoundTripWithCompressionLevel(t *testing.T) {
+	tests := []struct {
+		name        string
+		compression cli.CompressionHint
+		archiveExt  string
+		level       int
+	}{
+		{name: "gzip", compression: cli.CompressionGzip, archiveExt: "tar.gz", level: 6},
+		{name: "bzip2", compression: cli.CompressionBzip2, archiveExt: "tar.bz2", level: 6},
+		{name: "xz", compression: cli.CompressionXz, archiveExt: "tar.xz", level: 6},
+		{name: "zstd", compression: cli.CompressionZstd, archiveExt: "tar.zst", level: 6},
+		{name: "lz4", compression: cli.CompressionLz4, archiveExt: "tar.lz4", level: 6},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			testCreateExtractLocalSplitRoundTripWithCompressionLevel(t, tt.compression, tt.archiveExt, tt.level)
+		})
+	}
+}
+
 func TestListSplitZipArchiveFailsWhenVolumeMissing(t *testing.T) {
 	root := t.TempDir()
 	archive := filepath.Join(root, "bundle.zip")
