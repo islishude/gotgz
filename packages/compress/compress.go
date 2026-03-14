@@ -10,8 +10,9 @@ import (
 	"github.com/dsnet/compress/bzip2"
 	"github.com/klauspost/compress/zstd"
 	gzip "github.com/klauspost/pgzip"
+	xzreader "github.com/mikelolasagasti/xz"
 	"github.com/pierrec/lz4/v4"
-	"github.com/ulikunitz/xz"
+	xzwriter "github.com/ulikunitz/xz"
 )
 
 type Type string
@@ -85,12 +86,12 @@ func NewWriter(dst io.WriteCloser, t Type, opts WriterOptions) (io.WriteCloser, 
 		}
 		return &stackedWriteCloser{writer: zw, dst: dst, closeWriterFirst: true}, nil
 	case Xz:
-		var zw *xz.Writer
+		var zw *xzwriter.Writer
 		if hasLevel {
-			cfg := xz.WriterConfig{DictCap: xzDictCapForLevel(level)}
+			cfg := xzwriter.WriterConfig{DictCap: xzDictCapForLevel(level)}
 			zw, err = cfg.NewWriter(dst)
 		} else {
-			zw, err = xz.NewWriter(dst)
+			zw, err = xzwriter.NewWriter(dst)
 		}
 		if err != nil {
 			return nil, err
@@ -171,7 +172,8 @@ func wrapReader(reader io.Reader, src io.Closer, t Type) (io.ReadCloser, error) 
 		}
 		return &readCloser{reader: zr, closer: src}, nil
 	case Xz:
-		zr, err := xz.NewReader(reader)
+		// XZ decode intentionally uses mikelolasagasti/xz while encode stays on ulikunitz/xz.
+		zr, err := xzreader.NewReader(reader, 0)
 		if err != nil {
 			return nil, err
 		}
