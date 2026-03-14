@@ -98,7 +98,7 @@ func (zr *Reader) Read(buf []byte) (int, error) {
 					if ver == '0' {
 						panicf(errors.Deprecated, "bzip1 format is not supported")
 					}
-					panicf(errors.Corrupted, "invalid version: %q", ver)
+					panicf(errors.Corrupted, "invalid version: %v", ver)
 				}
 				lvl := int(zr.rd.ReadBitsBE64(8)) - '0'
 				if lvl < BestSpeed || lvl > BestCompression {
