@@ -104,7 +104,7 @@ func (r *Runner) tryRemoteZipReader(ctx context.Context, archiveRef locator.Ref,
 	}
 
 	readerAt := newRemoteZipReaderAt(ctx, info.Size, defaultRemoteZipReadBlockSize, func(ctx context.Context, offset int64, length int64) (io.ReadCloser, error) {
-		return r.storage.openArchiveRangeReader(ctx, archiveRef, offset, length)
+		return r.storage.openZipRangeReader(ctx, archiveRef, offset, length)
 	})
 	zr, err := zip.NewReader(readerAt, info.Size)
 	if err != nil {

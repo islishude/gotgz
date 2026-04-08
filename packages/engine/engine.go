@@ -65,7 +65,7 @@ func New(ctx context.Context, stdout io.Writer, stderr io.Writer) (*Runner, erro
 // newRunner wires a Runner from injected storage backends.
 func newRunner(local localArchiveStore, s3 s3ArchiveStore, http httpArchiveStore, stdout io.Writer, stderr io.Writer) *Runner {
 	return &Runner{
-		storage: &storageRouter{local: local, s3: s3, http: http},
+		storage: newStorageRouter(local, s3, http),
 		stdout:  stdout,
 		stderr:  stderr,
 	}

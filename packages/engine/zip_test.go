@@ -168,7 +168,7 @@ func TestWithZipReaderUsesRemoteRangesForKnownS3Zip(t *testing.T) {
 	rangeCalls := 0
 	runner := newRunner(
 		nil,
-		fakeS3ArchiveStore{
+		fakeS3ZipArchiveStore{
 			openRange: func(_ context.Context, ref locator.Ref, offset int64, length int64) (io.ReadCloser, error) {
 				rangeCalls++
 				if ref.Key != "bundle.zip" {
@@ -223,7 +223,7 @@ func TestWithZipReaderFallsBackToStagingWhenRemoteRangesFail(t *testing.T) {
 	runner := newRunner(
 		nil,
 		nil,
-		fakeHTTPArchiveStore{
+		fakeHTTPZipArchiveStore{
 			openRange: func(_ context.Context, ref locator.Ref, offset int64, length int64) (io.ReadCloser, error) {
 				return nil, errors.New("range unsupported")
 			},
