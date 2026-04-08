@@ -196,7 +196,7 @@ Use repeatable `--s3-tag key=value` flags to add S3 object tags for archive uplo
 
 Notes:
 
-- `gotgz` uses `GetObject` for normal reads and range reads, and `HeadObject` for metadata/progress checks. In IAM, `HeadObject` is covered by `s3:GetObject`; there is no separate `s3:HeadObject` action.
+- `gotgz` uses transfer-manager-backed `GetObject` for full-object S3 reads, which may issue `HeadObject` plus concurrent ranged `GetObject` requests. Explicit archive range reads still use `GetObject` with a `Range` header, and metadata/progress checks use `HeadObject`. In IAM, `HeadObject` is covered by `s3:GetObject`; there is no separate `s3:HeadObject` action.
 - Large or streaming S3 writes may use multipart upload. For these uploads, S3 still maps create/upload/complete calls to `s3:PutObject`, and failed uploads are cleaned up with `s3:AbortMultipartUpload`.
 - `s3:ListBucket` is only needed when `gotgz` must discover sibling split volumes under the same prefix.
 - If you use SSE-KMS (`GOTGZ_S3_SSE=aws:kms`) or the bucket enforces a customer-managed KMS key, you also need KMS permissions on that key, typically `kms:Decrypt` and `kms:GenerateDataKey`.
@@ -290,8 +290,8 @@ gotgz -cvf out.tar --no-progress dir/   # hides live updates but still prints "c
 | ------------------------------- | ------------------------------------------------------------------------------------- | ------------ |
 | `GOTGZ_S3_SSE`                  | Server-side encryption type (`AES256`, `aws:kms`, `none`)                             | `AES256`     |
 | `GOTGZ_S3_SSE_KMS_KEY_ID`       | KMS key ID for SSE-KMS encryption                                                     |              |
-| `GOTGZ_S3_PART_SIZE_MB`         | Multipart upload part size in MB                                                      | `16`         |
-| `GOTGZ_S3_CONCURRENCY`          | Multipart upload concurrency                                                          | `4`          |
+| `GOTGZ_S3_PART_SIZE_MB`         | S3 transfer part size in MB for multipart uploads and transfer-manager downloads      | `16`         |
+| `GOTGZ_S3_CONCURRENCY`          | S3 transfer concurrency for multipart uploads and transfer-manager downloads           | `4`          |
 | `GOTGZ_S3_MAX_RETRIES`          | Maximum retry attempts for S3 operations                                              |              |
 | `GOTGZ_S3_USE_PATH_STYLE`       | Use path-style S3 addressing (for RustStack/MinIO)                                    | `false`      |
 | `GOTGZ_ZIP_STAGING_LIMIT_BYTES` | Max bytes spooled for non-local ZIP list/extract staging (`-`, `s3://`, `http(s)://`) | `1073741824` |
