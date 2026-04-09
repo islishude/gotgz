@@ -16,7 +16,6 @@ import (
 
 type fakeS3ArchiveStore struct {
 	openReader   func(ctx context.Context, ref locator.Ref) (io.ReadCloser, s3store.Metadata, error)
-	openRange    func(ctx context.Context, ref locator.Ref, offset int64, length int64) (io.ReadCloser, error)
 	stat         func(ctx context.Context, ref locator.Ref) (s3store.Metadata, error)
 	openWriter   func(ctx context.Context, ref locator.Ref, metadata map[string]string) (io.WriteCloser, error)
 	uploadStream func(ctx context.Context, ref locator.Ref, body io.Reader, metadata map[string]string) error
@@ -28,13 +27,6 @@ func (f fakeS3ArchiveStore) OpenReader(ctx context.Context, ref locator.Ref) (io
 		return nil, s3store.Metadata{}, nil
 	}
 	return f.openReader(ctx, ref)
-}
-
-func (f fakeS3ArchiveStore) OpenRangeReader(ctx context.Context, ref locator.Ref, offset int64, length int64) (io.ReadCloser, error) {
-	if f.openRange == nil {
-		return nil, errors.New("fakeS3ArchiveStore: OpenRangeReader not implemented")
-	}
-	return f.openRange(ctx, ref, offset, length)
 }
 
 func (f fakeS3ArchiveStore) Stat(ctx context.Context, ref locator.Ref) (s3store.Metadata, error) {
@@ -67,7 +59,6 @@ func (f fakeS3ArchiveStore) ListPrefix(ctx context.Context, bucket string, prefi
 
 type fakeHTTPArchiveStore struct {
 	openReader func(ctx context.Context, ref locator.Ref) (io.ReadCloser, httpstore.Metadata, error)
-	openRange  func(ctx context.Context, ref locator.Ref, offset int64, length int64) (io.ReadCloser, error)
 }
 
 func (f fakeHTTPArchiveStore) OpenReader(ctx context.Context, ref locator.Ref) (io.ReadCloser, httpstore.Metadata, error) {
@@ -77,9 +68,26 @@ func (f fakeHTTPArchiveStore) OpenReader(ctx context.Context, ref locator.Ref) (
 	return f.openReader(ctx, ref)
 }
 
-func (f fakeHTTPArchiveStore) OpenRangeReader(ctx context.Context, ref locator.Ref, offset int64, length int64) (io.ReadCloser, error) {
+type fakeS3ZipArchiveStore struct {
+	fakeS3ArchiveStore
+	openRange func(ctx context.Context, ref locator.Ref, offset int64, length int64) (io.ReadCloser, error)
+}
+
+func (f fakeS3ZipArchiveStore) OpenRangeReader(ctx context.Context, ref locator.Ref, offset int64, length int64) (io.ReadCloser, error) {
 	if f.openRange == nil {
-		return nil, errors.New("fakeHTTPArchiveStore: OpenRangeReader not implemented")
+		return nil, errors.New("fakeS3ZipArchiveStore: OpenRangeReader not implemented")
+	}
+	return f.openRange(ctx, ref, offset, length)
+}
+
+type fakeHTTPZipArchiveStore struct {
+	fakeHTTPArchiveStore
+	openRange func(ctx context.Context, ref locator.Ref, offset int64, length int64) (io.ReadCloser, error)
+}
+
+func (f fakeHTTPZipArchiveStore) OpenRangeReader(ctx context.Context, ref locator.Ref, offset int64, length int64) (io.ReadCloser, error) {
+	if f.openRange == nil {
+		return nil, errors.New("fakeHTTPZipArchiveStore: OpenRangeReader not implemented")
 	}
 	return f.openRange(ctx, ref, offset, length)
 }
@@ -121,6 +129,71 @@ func TestStorageRouterOpenArchiveWriterRejectsHTTP(t *testing.T) {
 	_, err := router.openArchiveWriter(context.Background(), locator.Ref{Kind: locator.KindHTTP, Raw: "https://example.test/archive.tar"})
 	if err == nil || !strings.Contains(err.Error(), "source-only") {
 		t.Fatalf("openArchiveWriter() err = %v, want source-only error", err)
+	}
+}
+
+func TestNewStorageRouterWiresZipRangeStores(t *testing.T) {
+	router := newStorageRouter(
+		nil,
+		fakeS3ZipArchiveStore{
+			openRange: func(_ context.Context, _ locator.Ref, _, _ int64) (io.ReadCloser, error) {
+				return io.NopCloser(strings.NewReader("s3-range")), nil
+			},
+		},
+		fakeHTTPZipArchiveStore{
+			openRange: func(_ context.Context, _ locator.Ref, _, _ int64) (io.ReadCloser, error) {
+				return io.NopCloser(strings.NewReader("http-range")), nil
+			},
+		},
+	)
+
+	s3rc, err := router.openZipRangeReader(context.Background(), locator.Ref{
+		Kind:   locator.KindS3,
+		Raw:    "s3://bucket/archive.zip",
+		Bucket: "bucket",
+		Key:    "archive.zip",
+	}, 4, 8)
+	if err != nil {
+		t.Fatalf("openZipRangeReader() s3 error = %v", err)
+	}
+	defer s3rc.Close() //nolint:errcheck
+	s3body, err := io.ReadAll(s3rc)
+	if err != nil {
+		t.Fatalf("io.ReadAll(s3rc) error = %v", err)
+	}
+	if string(s3body) != "s3-range" {
+		t.Fatalf("s3 body = %q", s3body)
+	}
+
+	httprc, err := router.openZipRangeReader(context.Background(), locator.Ref{
+		Kind: locator.KindHTTP,
+		Raw:  "https://example.test/archive.zip",
+		URL:  "https://example.test/archive.zip",
+	}, 2, 6)
+	if err != nil {
+		t.Fatalf("openZipRangeReader() http error = %v", err)
+	}
+	defer httprc.Close() //nolint:errcheck
+	httpbody, err := io.ReadAll(httprc)
+	if err != nil {
+		t.Fatalf("io.ReadAll(httprc) error = %v", err)
+	}
+	if string(httpbody) != "http-range" {
+		t.Fatalf("http body = %q", httpbody)
+	}
+}
+
+func TestStorageRouterOpenZipRangeReaderRequiresConfiguredRangeStore(t *testing.T) {
+	router := newStorageRouter(nil, fakeS3ArchiveStore{}, fakeHTTPArchiveStore{})
+
+	_, err := router.openZipRangeReader(context.Background(), locator.Ref{
+		Kind:   locator.KindS3,
+		Raw:    "s3://bucket/archive.zip",
+		Bucket: "bucket",
+		Key:    "archive.zip",
+	}, 0, 1)
+	if err == nil || !strings.Contains(err.Error(), "zip range store is not configured") {
+		t.Fatalf("openZipRangeReader() err = %v", err)
 	}
 }
 

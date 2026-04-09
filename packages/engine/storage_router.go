@@ -13,9 +13,28 @@ import (
 
 // storageRouter centralizes backend-specific archive and object operations.
 type storageRouter struct {
-	local localArchiveStore
-	s3    s3ArchiveStore
-	http  httpArchiveStore
+	local        localArchiveStore
+	s3           s3ArchiveStore
+	s3ZipRange   zipArchiveRangeStore
+	http         httpArchiveStore
+	httpZipRange zipArchiveRangeStore
+}
+
+// newStorageRouter builds one storage router and wires optional ZIP-specific
+// range readers only for backends that expose them.
+func newStorageRouter(local localArchiveStore, s3 s3ArchiveStore, http httpArchiveStore) *storageRouter {
+	router := &storageRouter{
+		local: local,
+		s3:    s3,
+		http:  http,
+	}
+	if rangeStore, ok := s3.(zipArchiveRangeStore); ok {
+		router.s3ZipRange = rangeStore
+	}
+	if rangeStore, ok := http.(zipArchiveRangeStore); ok {
+		router.httpZipRange = rangeStore
+	}
+	return router
 }
 
 func (r *storageRouter) requireLocal() error {
@@ -93,24 +112,25 @@ func (r *storageRouter) openArchiveWriter(ctx context.Context, ref locator.Ref) 
 	}
 }
 
-// openArchiveRangeReader opens one byte range from a remote archive source.
-func (r *storageRouter) openArchiveRangeReader(ctx context.Context, ref locator.Ref, offset int64, length int64) (io.ReadCloser, error) {
+// openZipRangeReader opens one byte range from a remote archive source for ZIP
+// random access reads.
+func (r *storageRouter) openZipRangeReader(ctx context.Context, ref locator.Ref, offset int64, length int64) (io.ReadCloser, error) {
 	switch ref.Kind {
 	case locator.KindS3:
-		if err := r.requireS3(); err != nil {
-			return nil, err
+		if r.s3ZipRange == nil {
+			return nil, fmt.Errorf("s3 zip range store is not configured")
 		}
 		if strings.TrimSpace(ref.Key) == "" {
 			return nil, fmt.Errorf("archive object key cannot be empty for -f")
 		}
-		return r.s3.OpenRangeReader(ctx, ref, offset, length)
+		return r.s3ZipRange.OpenRangeReader(ctx, ref, offset, length)
 	case locator.KindHTTP:
-		if err := r.requireHTTP(); err != nil {
-			return nil, err
+		if r.httpZipRange == nil {
+			return nil, fmt.Errorf("http zip range store is not configured")
 		}
-		return r.http.OpenRangeReader(ctx, ref, offset, length)
+		return r.httpZipRange.OpenRangeReader(ctx, ref, offset, length)
 	default:
-		return nil, fmt.Errorf("unsupported archive range source %q", ref.Raw)
+		return nil, fmt.Errorf("unsupported zip range source %q", ref.Raw)
 	}
 }
 
