@@ -18,6 +18,11 @@ type localArchiveStore interface {
 
 // zipArchiveRangeStore opens exact byte ranges from remote archives so ZIP
 // reads can satisfy io.ReaderAt without staging the full archive stream.
+//
+// ZIP archives store a central directory at the end of the file, so the reader
+// must seek to arbitrary offsets (Go's archive/zip requires io.ReaderAt). TAR
+// archives are purely sequential and only need io.Reader, so they stream
+// directly without range requests.
 type zipArchiveRangeStore interface {
 	OpenRangeReader(ctx context.Context, ref locator.Ref, offset int64, length int64) (io.ReadCloser, error)
 }
