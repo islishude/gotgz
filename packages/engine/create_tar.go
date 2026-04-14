@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"time"
@@ -40,32 +41,20 @@ func (r *Runner) runCreateTar(ctx context.Context, opts cli.Options, archiveRef 
 		return 0, err
 	}
 	excludeMatcher := archivepath.NewCompiledPathMatcher(excludes)
-	plan, err := r.buildCreatePlanIfEnabled(ctx, opts, excludeMatcher, reporter)
+	source, err := r.newCreateInputSource(ctx, opts, excludeMatcher, reporter != nil && reporter.Enabled())
 	if err != nil {
 		return 0, err
 	}
-	if plan != nil {
-		return r.processCreatePlan(
-			ctx,
-			plan,
-			func(ref locator.Ref) error {
-				return r.addS3Member(ctx, tw, ref, opts.Verbose, reporter)
-			},
-			func(entries []localCreateEntry) (int, error) {
-				return r.addLocalEntries(ctx, tw, entries, opts.Verbose, metadataPolicy, reporter)
-			},
-		)
-	}
+	total, totalKnown := source.Total()
+	reporter.SetTotal(total, totalKnown)
 
-	return r.processCreateMembers(
+	return source.Visit(
 		ctx,
-		opts,
-		excludeMatcher,
 		func(ref locator.Ref) error {
 			return r.addS3Member(ctx, tw, ref, opts.Verbose, reporter)
 		},
-		func(member string) (int, error) {
-			return r.addLocalPath(ctx, tw, member, opts.Chdir, excludeMatcher, opts.Verbose, metadataPolicy, reporter)
+		func(source localCreateSource) (int, error) {
+			return r.addLocalTarSource(ctx, tw, source, opts.Verbose, metadataPolicy, reporter)
 		},
 	)
 }
@@ -91,58 +80,19 @@ func (r *Runner) addS3Member(ctx context.Context, tw tarArchiveWriter, ref locat
 	})
 }
 
-// addLocalPath walks one local member path and writes entries into the tar
-// stream, returning any metadata warnings emitted along the way.
-func (r *Runner) addLocalPath(ctx context.Context, tw tarArchiveWriter, member, chdir string, excludeMatcher *archivepath.CompiledPathMatcher, verbose bool, metadataPolicy MetadataPolicy, reporter *archiveprogress.Reporter) (int, error) {
-	warnings := 0
-	err := walkLocalCreateMember(ctx, member, chdir, excludeMatcher, func(entry localCreateEntry) error {
-		w, err := r.writeLocalTarEntry(ctx, tw, entry, verbose, metadataPolicy, reporter)
-		warnings += w
-		return err
+// addLocalTarSource writes one local create source into the tar stream,
+// returning any metadata warnings emitted along the way.
+func (r *Runner) addLocalTarSource(ctx context.Context, tw tarArchiveWriter, source localCreateSource, verbose bool, metadataPolicy MetadataPolicy, reporter *archiveprogress.Reporter) (int, error) {
+	return visitLocalCreateSource(ctx, source, func(record localCreateRecord, info fs.FileInfo) (int, error) {
+		return r.writeLocalTarRecord(ctx, tw, record, info, verbose, metadataPolicy, reporter)
 	})
-	return warnings, err
 }
 
-// collectLocalCreateEntries walks one local member once and returns the
-// normalized archive entries together with their total regular-file size.
-func (r *Runner) collectLocalCreateEntries(ctx context.Context, member, chdir string, excludeMatcher *archivepath.CompiledPathMatcher) ([]localCreateEntry, int64, error) {
-	entries := make([]localCreateEntry, 0)
-	var total int64
-	err := walkLocalCreateMember(ctx, member, chdir, excludeMatcher, func(entry localCreateEntry) error {
-		entries = append(entries, entry)
-		if entry.info.Mode().IsRegular() {
-			total += entry.info.Size()
-		}
-		return nil
-	})
-	return entries, total, err
-}
-
-// addLocalEntries writes a pre-scanned set of local filesystem entries into the
-// tar stream, returning any metadata warnings emitted along the way.
-func (r *Runner) addLocalEntries(ctx context.Context, tw tarArchiveWriter, entries []localCreateEntry, verbose bool, metadataPolicy MetadataPolicy, reporter *archiveprogress.Reporter) (int, error) {
-	warnings := 0
-	for _, entry := range entries {
-		select {
-		case <-ctx.Done():
-			return warnings, ctx.Err()
-		default:
-		}
-		w, err := r.writeLocalTarEntry(ctx, tw, entry, verbose, metadataPolicy, reporter)
-		warnings += w
-		if err != nil {
-			return warnings, err
-		}
-	}
-	return warnings, nil
-}
-
-// writeLocalTarEntry writes one local filesystem entry into the tar stream.
-func (r *Runner) writeLocalTarEntry(ctx context.Context, tw tarArchiveWriter, entry localCreateEntry, verbose bool, metadataPolicy MetadataPolicy, reporter *archiveprogress.Reporter) (int, error) {
-	st := entry.info
+// writeLocalTarRecord writes one local filesystem record into the tar stream.
+func (r *Runner) writeLocalTarRecord(ctx context.Context, tw tarArchiveWriter, record localCreateRecord, st fs.FileInfo, verbose bool, metadataPolicy MetadataPolicy, reporter *archiveprogress.Reporter) (int, error) {
 	linkname := ""
 	if st.Mode()&os.ModeSymlink != 0 {
-		resolvedLink, err := os.Readlink(entry.current)
+		resolvedLink, err := os.Readlink(record.current)
 		if err != nil {
 			return 0, err
 		}
@@ -152,14 +102,14 @@ func (r *Runner) writeLocalTarEntry(ctx context.Context, tw tarArchiveWriter, en
 	if err != nil {
 		return 0, err
 	}
-	hdr.Name = filepath.ToSlash(entry.archiveName)
+	hdr.Name = filepath.ToSlash(record.archiveName)
 	hdr.Format = tar.FormatPAX
 
 	warnings := 0
 	if metadataPolicy.Xattrs || metadataPolicy.ACL {
-		xattrs, acls, err := archive.ReadPathMetadata(entry.current)
+		xattrs, acls, err := archive.ReadPathMetadata(record.current)
 		if err != nil {
-			warnings += r.warnf(reporter, "create: metadata for %s is incomplete: %v", entry.current, err)
+			warnings += r.warnf(reporter, "create: metadata for %s is incomplete: %v", record.current, err)
 		}
 		xattrs, acls = prepareMetadataForArchive(xattrs, acls, metadataPolicy)
 		archive.EncodeXattrToPAX(hdr, xattrs)
@@ -170,7 +120,7 @@ func (r *Runner) writeLocalTarEntry(ctx context.Context, tw tarArchiveWriter, en
 		return warnings, err
 	}
 	if st.Mode().IsRegular() {
-		f, err := os.Open(entry.current)
+		f, err := os.Open(record.current)
 		if err != nil {
 			return warnings, err
 		}

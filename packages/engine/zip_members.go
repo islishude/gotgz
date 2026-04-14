@@ -5,12 +5,12 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
-	"github.com/islishude/gotgz/packages/archivepath"
 	"github.com/islishude/gotgz/packages/archiveprogress"
 	"github.com/islishude/gotgz/packages/archiveutil"
 	"github.com/islishude/gotgz/packages/locator"
@@ -37,40 +37,16 @@ func (r *Runner) addS3MemberZip(ctx context.Context, zw zipArchiveWriter, ref lo
 	})
 }
 
-// addLocalPathZip walks a local member and writes entries into the zip archive.
-func (r *Runner) addLocalPathZip(ctx context.Context, zw zipArchiveWriter, member, chdir string, excludeMatcher *archivepath.CompiledPathMatcher, verbose bool, reporter *archiveprogress.Reporter) (int, error) {
-	warnings := 0
-	err := walkLocalCreateMember(ctx, member, chdir, excludeMatcher, func(entry localCreateEntry) error {
-		w, err := r.writeLocalZipEntry(ctx, zw, entry, verbose, reporter)
-		warnings += w
-		return err
+// addLocalZipSource writes one local create source into the zip archive.
+func (r *Runner) addLocalZipSource(ctx context.Context, zw zipArchiveWriter, source localCreateSource, verbose bool, reporter *archiveprogress.Reporter) (int, error) {
+	return visitLocalCreateSource(ctx, source, func(record localCreateRecord, info fs.FileInfo) (int, error) {
+		return r.writeLocalZipRecord(ctx, zw, record, info, verbose, reporter)
 	})
-	return warnings, err
 }
 
-// addLocalEntriesZip writes a pre-scanned set of local filesystem entries into
-// the zip archive.
-func (r *Runner) addLocalEntriesZip(ctx context.Context, zw zipArchiveWriter, entries []localCreateEntry, verbose bool, reporter *archiveprogress.Reporter) (int, error) {
-	warnings := 0
-	for _, entry := range entries {
-		select {
-		case <-ctx.Done():
-			return warnings, ctx.Err()
-		default:
-		}
-		w, err := r.writeLocalZipEntry(ctx, zw, entry, verbose, reporter)
-		warnings += w
-		if err != nil {
-			return warnings, err
-		}
-	}
-	return warnings, nil
-}
-
-// writeLocalZipEntry writes one local filesystem entry into the zip archive.
-func (r *Runner) writeLocalZipEntry(ctx context.Context, zw zipArchiveWriter, entry localCreateEntry, verbose bool, reporter *archiveprogress.Reporter) (int, error) {
-	st := entry.info
-	entryName := filepath.ToSlash(entry.archiveName)
+// writeLocalZipRecord writes one local filesystem record into the zip archive.
+func (r *Runner) writeLocalZipRecord(ctx context.Context, zw zipArchiveWriter, record localCreateRecord, st fs.FileInfo, verbose bool, reporter *archiveprogress.Reporter) (int, error) {
+	entryName := filepath.ToSlash(record.archiveName)
 
 	hdr, err := zip.FileInfoHeader(st)
 	if err != nil {
@@ -97,7 +73,7 @@ func (r *Runner) writeLocalZipEntry(ctx context.Context, zw zipArchiveWriter, en
 	switch {
 	case st.IsDir():
 	case st.Mode()&os.ModeSymlink != 0:
-		linkTarget, err := os.Readlink(entry.current)
+		linkTarget, err := os.Readlink(record.current)
 		if err != nil {
 			return 0, err
 		}
@@ -105,7 +81,7 @@ func (r *Runner) writeLocalZipEntry(ctx context.Context, zw zipArchiveWriter, en
 			return 0, err
 		}
 	case st.Mode().IsRegular():
-		f, err := os.Open(entry.current)
+		f, err := os.Open(record.current)
 		if err != nil {
 			return 0, err
 		}
@@ -121,7 +97,7 @@ func (r *Runner) writeLocalZipEntry(ctx context.Context, zw zipArchiveWriter, en
 		if err := zw.FinishEntry(); err != nil {
 			return 0, err
 		}
-		return r.warnf(reporter, "zip create: unsupported local member type %s for %s; skipping payload", st.Mode().String(), entry.current), nil
+		return r.warnf(reporter, "zip create: unsupported local member type %s for %s; skipping payload", st.Mode().String(), record.current), nil
 	}
 	if err := zw.FinishEntry(); err != nil {
 		return 0, err

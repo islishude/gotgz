@@ -36,33 +36,20 @@ func (r *Runner) runCreateZip(ctx context.Context, opts cli.Options, archiveRef 
 		return warnings, err
 	}
 	excludeMatcher := archivepath.NewCompiledPathMatcher(excludes)
-	plan, err := r.buildCreatePlanIfEnabled(ctx, opts, excludeMatcher, reporter)
+	source, err := r.newCreateInputSource(ctx, opts, excludeMatcher, reporter != nil && reporter.Enabled())
 	if err != nil {
 		return warnings, err
 	}
-	if plan != nil {
-		createWarnings, err := r.processCreatePlan(
-			ctx,
-			plan,
-			func(ref locator.Ref) error {
-				return r.addS3MemberZip(ctx, zw, ref, opts.Verbose, reporter)
-			},
-			func(entries []localCreateEntry) (int, error) {
-				return r.addLocalEntriesZip(ctx, zw, entries, opts.Verbose, reporter)
-			},
-		)
-		return warnings + createWarnings, err
-	}
+	total, totalKnown := source.Total()
+	reporter.SetTotal(total, totalKnown)
 
-	createWarnings, err := r.processCreateMembers(
+	createWarnings, err := source.Visit(
 		ctx,
-		opts,
-		excludeMatcher,
 		func(ref locator.Ref) error {
 			return r.addS3MemberZip(ctx, zw, ref, opts.Verbose, reporter)
 		},
-		func(member string) (int, error) {
-			return r.addLocalPathZip(ctx, zw, member, opts.Chdir, excludeMatcher, opts.Verbose, reporter)
+		func(source localCreateSource) (int, error) {
+			return r.addLocalZipSource(ctx, zw, source, opts.Verbose, reporter)
 		},
 	)
 	return warnings + createWarnings, err
