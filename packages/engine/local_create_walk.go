@@ -3,7 +3,6 @@ package engine
 import (
 	"context"
 	"io/fs"
-	"os"
 	"path"
 	"path/filepath"
 	"strings"
@@ -17,8 +16,10 @@ type localCreateRecord struct {
 	archiveName string
 }
 
-// walkLocalCreateMember normalizes one local create member and visits all non-excluded entries.
-func walkLocalCreateMember(ctx context.Context, member string, chdir string, excludeMatcher *archivepath.CompiledPathMatcher, visit func(record localCreateRecord, info fs.FileInfo) error) error {
+// walkLocalCreateMemberEntries normalizes one local create member and visits all
+// non-excluded entries while exposing the raw directory entry metadata gathered
+// during the walk.
+func walkLocalCreateMemberEntries(ctx context.Context, member string, chdir string, excludeMatcher *archivepath.CompiledPathMatcher, visit func(record localCreateRecord, entry fs.DirEntry) error) error {
 	basePath := member
 	if chdir != "" {
 		basePath = filepath.Join(chdir, member)
@@ -48,14 +49,21 @@ func walkLocalCreateMember(ctx context.Context, member string, chdir string, exc
 			return nil
 		}
 
-		info, err := os.Lstat(current)
-		if err != nil {
-			return err
-		}
 		return visit(localCreateRecord{
 			current:     current,
 			archiveName: archiveName,
-		}, info)
+		}, d)
+	})
+}
+
+// walkLocalCreateMember normalizes one local create member and visits all non-excluded entries.
+func walkLocalCreateMember(ctx context.Context, member string, chdir string, excludeMatcher *archivepath.CompiledPathMatcher, visit func(record localCreateRecord, info fs.FileInfo) error) error {
+	return walkLocalCreateMemberEntries(ctx, member, chdir, excludeMatcher, func(record localCreateRecord, entry fs.DirEntry) error {
+		info, err := entry.Info()
+		if err != nil {
+			return err
+		}
+		return visit(record, info)
 	})
 }
 
@@ -64,8 +72,16 @@ func walkLocalCreateMember(ctx context.Context, member string, chdir string, exc
 func collectLocalCreateRecords(ctx context.Context, member string, chdir string, excludeMatcher *archivepath.CompiledPathMatcher) ([]localCreateRecord, int64, error) {
 	records := make([]localCreateRecord, 0)
 	var total int64
-	err := walkLocalCreateMember(ctx, member, chdir, excludeMatcher, func(record localCreateRecord, info fs.FileInfo) error {
+	err := walkLocalCreateMemberEntries(ctx, member, chdir, excludeMatcher, func(record localCreateRecord, entry fs.DirEntry) error {
 		records = append(records, record)
+		if !entry.Type().IsRegular() {
+			return nil
+		}
+
+		info, err := entry.Info()
+		if err != nil {
+			return err
+		}
 		if info.Mode().IsRegular() {
 			total += info.Size()
 		}
