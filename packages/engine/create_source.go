@@ -12,8 +12,13 @@ import (
 )
 
 // localCreateSource provides one local create workload as normalized archive
-// records paired with the current filesystem metadata used to write them.
+// records paired with filesystem metadata supplied by the implementation.
+// Implementations may either refresh metadata immediately before calling the
+// visitor or reuse metadata obtained during planning or traversal.
 type localCreateSource interface {
+	// Visit invokes visit for each record and its associated filesystem
+	// metadata. Callers must not assume the metadata is freshly re-statted
+	// unless the concrete implementation documents that guarantee.
 	Visit(ctx context.Context, visit func(record localCreateRecord, info fs.FileInfo) error) error
 }
 
@@ -58,8 +63,17 @@ func (s plannedLocalCreateSource) Visit(ctx context.Context, visit func(record l
 
 // createInputSource dispatches create-mode members and exposes any known total
 // payload size for progress reporting.
+// createInputSource abstracts the input used by a create operation.
+//
+// Implementations may represent local content, existing S3-backed content,
+// or a combination of both. Total reports the overall payload size when it
+// can be determined ahead of time. Visit walks the source and dispatches each
+// encountered item to the appropriate handler, returning the number of visited
+// items or the first error encountered.
 type createInputSource interface {
+	// Total returns the total payload size and whether that total is known upfront.
 	Total() (int64, bool)
+	// Visit walks the source and dispatches each item to the appropriate handler.
 	Visit(ctx context.Context, handleS3 func(ref locator.Ref) error, handleLocal func(source localCreateSource) (int, error)) (int, error)
 }
 
