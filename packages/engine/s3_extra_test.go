@@ -286,7 +286,7 @@ func TestCreateTarWithS3Member(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// Create zip from S3 member (covers addS3MemberZip path)
+// Create zip from S3 member (covers addS3ZipMember path)
 // ---------------------------------------------------------------------------
 
 // TestCreateZipWithS3Member covers the zip-from-S3 path via fakes.

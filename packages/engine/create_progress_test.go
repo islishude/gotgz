@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	"io"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -124,6 +125,67 @@ func TestCreateModeEstimatesS3SizeWhenProgressEnabled(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			if statCalls := runCreateWithProgressMode(t, cli.ProgressAlways, tc.run, tc.archiveRef); statCalls != 1 {
 				t.Fatalf("statCalls = %d, want 1", statCalls)
+			}
+		})
+	}
+}
+
+// TestCreateModeValidatesInputsBeforeOpeningArchiveWriter verifies that create
+// mode fails early on invalid exclude configuration before touching the output.
+func TestCreateModeValidatesInputsBeforeOpeningArchiveWriter(t *testing.T) {
+	cases := []struct {
+		name       string
+		archiveRef locator.Ref
+		run        func(*Runner, context.Context, cli.Options, locator.Ref, *archiveprogress.Reporter) (int, error)
+	}{
+		{
+			name:       "tar",
+			archiveRef: locator.Ref{Kind: locator.KindLocal, Raw: "out.tar", Path: "out.tar"},
+			run:        (*Runner).runCreateTar,
+		},
+		{
+			name:       "zip",
+			archiveRef: locator.Ref{Kind: locator.KindLocal, Raw: "out.zip", Path: "out.zip"},
+			run:        (*Runner).runCreateZip,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			openWriterCalls := 0
+			runner := newRunner(
+				fakeLocalArchiveStore{
+					openWriter: func(ref locator.Ref) (io.WriteCloser, error) {
+						openWriterCalls++
+						if ref.Path != tc.archiveRef.Path {
+							t.Fatalf("archive path = %q, want %q", ref.Path, tc.archiveRef.Path)
+						}
+						return &fakeWriteCloser{}, nil
+					},
+				},
+				nil,
+				nil,
+				io.Discard,
+				io.Discard,
+			)
+
+			opts := cli.Options{
+				Mode:        cli.ModeCreate,
+				Archive:     tc.archiveRef.Path,
+				ExcludeFrom: []string{filepath.Join(t.TempDir(), "missing-exclude.txt")},
+			}
+			reporter := archiveprogress.NewReporter(io.Discard, cli.ProgressNever, 0, false, time.Now(), false)
+			warnings, err := tc.run(runner, context.Background(), opts, tc.archiveRef, reporter)
+			reporter.Finish()
+
+			if err == nil {
+				t.Fatalf("create error = nil, want invalid exclude-from error")
+			}
+			if warnings != 0 {
+				t.Fatalf("warnings = %d, want 0", warnings)
+			}
+			if openWriterCalls != 0 {
+				t.Fatalf("openWriterCalls = %d, want 0", openWriterCalls)
 			}
 		})
 	}

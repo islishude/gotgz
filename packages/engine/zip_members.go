@@ -16,8 +16,8 @@ import (
 	"github.com/islishude/gotgz/packages/locator"
 )
 
-// addS3MemberZip writes one S3 object as a regular zip member.
-func (r *Runner) addS3MemberZip(ctx context.Context, zw zipArchiveWriter, ref locator.Ref, verbose bool, reporter *archiveprogress.Reporter) (err error) {
+// addS3ZipMember writes one S3 object as a regular zip member.
+func (r *Runner) addS3ZipMember(ctx context.Context, zw zipArchiveWriter, ref locator.Ref, verbose bool, reporter *archiveprogress.Reporter) (err error) {
 	return r.streamS3MemberToArchive(ctx, ref, verbose, reporter, func(name string, _ int64, modified time.Time, body io.Reader) error {
 		hdr := &zip.FileHeader{
 			Name:   name,
@@ -37,15 +37,11 @@ func (r *Runner) addS3MemberZip(ctx context.Context, zw zipArchiveWriter, ref lo
 	})
 }
 
-// addLocalZipSource writes one local create source into the zip archive.
-func (r *Runner) addLocalZipSource(ctx context.Context, zw zipArchiveWriter, source localCreateSource, verbose bool, reporter *archiveprogress.Reporter) (int, error) {
-	return visitLocalCreateSource(ctx, source, func(record localCreateRecord, info fs.FileInfo) (int, error) {
-		return r.writeLocalZipRecord(ctx, zw, record, info, verbose, reporter)
-	})
-}
-
 // writeLocalZipRecord writes one local filesystem record into the zip archive.
 func (r *Runner) writeLocalZipRecord(ctx context.Context, zw zipArchiveWriter, record localCreateRecord, st fs.FileInfo, verbose bool, reporter *archiveprogress.Reporter) (int, error) {
+	mode := st.Mode()
+	isDir := st.IsDir()
+	isSymlink := mode&os.ModeSymlink != 0
 	entryName := filepath.ToSlash(record.archiveName)
 
 	hdr, err := zip.FileInfoHeader(st)
@@ -53,26 +49,26 @@ func (r *Runner) writeLocalZipRecord(ctx context.Context, zw zipArchiveWriter, r
 		return 0, err
 	}
 	hdr.Name = entryName
-	if st.IsDir() {
+	if isDir {
 		if !strings.HasSuffix(hdr.Name, "/") {
 			hdr.Name += "/"
 		}
 		hdr.Method = zip.Store
-	} else if st.Mode()&os.ModeSymlink != 0 {
+	} else if isSymlink {
 		hdr.Method = zip.Store
 	} else {
 		hdr.Method = zip.Deflate
 	}
 	hdr.Modified = st.ModTime()
-	hdr.SetMode(st.Mode())
+	hdr.SetMode(mode)
 
 	w, err := zw.CreateHeader(hdr)
 	if err != nil {
 		return 0, err
 	}
 	switch {
-	case st.IsDir():
-	case st.Mode()&os.ModeSymlink != 0:
+	case isDir:
+	case isSymlink:
 		linkTarget, err := os.Readlink(record.current)
 		if err != nil {
 			return 0, err
@@ -80,7 +76,7 @@ func (r *Runner) writeLocalZipRecord(ctx context.Context, zw zipArchiveWriter, r
 		if _, err := io.WriteString(w, linkTarget); err != nil {
 			return 0, err
 		}
-	case st.Mode().IsRegular():
+	case mode.IsRegular():
 		f, err := os.Open(record.current)
 		if err != nil {
 			return 0, err
@@ -97,7 +93,7 @@ func (r *Runner) writeLocalZipRecord(ctx context.Context, zw zipArchiveWriter, r
 		if err := zw.FinishEntry(); err != nil {
 			return 0, err
 		}
-		return r.warnf(reporter, "zip create: unsupported local member type %s for %s; skipping payload", st.Mode().String(), record.current), nil
+		return r.warnf(reporter, "zip create: unsupported local member type %s for %s; skipping payload", mode.String(), record.current), nil
 	}
 	if err := zw.FinishEntry(); err != nil {
 		return 0, err

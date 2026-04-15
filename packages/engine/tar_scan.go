@@ -13,7 +13,41 @@ import (
 
 // scanTarArchiveFromReader scans a tar stream with optional compression.
 func (r *Runner) scanTarArchiveFromReader(ctx context.Context, opts cli.Options, reporter *archiveprogress.Reporter, info archiveReaderInfo, hint string, ar io.ReadCloser, fn func(hdr *tar.Header, tr *tar.Reader) (int, error)) (int, error) {
-	return r.scanTarArchiveStream(ctx, opts, reporter, info, hint, ar, fn)
+	ar = archiveprogress.NewCountingReadCloser(ar, reporter)
+
+	cr, _, err := compress.NewReader(ar, compress.FromString(string(opts.Compression)), hint, info.ContentType)
+	if err != nil {
+		return 0, err
+	}
+	defer cr.Close() //nolint:errcheck
+
+	tr := tar.NewReader(cr)
+	warnings := 0
+	for {
+		select {
+		case <-ctx.Done():
+			return warnings, ctx.Err()
+		default:
+		}
+		hdr, err := tr.Next()
+		if err != nil {
+			if errors.Is(err, io.EOF) {
+				break
+			}
+			return warnings, err
+		}
+		select {
+		case <-ctx.Done():
+			return warnings, ctx.Err()
+		default:
+		}
+		w, err := fn(hdr, tr)
+		warnings += w
+		if err != nil {
+			return warnings, err
+		}
+	}
+	return warnings, nil
 }
 
 // scanTarArchiveFromVolumes scans a discovered split archive volume-by-volume.
@@ -49,45 +83,6 @@ func (r *Runner) scanTarArchiveFromVolumes(ctx context.Context, _ cli.Options, r
 		}
 
 		w, err := scan(reader, info)
-		warnings += w
-		if err != nil {
-			return warnings, err
-		}
-	}
-	return warnings, nil
-}
-
-// scanTarArchiveStream scans one tar stream with optional compression.
-func (r *Runner) scanTarArchiveStream(ctx context.Context, opts cli.Options, reporter *archiveprogress.Reporter, info archiveReaderInfo, hint string, ar io.ReadCloser, fn func(hdr *tar.Header, tr *tar.Reader) (int, error)) (int, error) {
-	ar = archiveprogress.NewCountingReadCloser(ar, reporter)
-
-	cr, _, err := compress.NewReader(ar, compress.FromString(string(opts.Compression)), hint, info.ContentType)
-	if err != nil {
-		return 0, err
-	}
-	defer cr.Close() //nolint:errcheck
-
-	tr := tar.NewReader(cr)
-	warnings := 0
-	for {
-		select {
-		case <-ctx.Done():
-			return warnings, ctx.Err()
-		default:
-		}
-		hdr, err := tr.Next()
-		if err != nil {
-			if errors.Is(err, io.EOF) {
-				break
-			}
-			return warnings, err
-		}
-		select {
-		case <-ctx.Done():
-			return warnings, ctx.Err()
-		default:
-		}
-		w, err := fn(hdr, tr)
 		warnings += w
 		if err != nil {
 			return warnings, err
