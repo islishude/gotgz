@@ -33,12 +33,11 @@ func (r *Runner) runCreateZip(ctx context.Context, opts cli.Options, archiveRef 
 		return warnings, err
 	}
 	excludeMatcher := archivepath.NewCompiledPathMatcher(excludes)
-	source, err := r.newCreateInputSource(ctx, opts, excludeMatcher, reporter != nil && reporter.Enabled())
+	source, err := r.newCreateInputSource(ctx, opts, excludeMatcher, reporter.Enabled())
 	if err != nil {
 		return warnings, err
 	}
-	total, totalKnown := source.Total()
-	reporter.SetTotal(total, totalKnown)
+	reporter.SetTotal(source.Total())
 
 	createWarnings, err := source.Visit(
 		ctx,

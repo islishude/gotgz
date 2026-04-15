@@ -41,12 +41,11 @@ func (r *Runner) runCreateTar(ctx context.Context, opts cli.Options, archiveRef 
 		return 0, err
 	}
 	excludeMatcher := archivepath.NewCompiledPathMatcher(excludes)
-	source, err := r.newCreateInputSource(ctx, opts, excludeMatcher, reporter != nil && reporter.Enabled())
+	source, err := r.newCreateInputSource(ctx, opts, excludeMatcher, reporter.Enabled())
 	if err != nil {
 		return 0, err
 	}
-	total, totalKnown := source.Total()
-	reporter.SetTotal(total, totalKnown)
+	reporter.SetTotal(source.Total())
 
 	return source.Visit(
 		ctx,
