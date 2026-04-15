@@ -1,3 +1,5 @@
+all: build lint fmt test
+
 build:
 	go build -o gotgz ./cmd/gotgz
 
@@ -12,9 +14,12 @@ fmt:
 	gofmt -w -s .
 	go fix ./...
 
-test: build lint fmt s3mock
+test: s3mock
 	GOTGZ_TEST_S3_ENDPOINT=http://localhost:4566 go test -v -race -count=1 -coverprofile=coverage.txt ./...
 	docker compose down
+
+unit-test:
+	go test -v -race ./...
 
 s3mock:
 	docker compose down

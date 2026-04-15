@@ -1,13 +1,13 @@
 # Agent Development Guide
 
-A file for [guiding coding agents](https://agents.md/).
-
 ## Commands
 
 - **Build:** `make build`
-- **Test:** `make test`
+- **Test:** `make test` for integration tests, `make unit-test` for unit tests
 - **Lint:** `make lint`
 - **Format:** `make fmt`
+
+Run `make all` to execute all of the above after modifying the code.
 
 ## Install missing tools
 
@@ -66,7 +66,11 @@ new(42)
 
 The feature was introduced in Go 1.26.
 
-## Code Documentation and Commenting
+### Keep files small and focused.
+
+Split code by responsibility whenever possible; do not put too much logic in a single Go file.
+
+### Code Documentation and Commenting
 
 - At a minimum every function must be commented with its intended purpose and
   any assumptions that it makes
