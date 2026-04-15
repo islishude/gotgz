@@ -6,15 +6,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"math"
 	"os"
 	"strconv"
 	"strings"
 
-	"github.com/islishude/gotgz/packages/archivepath"
 	"github.com/islishude/gotgz/packages/archiveprogress"
 	"github.com/islishude/gotgz/packages/archiveutil"
-	"github.com/islishude/gotgz/packages/cli"
 	"github.com/islishude/gotgz/packages/locator"
 )
 
@@ -150,111 +147,4 @@ func zipStagingLimitError(ref locator.Ref, limit int64) error {
 		source = "zip input"
 	}
 	return fmt.Errorf("%s exceeds zip staging limit of %d bytes; set %s to raise the limit", source, limit, zipStagingLimitEnv)
-}
-
-// extractZipToStdout writes matching regular zip members to stdout.
-func (r *Runner) extractZipToStdout(ctx context.Context, zr *zip.Reader, memberMatcher *archivepath.CompiledPathMatcher, opts cli.Options, reporter *archiveprogress.Reporter) (int, error) {
-	warnings := 0
-	for _, zf := range zr.File {
-		select {
-		case <-ctx.Done():
-			return warnings, ctx.Err()
-		default:
-		}
-		if archivepath.ShouldSkipMemberWithMatcher(memberMatcher, zf.Name) {
-			continue
-		}
-		name, ok := archivepath.StripPathComponents(zf.Name, opts.StripComponents)
-		if !ok || name == "" || !isZipRegular(zf) {
-			continue
-		}
-		rc, w, err := r.openZipEntry(zf, reporter)
-		warnings += w
-		if err != nil {
-			return warnings, err
-		}
-		if rc == nil {
-			continue
-		}
-		_, err = archiveutil.CopyWithContext(ctx, r.stdout, archiveprogress.NewCountingReader(rc, reporter))
-		cerr := rc.Close()
-		if err != nil {
-			return warnings, err
-		}
-		if cerr != nil {
-			return warnings, cerr
-		}
-	}
-	return warnings, nil
-}
-
-// openZipEntry opens one zip file entry and downgrades unsupported algorithms
-// into warnings so extraction/list can continue.
-func (r *Runner) openZipEntry(zf *zip.File, reporter *archiveprogress.Reporter) (io.ReadCloser, int, error) {
-	rc, err := zf.Open()
-	if err == nil {
-		return rc, 0, nil
-	}
-	if errors.Is(err, zip.ErrAlgorithm) {
-		return nil, r.warnf(reporter, "zip entry %s uses unsupported algorithm/encryption; skipping", zf.Name), nil
-	}
-	return nil, 0, err
-}
-
-// totalZipPayloadBytes sums uncompressed payload bytes for matching entries.
-func totalZipPayloadBytes(zr *zip.Reader, match func(zf *zip.File) bool) int64 {
-	var total uint64
-	for _, zf := range zr.File {
-		if match != nil && !match(zf) {
-			continue
-		}
-		if isZipDir(zf) {
-			continue
-		}
-		total += zf.UncompressedSize64
-	}
-	if total > math.MaxInt64 {
-		return math.MaxInt64
-	}
-	return int64(total)
-}
-
-// isZipDir reports whether a zip entry is a directory.
-func isZipDir(zf *zip.File) bool {
-	if zf == nil {
-		return false
-	}
-	if strings.HasSuffix(zf.Name, "/") {
-		return true
-	}
-	return zf.FileInfo().IsDir()
-}
-
-// isZipSymlink reports whether a zip entry is a symbolic link.
-func isZipSymlink(zf *zip.File) bool {
-	if zf == nil {
-		return false
-	}
-	return zf.Mode()&os.ModeSymlink != 0
-}
-
-// isZipRegular reports whether a zip entry should be treated as a regular file.
-func isZipRegular(zf *zip.File) bool {
-	if zf == nil || isZipDir(zf) || isZipSymlink(zf) {
-		return false
-	}
-	return zf.Mode().IsRegular()
-}
-
-// readZipSymlinkTarget reads a symlink target from a zip entry with a hard cap
-// to avoid unbounded memory growth on malformed archives.
-func readZipSymlinkTarget(zf *zip.File, rc io.Reader, reporter *archiveprogress.Reporter) (string, error) {
-	b, err := io.ReadAll(io.LimitReader(archiveprogress.NewCountingReader(rc, reporter), maxZipSymlinkTargetBytes+1))
-	if err != nil {
-		return "", err
-	}
-	if len(b) > maxZipSymlinkTargetBytes {
-		return "", fmt.Errorf("zip symlink %s target exceeds %d bytes", zf.Name, maxZipSymlinkTargetBytes)
-	}
-	return string(b), nil
 }
