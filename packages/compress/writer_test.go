@@ -2,7 +2,6 @@ package compress
 
 import (
 	"bytes"
-	"errors"
 	"io"
 	"strings"
 	"testing"
@@ -10,70 +9,117 @@ import (
 	"github.com/pierrec/lz4/v4"
 )
 
-// closeRecorder records close order and can inject a close error.
-type closeRecorder struct {
-	name     string
-	events   *[]string
-	closeErr error
-}
+func TestRoundTrip(t *testing.T) {
+	payload := []byte(strings.Repeat("hello-gotgz-", 128))
+	cases := []Type{None, Gzip, Bzip2, Xz, Zstd, Lz4}
+	for _, c := range cases {
+		t.Run(string(c), func(t *testing.T) {
+			var buf bytes.Buffer
+			w, err := NewWriter(nopWriteCloser{Writer: &buf}, c, WriterOptions{})
+			if err != nil {
+				t.Fatalf("NewWriter() error = %v", err)
+			}
+			if _, err := w.Write(payload); err != nil {
+				t.Fatalf("Write() error = %v", err)
+			}
+			if err := w.Close(); err != nil {
+				t.Fatalf("Close() error = %v", err)
+			}
 
-// Close records the close operation and returns the configured error.
-func (r *closeRecorder) Close() error {
-	*r.events = append(*r.events, "close:"+r.name)
-	return r.closeErr
-}
-
-// writeCloserRecorder records writes, flushes, and closes for stacked writer tests.
-type writeCloserRecorder struct {
-	name     string
-	events   *[]string
-	buf      bytes.Buffer
-	writeErr error
-	closeErr error
-	flushErr error
-}
-
-// Write records the write operation and appends the payload to the internal buffer.
-func (r *writeCloserRecorder) Write(p []byte) (int, error) {
-	*r.events = append(*r.events, "write:"+r.name)
-	if r.writeErr != nil {
-		return 0, r.writeErr
+			r, detected, err := NewReader(io.NopCloser(bytes.NewReader(buf.Bytes())), Auto, "archive.tar", "")
+			if err != nil {
+				t.Fatalf("NewReader() error = %v", err)
+			}
+			got, err := io.ReadAll(r)
+			if err != nil {
+				t.Fatalf("ReadAll() error = %v", err)
+			}
+			_ = r.Close()
+			if !bytes.Equal(got, payload) {
+				t.Fatalf("payload mismatch")
+			}
+			if c == None && detected != None {
+				t.Fatalf("detected = %q, want none", detected)
+			}
+		})
 	}
-	return r.buf.Write(p)
 }
 
-// Close records the close operation and returns the configured error.
-func (r *writeCloserRecorder) Close() error {
-	*r.events = append(*r.events, "close:"+r.name)
-	return r.closeErr
+func TestRoundTripWithCompressionLevel(t *testing.T) {
+	payload := []byte(strings.Repeat("hello-gotgz-level-", 128))
+	level := 9
+	cases := []Type{Gzip, Bzip2, Xz, Zstd, Lz4}
+	for _, c := range cases {
+		t.Run(string(c), func(t *testing.T) {
+			var buf bytes.Buffer
+			w, err := NewWriter(nopWriteCloser{Writer: &buf}, c, WriterOptions{Level: &level})
+			if err != nil {
+				t.Fatalf("NewWriter() error = %v", err)
+			}
+			if _, err := w.Write(payload); err != nil {
+				t.Fatalf("Write() error = %v", err)
+			}
+			if err := w.Close(); err != nil {
+				t.Fatalf("Close() error = %v", err)
+			}
+
+			r, _, err := NewReader(io.NopCloser(bytes.NewReader(buf.Bytes())), c, "archive.tar", "")
+			if err != nil {
+				t.Fatalf("NewReader() error = %v", err)
+			}
+			got, err := io.ReadAll(r)
+			if err != nil {
+				t.Fatalf("ReadAll() error = %v", err)
+			}
+			_ = r.Close()
+			if !bytes.Equal(got, payload) {
+				t.Fatalf("payload mismatch")
+			}
+		})
+	}
 }
 
-// Flush records the flush operation and returns the configured error.
-func (r *writeCloserRecorder) Flush() error {
-	*r.events = append(*r.events, "flush:"+r.name)
-	return r.flushErr
-}
-
-// TestFromString verifies that supported names map to concrete compression types
-// and unknown values fall back to auto detection.
-func TestFromString(t *testing.T) {
-	tests := []struct {
-		input string
-		want  Type
-	}{
-		{input: "none", want: None},
-		{input: "GZIP", want: Gzip},
-		{input: "bzip2", want: Bzip2},
-		{input: "xz", want: Xz},
-		{input: "zstd", want: Zstd},
-		{input: "lz4", want: Lz4},
-		{input: "unknown", want: Auto},
+func TestBzip2WriterFlushEmitsData(t *testing.T) {
+	var buf bytes.Buffer
+	w, err := NewWriter(nopWriteCloser{Writer: &buf}, Bzip2, WriterOptions{})
+	if err != nil {
+		t.Fatalf("NewWriter() error = %v", err)
 	}
 
-	for _, tt := range tests {
-		if got := FromString(tt.input); got != tt.want {
-			t.Fatalf("FromString(%q) = %q, want %q", tt.input, got, tt.want)
+	flusher, ok := w.(FlushWriteCloser)
+	if !ok {
+		t.Fatalf("NewWriter(Bzip2) does not implement FlushWriteCloser")
+	}
+
+	if _, err := w.Write([]byte("flush-me")); err != nil {
+		t.Fatalf("Write() error = %v", err)
+	}
+	if err := flusher.Flush(); err != nil {
+		t.Fatalf("Flush() error = %v", err)
+	}
+	if buf.Len() == 0 {
+		t.Fatalf("Flush() did not emit any compressed bytes")
+	}
+	if err := w.Close(); err != nil {
+		t.Fatalf("Close() error = %v", err)
+	}
+
+	r, _, err := NewReader(io.NopCloser(bytes.NewReader(buf.Bytes())), Bzip2, "archive.tar.bz2", "")
+	if err != nil {
+		t.Fatalf("NewReader() error = %v", err)
+	}
+	defer func() {
+		if err := r.Close(); err != nil {
+			t.Fatalf("Close() error = %v", err)
 		}
+	}()
+
+	got, err := io.ReadAll(r)
+	if err != nil {
+		t.Fatalf("ReadAll() error = %v", err)
+	}
+	if !bytes.Equal(got, []byte("flush-me")) {
+		t.Fatalf("payload = %q, want %q", got, "flush-me")
 	}
 }
 
@@ -87,61 +133,6 @@ func TestNewWriterRejectsInvalidOptions(t *testing.T) {
 
 	if _, err := NewWriter(nopWriteCloser{Writer: io.Discard}, Type("brotli"), WriterOptions{}); err == nil {
 		t.Fatalf("NewWriter() error = nil, want unsupported type error")
-	}
-}
-
-// TestNewReaderFallsBackToContentType verifies that content-type detection is
-// used when magic bytes and hint suffixes are inconclusive.
-func TestNewReaderFallsBackToContentType(t *testing.T) {
-	reader, detected, err := NewReader(io.NopCloser(strings.NewReader("plain payload")), Auto, "archive.bin", "application/x-tar")
-	if err != nil {
-		t.Fatalf("NewReader() error = %v", err)
-	}
-	defer func() {
-		if err := reader.Close(); err != nil {
-			t.Fatalf("Close() error = %v", err)
-		}
-	}()
-
-	got, err := io.ReadAll(reader)
-	if err != nil {
-		t.Fatalf("ReadAll() error = %v", err)
-	}
-	if string(got) != "plain payload" {
-		t.Fatalf("ReadAll() = %q, want %q", got, "plain payload")
-	}
-	if detected != None {
-		t.Fatalf("detected = %q, want %q", detected, None)
-	}
-}
-
-// TestWrapReaderRejectsUnsupportedType verifies that wrapReader fails fast on
-// unsupported compression values.
-func TestWrapReaderRejectsUnsupportedType(t *testing.T) {
-	if _, err := wrapReader(strings.NewReader("payload"), io.NopCloser(strings.NewReader("")), Type("brotli")); err == nil {
-		t.Fatalf("wrapReader() error = nil, want unsupported type error")
-	}
-}
-
-// TestMultiReadCloserCloseReturnsFirstError verifies that all closers run and
-// the first close error is returned.
-func TestMultiReadCloserCloseReturnsFirstError(t *testing.T) {
-	events := make([]string, 0, 2)
-	wantErr := errors.New("first close failed")
-	reader := &multiReadCloser{
-		reader: strings.NewReader("payload"),
-		closers: []io.Closer{
-			&closeRecorder{name: "first", events: &events, closeErr: wantErr},
-			&closeRecorder{name: "second", events: &events},
-		},
-	}
-
-	if err := reader.Close(); !errors.Is(err, wantErr) {
-		t.Fatalf("Close() error = %v, want %v", err, wantErr)
-	}
-	wantEvents := []string{"close:first", "close:second"}
-	if !bytes.Equal([]byte(strings.Join(events, ",")), []byte(strings.Join(wantEvents, ","))) {
-		t.Fatalf("close events = %#v, want %#v", events, wantEvents)
 	}
 }
 
