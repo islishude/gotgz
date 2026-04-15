@@ -213,6 +213,10 @@ func TestParseSplitSize(t *testing.T) {
 		{name: "bytes", arg: "2048", want: 2048},
 		{name: "short unit", arg: "2K", want: 2 * 1024},
 		{name: "binary unit", arg: "3MiB", want: 3 * 1024 * 1024},
+		{name: "decimal KB", arg: "5KB", want: 5 * 1000},
+		{name: "decimal MB", arg: "2MB", want: 2 * 1000 * 1000},
+		{name: "decimal GB", arg: "1GB", want: 1000 * 1000 * 1000},
+		{name: "decimal TB", arg: "1TB", want: 1000 * 1000 * 1000 * 1000},
 	}
 
 	for _, tt := range tests {
