@@ -64,8 +64,15 @@ func (r *Runner) runExtractZip(ctx context.Context, opts cli.Options, reporter *
 	}
 
 	if len(volumes) == 1 {
-		zipWarnings, err := r.withZipReader(ctx, archiveRef, ar, info, nil, func(zr *zip.Reader) (int, error) {
+		readZip := r.withZipReader
+		if r.shouldUseConcurrentS3Extract(parsedTarget) {
+			readZip = r.withConcurrentS3ZipReader
+		}
+		zipWarnings, err := readZip(ctx, archiveRef, ar, info, nil, func(zr *zip.Reader) (int, error) {
 			reporter.SetTotal(matchingZipExtractPayloadBytes(zr, memberMatcher, opts.StripComponents), true)
+			if r.shouldUseConcurrentS3Extract(parsedTarget) {
+				return r.extractZipEntriesToS3Concurrent(ctx, zr, opts, reporter, parsedTarget, memberMatcher)
+			}
 			return r.extractZipEntries(ctx, zr, opts, reporter, parsedTarget, target, policy, safetyCache, memberMatcher)
 		})
 		return warnings + zipWarnings, err
@@ -84,7 +91,14 @@ func (r *Runner) runExtractZip(ctx context.Context, opts cli.Options, reporter *
 	}
 
 	zipWarnings, err := r.forEachArchiveVolume(ctx, volumes, firstReader, info, func(ref locator.Ref, reader io.ReadCloser, readerInfo archiveReaderInfo) (int, error) {
-		return r.withZipReader(ctx, ref, reader, readerInfo, nil, func(zr *zip.Reader) (int, error) {
+		readZip := r.withZipReader
+		if r.shouldUseConcurrentS3Extract(parsedTarget) {
+			readZip = r.withConcurrentS3ZipReader
+		}
+		return readZip(ctx, ref, reader, readerInfo, nil, func(zr *zip.Reader) (int, error) {
+			if r.shouldUseConcurrentS3Extract(parsedTarget) {
+				return r.extractZipEntriesToS3Concurrent(ctx, zr, opts, reporter, parsedTarget, memberMatcher)
+			}
 			return r.extractZipEntries(ctx, zr, opts, reporter, parsedTarget, target, policy, safetyCache, memberMatcher)
 		})
 	})

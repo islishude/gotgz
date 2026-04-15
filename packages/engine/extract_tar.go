@@ -75,6 +75,35 @@ func (r *Runner) runExtractTarReader(ctx context.Context, opts cli.Options, repo
 		safetyCache = archivepath.NewPathSafetyCache()
 	}
 
+	if r.shouldUseConcurrentS3Extract(parsedTarget) {
+		reporter.SetTotal(0, false)
+		return r.extractTarEntriesToS3Concurrent(ctx, parsedTarget, func(pipeline *s3ExtractPipeline, budget *s3ExtractStagingBudget) (int, error) {
+			return r.scanTarArchiveFromReader(ctx, opts, reporter, info, opts.Archive, ar, func(hdr *tar.Header, tr *tar.Reader) (int, error) {
+				if archivepath.ShouldSkipMemberWithMatcher(memberMatcher, hdr.Name) {
+					if _, err := archiveutil.CopyWithContext(ctx, io.Discard, tr); err != nil {
+						return 0, err
+					}
+					return 0, nil
+				}
+				extractName, ok := archivepath.StripPathComponents(hdr.Name, opts.StripComponents)
+				if !ok {
+					if _, err := archiveutil.CopyWithContext(ctx, io.Discard, io.LimitReader(tr, hdr.Size)); err != nil {
+						return 0, err
+					}
+					return 0, nil
+				}
+				effectiveHdr := *hdr
+				effectiveHdr.Name = extractName
+				if opts.Verbose {
+					reporter.BeforeExternalLineOutput()
+					_, _ = fmt.Fprintln(r.stdout, effectiveHdr.Name)
+					reporter.AfterExternalLineOutput()
+				}
+				return r.extractToS3Concurrent(ctx, parsedTarget, &effectiveHdr, tr, reporter, pipeline, budget)
+			})
+		})
+	}
+
 	return r.scanTarArchiveFromReader(ctx, opts, reporter, info, opts.Archive, ar, func(hdr *tar.Header, tr *tar.Reader) (int, error) {
 		if archivepath.ShouldSkipMemberWithMatcher(memberMatcher, hdr.Name) {
 			if _, err := archiveutil.CopyWithContext(ctx, io.Discard, tr); err != nil {

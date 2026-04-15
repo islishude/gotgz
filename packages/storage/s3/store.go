@@ -12,10 +12,13 @@ type Store struct {
 }
 
 type Settings struct {
-	PartSizeMB  int64
-	Concurrency int
-	SSE         string
-	SSEKMSKeyID string
+	PartSizeMB          int64
+	Concurrency         int
+	SSE                 string
+	SSEKMSKeyID         string
+	ExtractWorkers      int
+	ExtractStagingBytes int64
+	ExtractStagingDir   string
 }
 
 type Metadata struct {
@@ -27,4 +30,9 @@ type Metadata struct {
 type ListedObject struct {
 	Key  string
 	Size int64
+}
+
+// Settings returns a copy of the store configuration derived from environment.
+func (s *Store) Settings() Settings {
+	return s.settings
 }

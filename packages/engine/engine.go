@@ -26,9 +26,10 @@ type PermissionPolicy = cli.PermissionPolicy
 type MetadataPolicy = cli.MetadataPolicy
 
 type Runner struct {
-	storage *storageRouter
-	stderr  io.Writer
-	stdout  io.Writer
+	storage   *storageRouter
+	stderr    io.Writer
+	stdout    io.Writer
+	s3Extract s3ExtractConfig
 }
 
 // RunResult summarizes one completed CLI operation together with progress metadata.
@@ -58,16 +59,24 @@ func New(ctx context.Context, stdout io.Writer, stderr io.Writer) (*Runner, erro
 		httpstore.New(),
 		stdout,
 		stderr,
+		withS3ExtractConfig(newS3ExtractConfigFromStoreSettings(s3s.Settings())),
 	), nil
 }
 
 // newRunner wires a Runner from injected storage backends.
-func newRunner(local localArchiveStore, s3 s3ArchiveStore, http httpArchiveStore, stdout io.Writer, stderr io.Writer) *Runner {
-	return &Runner{
-		storage: newStorageRouter(local, s3, http),
-		stdout:  stdout,
-		stderr:  stderr,
+func newRunner(local localArchiveStore, s3 s3ArchiveStore, http httpArchiveStore, stdout io.Writer, stderr io.Writer, opts ...runnerOption) *Runner {
+	r := &Runner{
+		storage:   newStorageRouter(local, s3, http),
+		stdout:    stdout,
+		stderr:    stderr,
+		s3Extract: defaultS3ExtractConfig(),
 	}
+	for _, opt := range opts {
+		if opt != nil {
+			opt(r)
+		}
+	}
+	return r
 }
 
 // Run executes one CLI mode and maps warnings/errors to a process exit code.

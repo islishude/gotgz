@@ -185,6 +185,9 @@ gotgz -cvzf "s3://my-bucket/backups/archive.tgz?env=prod&owner=platform" dir/
 Use `--s3-cache-control` to set the S3 `Cache-Control` header for archive uploads (`-f s3://...`) and extract targets (`-C s3://...`) without URL-encoding.
 Use repeatable `--s3-tag key=value` flags to add S3 object tags for archive uploads and extract targets.
 
+When extracting archives to S3 (`-x -C s3://...`), `gotgz` can upload multiple extracted objects in parallel. ZIP extracts use object-level workers directly; TAR extracts stage smaller regular files to temporary storage before uploading so archive read order is preserved.
+Set `GOTGZ_S3_EXTRACT_WORKERS` to control object-level parallelism, `GOTGZ_S3_EXTRACT_STAGING_BYTES` to cap TAR staging bytes, and `GOTGZ_S3_EXTRACT_STAGING_DIR` to choose the temporary directory. When extracting remote ZIP archives to S3 with more than one worker, `gotgz` stages the ZIP locally first and still applies `GOTGZ_ZIP_STAGING_LIMIT_BYTES`.
+
 ### Required S3 permissions
 
 `gotgz` only uses a small set of S3 data-plane permissions. The exact IAM policy depends on which S3 features you use:
@@ -292,6 +295,9 @@ gotgz -cvf out.tar --no-progress dir/   # hides live updates but still prints "c
 | `GOTGZ_S3_SSE_KMS_KEY_ID`       | KMS key ID for SSE-KMS encryption                                                     |              |
 | `GOTGZ_S3_PART_SIZE_MB`         | S3 transfer part size in MB for multipart uploads and transfer-manager downloads      | `16`         |
 | `GOTGZ_S3_CONCURRENCY`          | S3 transfer concurrency for multipart uploads and transfer-manager downloads           | `4`          |
+| `GOTGZ_S3_EXTRACT_WORKERS`      | Object-level worker count for archive extraction to S3 (`-x -C s3://...`)            | `8`          |
+| `GOTGZ_S3_EXTRACT_STAGING_BYTES`| Max total bytes TAR extraction may stage locally before S3 upload                     | `536870912`  |
+| `GOTGZ_S3_EXTRACT_STAGING_DIR`  | Temp directory used for staged S3 extract payloads and remote ZIP-to-S3 staging       | system temp  |
 | `GOTGZ_S3_MAX_RETRIES`          | Maximum retry attempts for S3 operations                                              |              |
 | `GOTGZ_S3_USE_PATH_STYLE`       | Use path-style S3 addressing (for RustStack/MinIO)                                    | `false`      |
 | `GOTGZ_ZIP_STAGING_LIMIT_BYTES` | Max bytes spooled for non-local ZIP list/extract staging (`-`, `s3://`, `http(s)://`) | `1073741824` |

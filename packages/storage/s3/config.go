@@ -3,6 +3,7 @@ package s3
 import (
 	"context"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -10,6 +11,13 @@ import (
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/feature/s3/transfermanager"
 	awss3 "github.com/aws/aws-sdk-go-v2/service/s3"
+)
+
+const (
+	defaultPartSizeMB          int64 = 16
+	defaultConcurrency               = 4
+	defaultExtractWorkers            = 8
+	defaultExtractStagingBytes int64 = 512 << 20
 )
 
 // New builds an S3 store using AWS SDK default configuration and gotgz S3
@@ -27,18 +35,7 @@ func New(ctx context.Context) (*Store, error) {
 		return nil, err
 	}
 
-	settings := Settings{
-		PartSizeMB:  16,
-		Concurrency: 4,
-		SSE:         strings.ToLower(strings.TrimSpace(defaultString(os.Getenv("GOTGZ_S3_SSE"), "AES256"))),
-		SSEKMSKeyID: strings.TrimSpace(os.Getenv("GOTGZ_S3_SSE_KMS_KEY_ID")),
-	}
-	if v, ok := int64FromEnv("GOTGZ_S3_PART_SIZE_MB"); ok && v > 0 {
-		settings.PartSizeMB = v
-	}
-	if v, ok := intFromEnv("GOTGZ_S3_CONCURRENCY"); ok && v > 0 {
-		settings.Concurrency = v
-	}
+	settings := parseSettingsFromEnv()
 
 	client := awss3.NewFromConfig(cfg, func(o *awss3.Options) {
 		o.DisableLogOutputChecksumValidationSkipped = true
@@ -51,6 +48,40 @@ func New(ctx context.Context) (*Store, error) {
 		o.Concurrency = settings.Concurrency
 	})
 	return &Store{client: client, tm: tm, settings: settings}, nil
+}
+
+// parseSettingsFromEnv resolves gotgz S3 behavior flags from the environment.
+func parseSettingsFromEnv() Settings {
+	settings := Settings{
+		PartSizeMB:          defaultPartSizeMB,
+		Concurrency:         defaultConcurrency,
+		SSE:                 strings.ToLower(strings.TrimSpace(defaultString(os.Getenv("GOTGZ_S3_SSE"), "AES256"))),
+		SSEKMSKeyID:         strings.TrimSpace(os.Getenv("GOTGZ_S3_SSE_KMS_KEY_ID")),
+		ExtractWorkers:      defaultExtractWorkers,
+		ExtractStagingBytes: defaultExtractStagingBytes,
+		ExtractStagingDir:   defaultExtractStagingDir(),
+	}
+	if v, ok := int64FromEnv("GOTGZ_S3_PART_SIZE_MB"); ok && v > 0 {
+		settings.PartSizeMB = v
+	}
+	if v, ok := intFromEnv("GOTGZ_S3_CONCURRENCY"); ok && v > 0 {
+		settings.Concurrency = v
+	}
+	if v, ok := intFromEnv("GOTGZ_S3_EXTRACT_WORKERS"); ok {
+		settings.ExtractWorkers = v
+	}
+	if v, ok := int64FromEnv("GOTGZ_S3_EXTRACT_STAGING_BYTES"); ok && v > 0 {
+		settings.ExtractStagingBytes = v
+	}
+	if v := strings.TrimSpace(os.Getenv("GOTGZ_S3_EXTRACT_STAGING_DIR")); v != "" {
+		settings.ExtractStagingDir = v
+	}
+	return settings
+}
+
+// defaultExtractStagingDir returns the default temp root for staged S3 extract payloads.
+func defaultExtractStagingDir() string {
+	return filepath.Clean(os.TempDir())
 }
 
 // intFromEnv parses one integer environment variable and reports whether it
