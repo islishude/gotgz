@@ -45,8 +45,7 @@ func (r *Runner) runCreateTar(ctx context.Context, opts cli.Options, archiveRef 
 	if err != nil {
 		return 0, err
 	}
-	total, totalKnown := source.Total()
-	reporter.SetTotal(total, totalKnown)
+	reporter.SetTotal(source.Total())
 
 	return source.Visit(
 		ctx,

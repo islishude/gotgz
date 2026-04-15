@@ -37,8 +37,7 @@ func (r *Runner) runCreateZip(ctx context.Context, opts cli.Options, archiveRef 
 	if err != nil {
 		return warnings, err
 	}
-	total, totalKnown := source.Total()
-	reporter.SetTotal(total, totalKnown)
+	reporter.SetTotal(source.Total())
 
 	createWarnings, err := source.Visit(
 		ctx,
