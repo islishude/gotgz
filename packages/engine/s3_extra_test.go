@@ -387,8 +387,8 @@ func TestExtractZipToStdoutWithMemberFilter(t *testing.T) {
 // buildCreatePlan with S3 stat failure (totalKnown becomes false)
 // ---------------------------------------------------------------------------
 
-// TestBuildCreatePlanS3StatFailureSetsUnknownTotal verifies that S3 stat errors disable progress tracking.
-func TestBuildCreatePlanS3StatFailureSetsUnknownTotal(t *testing.T) {
+// TestBuildCreatePlanS3StatFailureReturnsError verifies that S3 stat errors fail planning.
+func TestBuildCreatePlanS3StatFailureReturnsError(t *testing.T) {
 	r := &Runner{
 		storage: &storageRouter{
 			s3: fakeS3ArchiveStore{
@@ -401,17 +401,11 @@ func TestBuildCreatePlanS3StatFailureSetsUnknownTotal(t *testing.T) {
 		stdout: io.Discard,
 	}
 
-	plan, err := r.buildCreatePlan(context.Background(), cli.Options{
+	_, err := r.buildCreatePlan(context.Background(), cli.Options{
 		Members: []string{"s3://bucket/object"},
 	}, nil)
-	if err != nil {
-		t.Fatalf("err = %v", err)
-	}
-	if len(plan.members) != 1 {
-		t.Fatalf("members = %d, want 1", len(plan.members))
-	}
-	if plan.totalKnown {
-		t.Fatalf("totalKnown = true, want false")
+	if err == nil || !strings.Contains(err.Error(), "stat failed") {
+		t.Fatalf("err = %v, want stat failed", err)
 	}
 }
 
