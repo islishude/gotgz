@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -42,22 +43,22 @@ func TestBuildCreatePlanReusesLocalEntriesAfterMutation(t *testing.T) {
 	}
 
 	var seen []string
-	warnings, err := (&Runner{}).processCreatePlan(
+	warnings, err := plannedCreateInputSource{plan: plan}.Visit(
 		context.Background(),
-		plan,
 		func(ref locator.Ref) error {
 			t.Fatalf("unexpected s3 member: %+v", ref)
 			return nil
 		},
-		func(entries []localCreateEntry) (int, error) {
-			for _, entry := range entries {
-				seen = append(seen, entry.archiveName)
-			}
-			return 0, nil
+		func(source localCreateSource) (int, error) {
+			err := source.Visit(context.Background(), func(record localCreateRecord, _ fs.FileInfo) error {
+				seen = append(seen, record.archiveName)
+				return nil
+			})
+			return 0, err
 		},
 	)
 	if err != nil {
-		t.Fatalf("processCreatePlan() error = %v", err)
+		t.Fatalf("Visit() error = %v", err)
 	}
 	if warnings != 0 {
 		t.Fatalf("warnings = %d, want 0", warnings)
@@ -98,7 +99,7 @@ func TestBuildCreatePlanContinuesLocalScanAfterS3StatFailure(t *testing.T) {
 	if len(plan.members) != 2 {
 		t.Fatalf("member count = %d, want 2", len(plan.members))
 	}
-	if len(plan.members[1].localEntries) == 0 {
-		t.Fatal("local entries should still be scanned after s3 stat failure")
+	if len(plan.members[1].localRecords) == 0 {
+		t.Fatal("local records should still be scanned after s3 stat failure")
 	}
 }

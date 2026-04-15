@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -191,26 +192,41 @@ func TestRunReturnsReporterState(t *testing.T) {
 	}
 }
 
-func TestProcessCreateMembers(t *testing.T) {
+func TestLiveCreateInputSourceVisit(t *testing.T) {
 	ctx := context.Background()
-	opts := cli.Options{Members: []string{"src/file.txt", "s3://bucket/object.txt", "s3://bucket/skip.txt"}}
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "src"), 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "src", "file.txt"), []byte("payload"), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	source := liveCreateInputSource{
+		opts: cli.Options{
+			Members: []string{"src/file.txt", "s3://bucket/object.txt", "s3://bucket/skip.txt"},
+			Chdir:   root,
+		},
+		excludeMatcher: archivepath.NewCompiledPathMatcher([]string{"skip.txt"}),
+	}
 	var seen []string
 
-	warnings, err := (&Runner{}).processCreateMembers(
+	warnings, err := source.Visit(
 		ctx,
-		opts,
-		archivepath.NewCompiledPathMatcher([]string{"skip.txt"}),
 		func(ref locator.Ref) error {
 			seen = append(seen, "s3:"+ref.Key)
 			return nil
 		},
-		func(member string) (int, error) {
-			seen = append(seen, "local:"+member)
-			return 2, nil
+		func(source localCreateSource) (int, error) {
+			err := source.Visit(ctx, func(record localCreateRecord, _ fs.FileInfo) error {
+				seen = append(seen, "local:"+record.archiveName)
+				return nil
+			})
+			return 2, err
 		},
 	)
 	if err != nil {
-		t.Fatalf("processCreateMembers() error = %v", err)
+		t.Fatalf("Visit() error = %v", err)
 	}
 	if warnings != 2 {
 		t.Fatalf("warnings = %d, want 2", warnings)

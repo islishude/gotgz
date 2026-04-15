@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -23,8 +24,8 @@ func TestWalkLocalCreateMember(t *testing.T) {
 	}
 
 	var seen []string
-	err := walkLocalCreateMember(context.Background(), "dir", root, archivepath.NewCompiledPathMatcher([]string{"dir/skipme"}), func(entry localCreateEntry) error {
-		seen = append(seen, entry.archiveName)
+	err := walkLocalCreateMember(context.Background(), "dir", root, archivepath.NewCompiledPathMatcher([]string{"dir/skipme"}), func(record localCreateRecord, _ fs.FileInfo) error {
+		seen = append(seen, record.archiveName)
 		return nil
 	})
 	if err != nil {
@@ -43,8 +44,8 @@ func TestWalkLocalCreateMemberDotMember(t *testing.T) {
 	}
 
 	var seen []string
-	err := walkLocalCreateMember(context.Background(), ".", root, nil, func(entry localCreateEntry) error {
-		seen = append(seen, entry.archiveName)
+	err := walkLocalCreateMember(context.Background(), ".", root, nil, func(record localCreateRecord, _ fs.FileInfo) error {
+		seen = append(seen, record.archiveName)
 		return nil
 	})
 	if err != nil {

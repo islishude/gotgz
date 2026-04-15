@@ -11,15 +11,14 @@ import (
 	"github.com/islishude/gotgz/packages/archivepath"
 )
 
-// localCreateEntry describes one local filesystem entry normalized for archive creation.
-type localCreateEntry struct {
+// localCreateRecord identifies one local filesystem entry normalized for archive creation.
+type localCreateRecord struct {
 	current     string
 	archiveName string
-	info        fs.FileInfo
 }
 
 // walkLocalCreateMember normalizes one local create member and visits all non-excluded entries.
-func walkLocalCreateMember(ctx context.Context, member string, chdir string, excludeMatcher *archivepath.CompiledPathMatcher, visit func(entry localCreateEntry) error) error {
+func walkLocalCreateMember(ctx context.Context, member string, chdir string, excludeMatcher *archivepath.CompiledPathMatcher, visit func(record localCreateRecord, info fs.FileInfo) error) error {
 	basePath := member
 	if chdir != "" {
 		basePath = filepath.Join(chdir, member)
@@ -53,12 +52,26 @@ func walkLocalCreateMember(ctx context.Context, member string, chdir string, exc
 		if err != nil {
 			return err
 		}
-		return visit(localCreateEntry{
+		return visit(localCreateRecord{
 			current:     current,
 			archiveName: archiveName,
-			info:        info,
-		})
+		}, info)
 	})
+}
+
+// collectLocalCreateRecords walks one local member once, returning normalized
+// archive records together with the total regular-file size seen during the scan.
+func collectLocalCreateRecords(ctx context.Context, member string, chdir string, excludeMatcher *archivepath.CompiledPathMatcher) ([]localCreateRecord, int64, error) {
+	records := make([]localCreateRecord, 0)
+	var total int64
+	err := walkLocalCreateMember(ctx, member, chdir, excludeMatcher, func(record localCreateRecord, info fs.FileInfo) error {
+		records = append(records, record)
+		if info.Mode().IsRegular() {
+			total += info.Size()
+		}
+		return nil
+	})
+	return records, total, err
 }
 
 // localCreateBasePrefix returns the fast-path prefix used to derive archive
