@@ -205,3 +205,61 @@ func TestExtractLocalSplitTarCrossVolumeHardlinkFallsBackToSerial(t *testing.T) 
 		t.Fatalf("expected %s to be a hard link to %s", alias, original)
 	}
 }
+
+func TestExtractLocalSplitTarStripComponentsCrossVolumeHardlinkFallsBackToSerial(t *testing.T) {
+	root := t.TempDir()
+	firstPart := filepath.Join(root, "bundle.part0001.tar")
+	secondPart := filepath.Join(root, "bundle.part0002.tar")
+	out := filepath.Join(root, "out")
+
+	if err := os.WriteFile(firstPart, tarArchiveBytes(t, map[string]string{"root/dir/original.txt": "payload"}), 0o644); err != nil {
+		t.Fatalf("write %s: %v", firstPart, err)
+	}
+	if err := os.WriteFile(secondPart, tarArchiveHardLinkBytes(t, "root/dir/alias.txt", "dir/original.txt"), 0o644); err != nil {
+		t.Fatalf("write %s: %v", secondPart, err)
+	}
+
+	rExtract := newLocalSplitExtractTestRunner()
+	var plan splitExtractPlan
+	started := make(chan int, 2)
+	rExtract.splitExtractHooks = &splitExtractHooks{
+		onPlan: func(got splitExtractPlan) {
+			plan = got
+		},
+		onParallelWorkerStart: func(index int, _ locator.Ref) {
+			started <- index
+		},
+	}
+
+	if err := os.MkdirAll(out, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	extract := cli.Options{Mode: cli.ModeExtract, Archive: firstPart, Chdir: out, StripComponents: 1}
+	if got := rExtract.Run(context.Background(), extract); got.ExitCode != ExitSuccess {
+		t.Fatalf("extract exit=%d err=%v", got.ExitCode, got.Err)
+	}
+
+	if plan.parallel {
+		t.Fatalf("parallel = true, want false")
+	}
+	if plan.serialReason != splitExtractSerialReasonLocalHardlink {
+		t.Fatalf("serialReason = %q, want %q", plan.serialReason, splitExtractSerialReasonLocalHardlink)
+	}
+	if len(started) != 0 {
+		t.Fatalf("parallel worker starts = %d, want 0", len(started))
+	}
+
+	original := filepath.Join(out, "dir", "original.txt")
+	alias := filepath.Join(out, "dir", "alias.txt")
+	origInfo, err := os.Stat(original)
+	if err != nil {
+		t.Fatalf("stat original: %v", err)
+	}
+	aliasInfo, err := os.Stat(alias)
+	if err != nil {
+		t.Fatalf("stat alias: %v", err)
+	}
+	if !os.SameFile(origInfo, aliasInfo) {
+		t.Fatalf("expected %s to be a hard link to %s", alias, original)
+	}
+}

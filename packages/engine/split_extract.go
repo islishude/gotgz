@@ -162,7 +162,7 @@ func (p *splitExtractPlanner) recordTarLocalEntry(volumeIndex int, hdr *tar.Head
 		isDir:       hdr.Typeflag == tar.TypeDir,
 	}
 	if hdr.Typeflag == tar.TypeLink {
-		entry.hardlinkTarget, _ = normalizeSplitExtractLocalPath(hdr.Linkname, p.opts.StripComponents)
+		entry.hardlinkTarget = cleanSplitExtractLocalPath(hdr.Linkname)
 	}
 	p.manifest = append(p.manifest, entry)
 }
@@ -379,15 +379,6 @@ func isSplitExtractDescendant(candidate string, ancestor string) bool {
 		return candidate != ""
 	}
 	return strings.HasPrefix(candidate, ancestor+"/")
-}
-
-// normalizeSplitExtractLocalPath applies strip-components semantics to one local output path.
-func normalizeSplitExtractLocalPath(name string, stripComponents int) (string, bool) {
-	normalized, ok := archivepath.StripPathComponents(name, stripComponents)
-	if !ok {
-		return "", false
-	}
-	return cleanSplitExtractLocalPath(normalized), true
 }
 
 // cleanSplitExtractLocalPath normalizes one extracted local path for planner comparisons.
