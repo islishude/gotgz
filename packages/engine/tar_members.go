@@ -3,7 +3,6 @@ package engine
 import (
 	"archive/tar"
 	"context"
-	"fmt"
 	"io"
 	"io/fs"
 	"os"
@@ -92,9 +91,7 @@ func (r *Runner) writeLocalTarRecord(ctx context.Context, tw tarArchiveWriter, r
 		return warnings, err
 	}
 	if verbose {
-		reporter.BeforeExternalLineOutput()
-		_, _ = fmt.Fprintln(r.stdout, hdr.Name)
-		reporter.AfterExternalLineOutput()
+		reporter.ExternalLinef(r.stdout, "%s\n", hdr.Name)
 	}
 	return warnings, nil
 }

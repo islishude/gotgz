@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"sync"
 	"time"
 
 	"github.com/islishude/gotgz/packages/archiveprogress"
@@ -27,17 +26,9 @@ type PermissionPolicy = cli.PermissionPolicy
 type MetadataPolicy = cli.MetadataPolicy
 
 type Runner struct {
-	storage           *storageRouter
-	stderr            io.Writer
-	stdout            io.Writer
-	outputMu          sync.Mutex
-	splitExtractHooks *splitExtractHooks
-}
-
-// splitExtractHooks exposes internal split-extract lifecycle callbacks for tests.
-type splitExtractHooks struct {
-	onPlan                func(splitExtractPlan)
-	onParallelWorkerStart func(int, locator.Ref)
+	storage *storageRouter
+	stderr  io.Writer
+	stdout  io.Writer
 }
 
 // RunResult summarizes one completed CLI operation together with progress metadata.
@@ -196,34 +187,4 @@ func (r *Runner) dispatchExtractTarget(target locator.Ref, targetArg string, ext
 	default:
 		return 0, fmt.Errorf("unsupported extract target %q", targetArg)
 	}
-}
-
-// writeOutputLineLocked serializes one external line write together with progress state changes.
-func (r *Runner) writeOutputLineLocked(writer io.Writer, reporter *archiveprogress.Reporter, format string, args ...any) {
-	r.outputMu.Lock()
-	defer r.outputMu.Unlock()
-
-	if reporter != nil {
-		reporter.BeforeExternalLineOutput()
-	}
-	_, _ = fmt.Fprintf(writer, format, args...)
-	if reporter != nil {
-		reporter.AfterExternalLineOutput()
-	}
-}
-
-// notifySplitExtractPlan invokes the optional split-extract plan hook for tests.
-func (r *Runner) notifySplitExtractPlan(plan splitExtractPlan) {
-	if r == nil || r.splitExtractHooks == nil || r.splitExtractHooks.onPlan == nil {
-		return
-	}
-	r.splitExtractHooks.onPlan(plan)
-}
-
-// notifySplitExtractWorkerStart invokes the optional split-extract worker hook for tests.
-func (r *Runner) notifySplitExtractWorkerStart(volumeIndex int, ref locator.Ref) {
-	if r == nil || r.splitExtractHooks == nil || r.splitExtractHooks.onParallelWorkerStart == nil {
-		return
-	}
-	r.splitExtractHooks.onParallelWorkerStart(volumeIndex, ref)
 }

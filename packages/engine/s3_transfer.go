@@ -28,9 +28,7 @@ func (r *Runner) streamS3MemberToArchive(ctx context.Context, ref locator.Ref, v
 		return err
 	}
 	if verbose {
-		reporter.BeforeExternalLineOutput()
-		_, _ = io.WriteString(r.stdout, name+"\n")
-		reporter.AfterExternalLineOutput()
+		reporter.ExternalLinef(r.stdout, "%s\n", name)
 	}
 	return nil
 }

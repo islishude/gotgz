@@ -23,10 +23,18 @@ func (r *Runner) runExtractZip(ctx context.Context, opts cli.Options, reporter *
 
 	if opts.ToStdout {
 		if len(volumes) == 1 {
-			zipWarnings, err := r.runExtractZipStdoutVolume(ctx, opts, reporter, archiveRef, ar, info, memberMatcher, true)
+			zipWarnings, err := r.withZipReader(ctx, archiveRef, ar, info, nil, func(zr *zip.Reader) (int, error) {
+				reporter.SetTotal(matchingZipStdoutPayloadBytes(zr, memberMatcher, opts), true)
+				return r.extractZipToStdout(ctx, zr, memberMatcher, opts, reporter)
+			})
 			return warnings + zipWarnings, err
 		}
-		zipWarnings, err := r.runSplitZipStdoutExtractSequential(ctx, opts, reporter, volumes, ar, info, memberMatcher)
+
+		zipWarnings, err := r.forEachArchiveVolume(ctx, volumes, ar, info, func(ref locator.Ref, reader io.ReadCloser, readerInfo archiveReaderInfo) (int, error) {
+			return r.withZipReader(ctx, ref, reader, readerInfo, nil, func(zr *zip.Reader) (int, error) {
+				return r.extractZipToStdout(ctx, zr, memberMatcher, opts, reporter)
+			})
+		})
 		return warnings + zipWarnings, err
 	}
 
@@ -44,29 +52,18 @@ func (r *Runner) runExtractZip(ctx context.Context, opts cli.Options, reporter *
 	}
 
 	if len(volumes) == 1 {
-		zipWarnings, err := r.runExtractZipTargetVolume(ctx, opts, reporter, archiveRef, ar, info, parsedTarget, target, policy, safetyCache, memberMatcher, true)
+		zipWarnings, err := r.withZipReader(ctx, archiveRef, ar, info, nil, func(zr *zip.Reader) (int, error) {
+			reporter.SetTotal(matchingZipExtractPayloadBytes(zr, memberMatcher, opts.StripComponents), true)
+			return r.extractZipEntries(ctx, zr, opts, reporter, parsedTarget, target, policy, safetyCache, memberMatcher)
+		})
 		return warnings + zipWarnings, err
 	}
 
-	if !shouldPlanSplitExtract(opts, volumes) {
-		zipWarnings, err := r.runSplitZipExtractSequential(ctx, opts, reporter, volumes, ar, info, parsedTarget, target, policy, safetyCache, memberMatcher)
-		return warnings + zipWarnings, err
-	}
-
-	planningTotal, planningKnown := sumArchiveVolumeSizes(volumes)
-	reporter.ResetProgress(planningTotal, planningKnown)
-
-	plan, err := r.planSplitZipExtract(ctx, opts, reporter, volumes, ar, info, parsedTarget)
-	if err != nil {
-		return warnings, err
-	}
-	reporter.ResetProgress(plan.zipPayloadBytes, true)
-	if !plan.parallel {
-		zipWarnings, err := r.runSplitZipExtractSequential(ctx, opts, reporter, volumes, nil, info, parsedTarget, target, policy, safetyCache, memberMatcher)
-		return warnings + zipWarnings, err
-	}
-
-	zipWarnings, err := r.runSplitZipExtractParallel(ctx, opts, reporter, volumes, parsedTarget, target, policy, safetyCache, memberMatcher)
+	zipWarnings, err := r.forEachArchiveVolume(ctx, volumes, ar, info, func(ref locator.Ref, reader io.ReadCloser, readerInfo archiveReaderInfo) (int, error) {
+		return r.withZipReader(ctx, ref, reader, readerInfo, nil, func(zr *zip.Reader) (int, error) {
+			return r.extractZipEntries(ctx, zr, opts, reporter, parsedTarget, target, policy, safetyCache, memberMatcher)
+		})
+	})
 	return warnings + zipWarnings, err
 }
 
@@ -87,7 +84,7 @@ func (r *Runner) extractZipEntries(ctx context.Context, zr *zip.Reader, opts cli
 			continue
 		}
 		if opts.Verbose {
-			r.writeOutputLineLocked(r.stdout, reporter, "%s\n", extractName)
+			reporter.ExternalLinef(r.stdout, "%s\n", extractName)
 		}
 
 		w, err := r.dispatchExtractTarget(
@@ -106,52 +103,4 @@ func (r *Runner) extractZipEntries(ctx context.Context, zr *zip.Reader, opts cli
 		}
 	}
 	return warnings, nil
-}
-
-// runExtractZipStdoutVolume extracts one zip reader to stdout and optionally sets the payload total.
-func (r *Runner) runExtractZipStdoutVolume(ctx context.Context, opts cli.Options, reporter *archiveprogress.Reporter, archiveRef locator.Ref, ar io.ReadCloser, info archiveReaderInfo, memberMatcher *archivepath.CompiledPathMatcher, setTotal bool) (int, error) {
-	return r.withZipReader(ctx, archiveRef, ar, info, nil, func(zr *zip.Reader) (int, error) {
-		if setTotal {
-			reporter.SetTotal(matchingZipStdoutPayloadBytes(zr, memberMatcher, opts), true)
-		}
-		return r.extractZipToStdout(ctx, zr, memberMatcher, opts, reporter)
-	})
-}
-
-// runExtractZipTargetVolume extracts one zip reader into the resolved target and optionally sets the payload total.
-func (r *Runner) runExtractZipTargetVolume(ctx context.Context, opts cli.Options, reporter *archiveprogress.Reporter, archiveRef locator.Ref, ar io.ReadCloser, info archiveReaderInfo, parsedTarget locator.Ref, target string, policy PermissionPolicy, safetyCache *archivepath.PathSafetyCache, memberMatcher *archivepath.CompiledPathMatcher, setTotal bool) (int, error) {
-	return r.withZipReader(ctx, archiveRef, ar, info, nil, func(zr *zip.Reader) (int, error) {
-		if setTotal {
-			reporter.SetTotal(matchingZipExtractPayloadBytes(zr, memberMatcher, opts.StripComponents), true)
-		}
-		return r.extractZipEntries(ctx, zr, opts, reporter, parsedTarget, target, policy, safetyCache, memberMatcher)
-	})
-}
-
-// runSplitZipStdoutExtractSequential replays split zip stdout extraction without planner pre-scans.
-func (r *Runner) runSplitZipStdoutExtractSequential(ctx context.Context, opts cli.Options, reporter *archiveprogress.Reporter, volumes []archiveVolume, first io.ReadCloser, firstInfo archiveReaderInfo, memberMatcher *archivepath.CompiledPathMatcher) (int, error) {
-	return r.forEachArchiveVolume(ctx, volumes, first, firstInfo, func(ref locator.Ref, reader io.ReadCloser, readerInfo archiveReaderInfo) (int, error) {
-		return r.runExtractZipStdoutVolume(ctx, opts, reporter, ref, reader, readerInfo, memberMatcher, false)
-	})
-}
-
-// runSplitZipExtractSequential replays split zip target extraction serially after planner consumption.
-func (r *Runner) runSplitZipExtractSequential(ctx context.Context, opts cli.Options, reporter *archiveprogress.Reporter, volumes []archiveVolume, first io.ReadCloser, firstInfo archiveReaderInfo, parsedTarget locator.Ref, target string, policy PermissionPolicy, safetyCache *archivepath.PathSafetyCache, memberMatcher *archivepath.CompiledPathMatcher) (int, error) {
-	return r.forEachArchiveVolume(ctx, volumes, first, firstInfo, func(ref locator.Ref, reader io.ReadCloser, readerInfo archiveReaderInfo) (int, error) {
-		return r.runExtractZipTargetVolume(ctx, opts, reporter, ref, reader, readerInfo, parsedTarget, target, policy, safetyCache, memberMatcher, false)
-	})
-}
-
-// runSplitZipExtractParallel reopens split zip volumes and extracts them through the shared worker pool.
-func (r *Runner) runSplitZipExtractParallel(ctx context.Context, opts cli.Options, reporter *archiveprogress.Reporter, volumes []archiveVolume, parsedTarget locator.Ref, target string, policy PermissionPolicy, safetyCache *archivepath.PathSafetyCache, memberMatcher *archivepath.CompiledPathMatcher) (int, error) {
-	return r.executeSplitExtractVolumes(ctx, volumes, func(ctx context.Context, _ int, volume archiveVolume) (int, error) {
-		reader, runtimeInfo, err := r.openArchiveReader(ctx, volume.ref)
-		if err != nil {
-			return 0, err
-		}
-		defer reader.Close() //nolint:errcheck
-
-		info := mergeArchiveReaderInfo(volume.info, runtimeInfo)
-		return r.runExtractZipTargetVolume(ctx, opts, reporter, volume.ref, reader, info, parsedTarget, target, policy, safetyCache, memberMatcher, false)
-	})
 }

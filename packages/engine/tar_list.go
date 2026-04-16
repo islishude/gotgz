@@ -3,7 +3,6 @@ package engine
 import (
 	"archive/tar"
 	"context"
-	"fmt"
 	"io"
 
 	"github.com/islishude/gotgz/packages/archivepath"
@@ -29,9 +28,7 @@ func (r *Runner) runListTar(ctx context.Context, opts cli.Options, reporter *arc
 				}
 				return 0, nil
 			}
-			reporter.BeforeExternalLineOutput()
-			_, _ = fmt.Fprintln(r.stdout, hdr.Name)
-			reporter.AfterExternalLineOutput()
+			reporter.ExternalLinef(r.stdout, "%s\n", hdr.Name)
 			if _, err := archiveutil.CopyWithContext(ctx, io.Discard, tr); err != nil {
 				return 0, err
 			}

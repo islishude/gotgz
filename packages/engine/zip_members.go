@@ -3,7 +3,6 @@ package engine
 import (
 	"archive/zip"
 	"context"
-	"fmt"
 	"io"
 	"io/fs"
 	"os"
@@ -100,9 +99,7 @@ func (r *Runner) writeLocalZipRecord(ctx context.Context, zw zipArchiveWriter, r
 	}
 
 	if verbose {
-		reporter.BeforeExternalLineOutput()
-		_, _ = fmt.Fprintln(r.stdout, hdr.Name)
-		reporter.AfterExternalLineOutput()
+		reporter.ExternalLinef(r.stdout, "%s\n", hdr.Name)
 	}
 	return 0, nil
 }
