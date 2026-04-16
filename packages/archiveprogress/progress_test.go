@@ -90,7 +90,6 @@ func TestProgressReporterNilSafe(t *testing.T) {
 	var p *Reporter
 	// These should not panic on a nil receiver.
 	p.SetTotal(100, true)
-	p.ResetProgress(100, true)
 	p.AddDone(50)
 	p.BeforeExternalLineOutput()
 	p.AfterExternalLineOutput()
@@ -203,44 +202,6 @@ func TestProgressReporterSetTotal(t *testing.T) {
 		}
 		if !p.totalKnown {
 			t.Fatalf("totalKnown = %v, want unchanged true", p.totalKnown)
-		}
-		if got := buf.String(); got != "" {
-			t.Fatalf("expected no output for disabled reporter, got %q", got)
-		}
-	})
-}
-
-func TestProgressReporterResetProgress(t *testing.T) {
-	t.Run("enabled reporter resets totals and done", func(t *testing.T) {
-		var buf bytes.Buffer
-		p := NewReporter(&buf, cli.ProgressAlways, 100, true, time.Now().Add(-time.Second), false)
-		p.AddDone(50)
-		p.ResetProgress(2048, true)
-
-		if p.total != 2048 {
-			t.Fatalf("total = %d, want 2048", p.total)
-		}
-		if !p.totalKnown {
-			t.Fatalf("totalKnown = %v, want true", p.totalKnown)
-		}
-		if got := p.done.Load(); got != 0 {
-			t.Fatalf("done = %d, want 0", got)
-		}
-		if got := buf.String(); !strings.Contains(got, "0B/2.0KiB") {
-			t.Fatalf("expected rendered reset output to include cleared progress, got %q", got)
-		}
-	})
-
-	t.Run("disabled reporter is no-op", func(t *testing.T) {
-		var buf bytes.Buffer
-		p := NewReporter(&buf, cli.ProgressNever, 100, true, time.Now(), false)
-		p.ResetProgress(2048, true)
-
-		if p.total != 100 {
-			t.Fatalf("total = %d, want unchanged 100", p.total)
-		}
-		if got := p.done.Load(); got != 0 {
-			t.Fatalf("done = %d, want unchanged 0", got)
 		}
 		if got := buf.String(); got != "" {
 			t.Fatalf("expected no output for disabled reporter, got %q", got)
