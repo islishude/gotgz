@@ -3,7 +3,6 @@ package engine
 import (
 	"archive/tar"
 	"context"
-	"fmt"
 	"io"
 
 	"github.com/islishude/gotgz/packages/archivepath"
@@ -108,9 +107,7 @@ func (r *Runner) runExtractTarReader(ctx context.Context, opts cli.Options, repo
 		effectiveHdr := *hdr
 		effectiveHdr.Name = extractName
 		if opts.Verbose {
-			reporter.BeforeExternalLineOutput()
-			_, _ = fmt.Fprintln(r.stdout, effectiveHdr.Name)
-			reporter.AfterExternalLineOutput()
+			r.writeOutputLineLocked(r.stdout, reporter, "%s\n", effectiveHdr.Name)
 		}
 		return r.dispatchExtractTarget(
 			parsedTarget,

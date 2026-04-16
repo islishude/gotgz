@@ -3,7 +3,6 @@ package engine
 import (
 	"archive/zip"
 	"context"
-	"fmt"
 	"io"
 
 	"github.com/islishude/gotgz/packages/archivepath"
@@ -85,9 +84,7 @@ func (r *Runner) extractZipEntries(ctx context.Context, zr *zip.Reader, opts cli
 			continue
 		}
 		if opts.Verbose {
-			reporter.BeforeExternalLineOutput()
-			_, _ = fmt.Fprintln(r.stdout, extractName)
-			reporter.AfterExternalLineOutput()
+			r.writeOutputLineLocked(r.stdout, reporter, "%s\n", extractName)
 		}
 
 		w, err := r.dispatchExtractTarget(

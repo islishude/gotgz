@@ -10,9 +10,11 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/islishude/gotgz/packages/cli"
+	"github.com/islishude/gotgz/packages/locator"
 )
 
 func TestIntegrationLocalTarRoundTrip(t *testing.T) {
@@ -130,6 +132,76 @@ func TestIntegrationSplitArchiveReopen(t *testing.T) {
 			}
 			if mustReadFile(t, filepath.Join(outDir, "one.txt")) != "one" || mustReadFile(t, filepath.Join(outDir, "two.txt")) != "two" {
 				t.Fatalf("split extract did not restore both files")
+			}
+		})
+	}
+}
+
+func TestIntegrationSplitArchiveVerboseExtractUsesParallelWorkers(t *testing.T) {
+	tests := []struct {
+		name    string
+		archive string
+	}{
+		{name: "split tar", archive: "bundle.tar.gz"},
+		{name: "split zip", archive: "bundle.zip"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			root := t.TempDir()
+			writeFixtureTree(t, root, []fixtureEntry{{path: "one.txt", body: "one"}, {path: "two.txt", body: "two"}})
+			archivePath := filepath.Join(root, tt.archive)
+			outDir := filepath.Join(root, "out")
+
+			createRunner, err := New(context.Background(), io.Discard, io.Discard)
+			if err != nil {
+				t.Fatalf("New() create error = %v", err)
+			}
+			create := cli.Options{Mode: cli.ModeCreate, Archive: archivePath, Chdir: root, Members: []string{"one.txt", "two.txt"}, SplitSizeBytes: 1, Compression: compressionForArchive(tt.archive)}
+			if got := createRunner.Run(context.Background(), create); got.ExitCode != ExitSuccess {
+				t.Fatalf("create exit=%d err=%v", got.ExitCode, got.Err)
+			}
+
+			firstPart := strings.Replace(archivePath, filepath.Ext(archivePath), ".part0001"+filepath.Ext(archivePath), 1)
+			if strings.HasSuffix(tt.archive, ".tar.gz") {
+				firstPart = filepath.Join(root, "bundle.part0001.tar.gz")
+			}
+
+			var stdout bytes.Buffer
+			extractRunner := newLocalSplitExtractTestRunner()
+			extractRunner.stdout = &stdout
+
+			var plan splitExtractPlan
+			var workerStarts atomic.Int32
+			extractRunner.splitExtractHooks = &splitExtractHooks{
+				onPlan: func(got splitExtractPlan) {
+					plan = got
+				},
+				onParallelWorkerStart: func(_ int, _ locator.Ref) {
+					workerStarts.Add(1)
+				},
+			}
+
+			if got := extractRunner.Run(context.Background(), cli.Options{Mode: cli.ModeExtract, Archive: firstPart, Chdir: outDir, Verbose: true}); got.ExitCode != ExitSuccess {
+				t.Fatalf("extract exit=%d err=%v", got.ExitCode, got.Err)
+			}
+			if !plan.parallel {
+				t.Fatal("plan.parallel = false, want true")
+			}
+			if workerStarts.Load() < 2 {
+				t.Fatalf("parallel worker starts = %d, want at least 2", workerStarts.Load())
+			}
+
+			lines := strings.Split(strings.TrimSpace(stdout.String()), "\n")
+			if len(lines) != 2 {
+				t.Fatalf("verbose output lines = %q, want two file names", stdout.String())
+			}
+			counts := make(map[string]int, len(lines))
+			for _, line := range lines {
+				counts[line]++
+			}
+			if len(counts) != 2 || counts["one.txt"] != 1 || counts["two.txt"] != 1 {
+				t.Fatalf("verbose output = %q, want one line each for one.txt and two.txt", stdout.String())
 			}
 		})
 	}

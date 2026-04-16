@@ -259,6 +259,31 @@ func TestExecuteSplitExtractVolumesCancelsOnFirstError(t *testing.T) {
 	}
 }
 
+func TestWriteOutputLineLockedSerializesConcurrentStdout(t *testing.T) {
+	t.Parallel()
+
+	writer := newBlockingConcurrentWriter()
+	r := &Runner{stdout: writer}
+
+	done := make(chan struct{}, 8)
+	for range 8 {
+		go func() {
+			defer func() { done <- struct{}{} }()
+			r.writeOutputLineLocked(r.stdout, nil, "entry\n")
+		}()
+	}
+
+	writer.waitForWrite(t)
+	writer.unblock()
+	for range 8 {
+		<-done
+	}
+
+	if writer.maxConcurrent.Load() != 1 {
+		t.Fatalf("max concurrent writes = %d, want 1", writer.maxConcurrent.Load())
+	}
+}
+
 func TestWarnfSerializesConcurrentOutput(t *testing.T) {
 	t.Parallel()
 

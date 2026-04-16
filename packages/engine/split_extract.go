@@ -65,7 +65,7 @@ func newSplitExtractPlanner(opts cli.Options, target locator.Ref, memberMatcher 
 
 // shouldPlanSplitExtract reports whether multi-volume extract should run the safety planner.
 func shouldPlanSplitExtract(opts cli.Options, volumes []archiveVolume) bool {
-	return len(volumes) > 1 && !opts.ToStdout && !opts.Verbose
+	return len(volumes) > 1 && !opts.ToStdout
 }
 
 // splitExtractWorkerCount bounds concurrent split extract workers.
