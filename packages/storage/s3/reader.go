@@ -113,9 +113,11 @@ func newDownloadReadCloser(reader io.Reader, cancel context.CancelFunc) io.ReadC
 	}
 }
 
-// Read forwards reads to the wrapped transfer-manager body.
+// Read forwards reads to the wrapped transfer-manager body while constraining
+// the forwarded slice capacity to its length. This avoids an upstream
+// transfer-manager panic when callers pass a buffer with spare capacity.
 func (r *downloadReadCloser) Read(p []byte) (int, error) {
-	return r.reader.Read(p)
+	return r.reader.Read(p[:len(p):len(p)])
 }
 
 // Close cancels any in-flight download work and closes the wrapped reader once.

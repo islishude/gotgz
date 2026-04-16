@@ -296,6 +296,79 @@ func TestOpenReaderPropagatesGetObjectError(t *testing.T) {
 	}
 }
 
+// TestOpenReaderHandlesShortLenLargeCapBuffers verifies that callers can read
+// with a slice whose backing array has extra capacity without triggering the
+// transfer-manager concurrent-reader panic.
+func TestOpenReaderHandlesShortLenLargeCapBuffers(t *testing.T) {
+	ref := locator.Ref{Kind: locator.KindS3, Raw: "s3://bucket/object", Bucket: "bucket", Key: "object"}
+	payload := "hello-world!"
+
+	store := &Store{
+		tm: transfermanager.New(&fakeTransferS3Client{
+			headObjectFn: func(_ context.Context, in *awss3.HeadObjectInput, _ ...func(*awss3.Options)) (*awss3.HeadObjectOutput, error) {
+				if got := aws.ToString(in.Bucket); got != ref.Bucket {
+					return nil, fmt.Errorf("HeadObject() bucket = %q, want %q", got, ref.Bucket)
+				}
+				if got := aws.ToString(in.Key); got != ref.Key {
+					return nil, fmt.Errorf("HeadObject() key = %q, want %q", got, ref.Key)
+				}
+				return &awss3.HeadObjectOutput{
+					ContentLength: aws.Int64(int64(len(payload))),
+					ETag:          aws.String("etag"),
+				}, nil
+			},
+			getObjectFn: func(_ context.Context, in *awss3.GetObjectInput, _ ...func(*awss3.Options)) (*awss3.GetObjectOutput, error) {
+				if in.Range == nil {
+					return nil, fmt.Errorf("GetObject() range is nil")
+				}
+
+				var start, end int64
+				if _, err := fmt.Sscanf(aws.ToString(in.Range), "bytes=%d-%d", &start, &end); err != nil {
+					return nil, fmt.Errorf("parse range %q: %w", aws.ToString(in.Range), err)
+				}
+				chunk := payload[start : end+1]
+
+				return &awss3.GetObjectOutput{
+					Body:          io.NopCloser(strings.NewReader(chunk)),
+					ContentLength: aws.Int64(int64(len(chunk))),
+					ContentRange:  aws.String(fmt.Sprintf("bytes %d-%d/%d", start, end, len(payload))),
+				}, nil
+			},
+		}, func(o *transfermanager.Options) {
+			o.PartSizeBytes = 5
+			o.Concurrency = 2
+		}),
+	}
+
+	rc, meta, err := store.OpenReader(context.Background(), ref)
+	if err != nil {
+		t.Fatalf("OpenReader() error = %v", err)
+	}
+	if meta.Size != int64(len(payload)) {
+		t.Fatalf("metadata size = %d, want %d", meta.Size, len(payload))
+	}
+
+	buf := make([]byte, len(payload))
+	n, err := rc.Read(buf[:4])
+	if err != nil {
+		t.Fatalf("Read() error = %v", err)
+	}
+	if got := string(buf[:n]); got != payload[:4] {
+		t.Fatalf("first read = %q, want %q", got, payload[:4])
+	}
+
+	rest, err := io.ReadAll(rc)
+	if err != nil {
+		t.Fatalf("ReadAll() error = %v", err)
+	}
+	if got := string(buf[:n]) + string(rest); got != payload {
+		t.Fatalf("payload = %q, want %q", got, payload)
+	}
+	if err := rc.Close(); err != nil {
+		t.Fatalf("Close() error = %v", err)
+	}
+}
+
 // TestStoreRejectsNonS3Refs verifies that S3-backed methods fail fast when
 // handed a non-S3 locator reference.
 func TestStoreRejectsNonS3Refs(t *testing.T) {
