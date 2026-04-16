@@ -336,3 +336,36 @@ func TestDownloadReadCloserCloseIsIdempotent(t *testing.T) {
 		t.Fatalf("reader close calls = %d, want 1", reader.closeCalls)
 	}
 }
+
+// terminalErrorReader returns one terminal error and records how many times it
+// was asked to read.
+type terminalErrorReader struct {
+	err       error
+	readCalls int
+}
+
+// Read returns the configured error and increments the call count.
+func (r *terminalErrorReader) Read([]byte) (int, error) {
+	r.readCalls++
+	return 0, r.err
+}
+
+// TestDownloadReadCloserCachesTerminalReadError verifies that callers who read
+// again after a terminal read failure get the cached error without re-entering
+// the wrapped reader.
+func TestDownloadReadCloserCachesTerminalReadError(t *testing.T) {
+	wantErr := errors.New("download failed")
+	reader := &terminalErrorReader{err: wantErr}
+	rc := newDownloadReadCloser(reader, nil)
+	buf := make([]byte, 8)
+
+	if _, err := rc.Read(buf); !errors.Is(err, wantErr) {
+		t.Fatalf("first Read() error = %v, want %v", err, wantErr)
+	}
+	if _, err := rc.Read(buf); !errors.Is(err, wantErr) {
+		t.Fatalf("second Read() error = %v, want %v", err, wantErr)
+	}
+	if reader.readCalls != 1 {
+		t.Fatalf("wrapped reader read calls = %d, want 1", reader.readCalls)
+	}
+}

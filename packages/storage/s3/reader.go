@@ -91,6 +91,9 @@ type downloadReadCloser struct {
 	reader io.Reader
 	close  func() error
 
+	readMu  sync.Mutex
+	readErr error
+
 	once sync.Once
 	err  error
 }
@@ -115,9 +118,22 @@ func newDownloadReadCloser(reader io.Reader, cancel context.CancelFunc) io.ReadC
 
 // Read forwards reads to the wrapped transfer-manager body while constraining
 // the forwarded slice capacity to its length. This avoids an upstream
-// transfer-manager panic when callers pass a buffer with spare capacity.
+// transfer-manager panic when callers pass a buffer with spare capacity and
+// also memoizes terminal read errors so callers do not re-enter the underlying
+// reader after it has failed.
 func (r *downloadReadCloser) Read(p []byte) (int, error) {
-	return r.reader.Read(p[:len(p):len(p)])
+	r.readMu.Lock()
+	defer r.readMu.Unlock()
+
+	if r.readErr != nil {
+		return 0, r.readErr
+	}
+
+	n, err := r.reader.Read(p[:len(p):len(p)])
+	if err != nil {
+		r.readErr = err
+	}
+	return n, err
 }
 
 // Close cancels any in-flight download work and closes the wrapped reader once.
