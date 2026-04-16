@@ -1,6 +1,5 @@
 .github
 .vscode
-testdata
 Makefile
 README.md
 AGENTS.md

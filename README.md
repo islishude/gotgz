@@ -292,7 +292,7 @@ gotgz -cvf out.tar --no-progress dir/   # hides live updates but still prints "c
 | `GOTGZ_S3_SSE`                  | Server-side encryption type (`AES256`, `aws:kms`, `none`)                             | `AES256`     |
 | `GOTGZ_S3_SSE_KMS_KEY_ID`       | KMS key ID for SSE-KMS encryption                                                     |              |
 | `GOTGZ_S3_PART_SIZE_MB`         | S3 transfer part size in MB for multipart uploads and transfer-manager downloads      | `16`         |
-| `GOTGZ_S3_CONCURRENCY`          | S3 transfer concurrency for multipart uploads and transfer-manager downloads           | `4`          |
+| `GOTGZ_S3_CONCURRENCY`          | S3 transfer concurrency for multipart uploads and transfer-manager downloads          | `4`          |
 | `GOTGZ_S3_MAX_RETRIES`          | Maximum retry attempts for S3 operations                                              |              |
 | `GOTGZ_S3_USE_PATH_STYLE`       | Use path-style S3 addressing (for RustStack/MinIO)                                    | `false`      |
 | `GOTGZ_ZIP_STAGING_LIMIT_BYTES` | Max bytes spooled for non-local ZIP list/extract staging (`-`, `s3://`, `http(s)://`) | `1073741824` |
@@ -304,28 +304,34 @@ Standard AWS SDK environment variables (`AWS_REGION`, `AWS_ACCESS_KEY_ID`, `AWS_
 ### Prerequisites
 
 - Go 1.26+
-- Docker & Docker Compose (for integration tests)
+- Docker & Docker Compose (for `make integration-test`)
 
 ### Run unit tests
 
 ```bash
-go test ./...
+make unit-test
 ```
 
-### Run integration tests (with RustStack)
+### Run integration tests
 
-The integration tests require a running RustStack S3 endpoint to test S3 operations:
+The repository now uses three explicit test layers:
+
+- `make unit-test` runs the default untagged unit suite and refreshes `coverage.txt`.
+- `make integration-test` starts the local S3 emulator with Docker Compose, sets `GOTGZ_TEST_S3_ENDPOINT=http://localhost:4566`, and runs `go test -tags=integration ./...`.
+- `make e2e-test` runs the tagged CLI subprocess suite with `go test -tags=e2e ./cmd/gotgz`.
+- `make test` runs all three layers in order.
+
+If you want to invoke the tagged layers directly:
 
 ```bash
-# Start RustStack
-docker compose up -d --wait
-
-# Run integration tests
-GOTGZ_TEST_S3_ENDPOINT=http://localhost:4566 go test -v -run TestS3 ./internal/engine/ -count=1
-
-# Tear down
-docker compose down
+go test ./...
+GOTGZ_TEST_S3_ENDPOINT=http://localhost:4566 go test -v -tags=integration ./...
+go test -v -tags=e2e ./cmd/gotgz
 ```
+
+`packages/engine` is the package that owns the default engine unit tests and the tagged `integration` collaboration tests; the older `./internal/engine/` path is no longer used.
+
+The integration layer creates all fixtures dynamically with `t.TempDir()` plus temporary S3 buckets. The CLI end-to-end layer lives under `cmd/gotgz` and exercises real subprocess flows.
 
 ## License
 

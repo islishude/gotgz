@@ -8,7 +8,6 @@ import (
 	"io"
 	"os"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
@@ -23,7 +22,7 @@ func TestWithZipReaderRespectsContextDuringTempCopy(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	src := newSlowChunkReader(5000, 1024, 2*time.Millisecond)
+	src := newBlockingChunkReader(2, 1024)
 	ar := io.NopCloser(src)
 
 	done := make(chan error, 1)
@@ -36,6 +35,7 @@ func TestWithZipReaderRespectsContextDuringTempCopy(t *testing.T) {
 
 	src.waitForStart(t)
 	cancel()
+	src.allowRead()
 
 	select {
 	case err := <-done:
@@ -254,68 +254,4 @@ func TestWithZipReaderFallsBackToStagingWhenRemoteRangesFail(t *testing.T) {
 	if stream.readCalls == 0 {
 		t.Fatal("expected staging fallback to read the original stream")
 	}
-}
-
-// slowChunkReader emits fixed-size chunks with delay to model a long stream.
-type slowChunkReader struct {
-	started   chan struct{}
-	startOnce sync.Once
-	remaining int
-	delay     time.Duration
-	chunk     []byte
-}
-
-// newSlowChunkReader creates a deterministic reader for cancellation tests.
-func newSlowChunkReader(chunks, chunkSize int, delay time.Duration) *slowChunkReader {
-	if chunkSize <= 0 {
-		chunkSize = 1
-	}
-	return &slowChunkReader{
-		started:   make(chan struct{}),
-		remaining: chunks,
-		delay:     delay,
-		chunk:     bytes.Repeat([]byte{'x'}, chunkSize),
-	}
-}
-
-// Read returns one delayed chunk until the configured chunk budget is exhausted.
-func (r *slowChunkReader) Read(p []byte) (int, error) {
-	if r.remaining <= 0 {
-		return 0, io.EOF
-	}
-	r.startOnce.Do(func() {
-		close(r.started)
-	})
-	time.Sleep(r.delay)
-	r.remaining--
-	return copy(p, r.chunk), nil
-}
-
-// waitForStart blocks until at least one read has been attempted.
-func (r *slowChunkReader) waitForStart(t *testing.T) {
-	t.Helper()
-	select {
-	case <-r.started:
-	case <-time.After(time.Second):
-		t.Fatal("reader did not start")
-	}
-}
-
-// trackingReadCloser records how many reads and closes passed through it.
-type trackingReadCloser struct {
-	io.Reader
-	readCalls  int
-	closeCalls int
-}
-
-// Read forwards reads and counts them for assertions.
-func (r *trackingReadCloser) Read(p []byte) (int, error) {
-	r.readCalls++
-	return r.Reader.Read(p)
-}
-
-// Close records one close call.
-func (r *trackingReadCloser) Close() error {
-	r.closeCalls++
-	return nil
 }

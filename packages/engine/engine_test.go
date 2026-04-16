@@ -19,25 +19,6 @@ import (
 	localstore "github.com/islishude/gotgz/packages/storage/local"
 )
 
-type fakeLocalArchiveStore struct {
-	openReader func(ref locator.Ref) (io.ReadCloser, localstore.Metadata, error)
-	openWriter func(ref locator.Ref) (io.WriteCloser, error)
-}
-
-func (f fakeLocalArchiveStore) OpenReader(ref locator.Ref) (io.ReadCloser, localstore.Metadata, error) {
-	if f.openReader == nil {
-		return nil, localstore.Metadata{}, nil
-	}
-	return f.openReader(ref)
-}
-
-func (f fakeLocalArchiveStore) OpenWriter(ref locator.Ref) (io.WriteCloser, error) {
-	if f.openWriter == nil {
-		return nil, nil
-	}
-	return f.openWriter(ref)
-}
-
 func TestResolvePolicyOverrides(t *testing.T) {
 	so := false
 	sp := true

@@ -3,7 +3,7 @@
 ## Commands
 
 - **Build:** `make build`
-- **Test:** `make test` for integration tests, `make unit-test` for unit tests
+- **Test:** `make test` for the full three-layer suite, `make unit-test` for default unit tests, `make integration-test` for tagged collaboration tests, `make e2e-test` for tagged CLI end-to-end tests
 - **Lint:** `make lint`
 - **Format:** `make fmt`
 

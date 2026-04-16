@@ -1,5 +1,7 @@
 {
+  "go.buildTags": "e2e integration",
   "go.testEnvVars": {
     "GOTGZ_TEST_S3_ENDPOINT": "http://localhost:4566"
-  }
+  },
+  "go.testTags": "e2e integration"
 }
