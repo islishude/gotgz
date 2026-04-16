@@ -27,23 +27,8 @@ func (r *Runner) runExtractTar(ctx context.Context, opts cli.Options, reporter *
 		reporter.SetTotal(info.Size, info.SizeKnown)
 		return scan(ar, info)
 	}
-	if !shouldPlanSplitExtract(opts, volumes) {
-		return r.scanTarArchiveFromVolumes(ctx, opts, reporter, volumes, ar, scan)
-	}
 
-	target, err := locator.ParseExtractTarget(opts.Chdir, opts.S3CacheControl, opts.S3ObjectTags)
-	if err != nil {
-		return 0, err
-	}
-
-	plan, err := r.planSplitTarExtract(ctx, opts, volumes, ar, info, target)
-	if err != nil {
-		return 0, err
-	}
-	if !plan.parallel {
-		return r.runSplitTarExtractSequential(ctx, opts, reporter, volumes)
-	}
-	return r.runSplitTarExtractParallel(ctx, opts, reporter, volumes)
+	return r.scanTarArchiveFromVolumes(ctx, opts, reporter, volumes, ar, scan)
 }
 
 // runExtractTarReader extracts archive members from a single tar volume reader.
@@ -107,7 +92,7 @@ func (r *Runner) runExtractTarReader(ctx context.Context, opts cli.Options, repo
 		effectiveHdr := *hdr
 		effectiveHdr.Name = extractName
 		if opts.Verbose {
-			r.writeOutputLineLocked(r.stdout, reporter, "%s\n", effectiveHdr.Name)
+			reporter.ExternalLinef(r.stdout, "%s\n", effectiveHdr.Name)
 		}
 		return r.dispatchExtractTarget(
 			parsedTarget,
@@ -119,28 +104,5 @@ func (r *Runner) runExtractTarReader(ctx context.Context, opts cli.Options, repo
 				return r.extractToLocal(ctx, base, &effectiveHdr, tr, policy, metadataPolicy, safetyCache, reporter)
 			},
 		)
-	})
-}
-
-// runSplitTarExtractSequential replays split tar extraction serially after planning consumed the original readers.
-func (r *Runner) runSplitTarExtractSequential(ctx context.Context, opts cli.Options, reporter *archiveprogress.Reporter, volumes []archiveVolume) (int, error) {
-	scan := func(scanReader io.ReadCloser, scanInfo archiveReaderInfo) (int, error) {
-		return r.runExtractTarReader(ctx, opts, reporter, scanReader, scanInfo)
-	}
-	return r.scanTarArchiveFromVolumes(ctx, opts, reporter, volumes, nil, scan)
-}
-
-// runSplitTarExtractParallel reopens split tar volumes and extracts them with one worker per volume task.
-func (r *Runner) runSplitTarExtractParallel(ctx context.Context, opts cli.Options, reporter *archiveprogress.Reporter, volumes []archiveVolume) (int, error) {
-	reporter.SetTotal(sumArchiveVolumeSizes(volumes))
-	return r.executeSplitExtractVolumes(ctx, volumes, func(ctx context.Context, _ int, volume archiveVolume) (int, error) {
-		reader, runtimeInfo, err := r.openArchiveReader(ctx, volume.ref)
-		if err != nil {
-			return 0, err
-		}
-		defer reader.Close() //nolint:errcheck
-
-		info := mergeArchiveReaderInfo(volume.info, runtimeInfo)
-		return r.runExtractTarReader(ctx, opts, reporter, reader, info)
 	})
 }

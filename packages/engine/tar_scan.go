@@ -71,7 +71,7 @@ func (r *Runner) scanTarArchiveFromVolumes(ctx context.Context, _ cli.Options, r
 			err    error
 		)
 
-		if index == 0 && first != nil {
+		if index == 0 {
 			reader = first
 			info = volume.info
 		} else {

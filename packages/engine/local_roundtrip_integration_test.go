@@ -10,11 +10,9 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"sync/atomic"
 	"testing"
 
 	"github.com/islishude/gotgz/packages/cli"
-	"github.com/islishude/gotgz/packages/locator"
 )
 
 func TestIntegrationLocalTarRoundTrip(t *testing.T) {
@@ -137,7 +135,7 @@ func TestIntegrationSplitArchiveReopen(t *testing.T) {
 	}
 }
 
-func TestIntegrationSplitArchiveVerboseExtractUsesParallelWorkers(t *testing.T) {
+func TestIntegrationSplitArchiveVerboseExtract(t *testing.T) {
 	tests := []struct {
 		name    string
 		archive string
@@ -168,28 +166,13 @@ func TestIntegrationSplitArchiveVerboseExtractUsesParallelWorkers(t *testing.T) 
 			}
 
 			var stdout bytes.Buffer
-			extractRunner := newLocalSplitExtractTestRunner()
-			extractRunner.stdout = &stdout
-
-			var plan splitExtractPlan
-			var workerStarts atomic.Int32
-			extractRunner.splitExtractHooks = &splitExtractHooks{
-				onPlan: func(got splitExtractPlan) {
-					plan = got
-				},
-				onParallelWorkerStart: func(_ int, _ locator.Ref) {
-					workerStarts.Add(1)
-				},
+			extractRunner, err := New(context.Background(), &stdout, io.Discard)
+			if err != nil {
+				t.Fatalf("New() extract error = %v", err)
 			}
 
 			if got := extractRunner.Run(context.Background(), cli.Options{Mode: cli.ModeExtract, Archive: firstPart, Chdir: outDir, Verbose: true}); got.ExitCode != ExitSuccess {
 				t.Fatalf("extract exit=%d err=%v", got.ExitCode, got.Err)
-			}
-			if !plan.parallel {
-				t.Fatal("plan.parallel = false, want true")
-			}
-			if workerStarts.Load() < 2 {
-				t.Fatalf("parallel worker starts = %d, want at least 2", workerStarts.Load())
 			}
 
 			lines := strings.Split(strings.TrimSpace(stdout.String()), "\n")
@@ -219,17 +202,12 @@ func TestIntegrationSplitTarHardlinkFallsBackToSerial(t *testing.T) {
 		t.Fatalf("WriteFile(secondPart) error = %v", err)
 	}
 
-	r := newLocalSplitExtractTestRunner()
-	var plan splitExtractPlan
-	r.splitExtractHooks = &splitExtractHooks{onPlan: func(got splitExtractPlan) { plan = got }}
+	r, err := New(context.Background(), io.Discard, io.Discard)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
 	if got := r.Run(context.Background(), cli.Options{Mode: cli.ModeExtract, Archive: firstPart, Chdir: outDir}); got.ExitCode != ExitSuccess {
 		t.Fatalf("extract exit=%d err=%v", got.ExitCode, got.Err)
-	}
-	if plan.parallel {
-		t.Fatal("plan.parallel = true, want false")
-	}
-	if plan.serialReason != splitExtractSerialReasonLocalHardlink {
-		t.Fatalf("serialReason = %q, want %q", plan.serialReason, splitExtractSerialReasonLocalHardlink)
 	}
 	targetInfo, err := os.Stat(filepath.Join(outDir, "dir", "target.txt"))
 	if err != nil {

@@ -93,9 +93,26 @@ func TestProgressReporterNilSafe(t *testing.T) {
 	p.AddDone(50)
 	p.BeforeExternalLineOutput()
 	p.AfterExternalLineOutput()
+	var buf bytes.Buffer
+	p.ExternalLinef(&buf, "hello %s\n", "world")
 	p.Finish()
+	if got := buf.String(); got != "hello world\n" {
+		t.Fatalf("ExternalLinef() = %q, want %q", got, "hello world\n")
+	}
 	if got := p.Elapsed(); got != 0 {
 		t.Fatalf("Elapsed() = %v, want 0 for nil reporter", got)
+	}
+}
+
+func TestProgressReporterExternalLinef(t *testing.T) {
+	var buf bytes.Buffer
+	p := NewReporter(&buf, cli.ProgressAlways, 100, true, time.Now().Add(-time.Second), false)
+	p.AddDone(10)
+	p.ExternalLinef(&buf, "external %s\n", "line")
+
+	out := buf.String()
+	if !strings.Contains(out, "external line\n") {
+		t.Fatalf("expected formatted external line, got %q", out)
 	}
 }
 

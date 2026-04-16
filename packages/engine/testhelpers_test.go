@@ -10,7 +10,6 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -185,53 +184,6 @@ func (r *blockingChunkReader) waitForStart(t *testing.T) {
 	}
 }
 
-type blockingConcurrentWriter struct {
-	active        atomic.Int32
-	maxConcurrent atomic.Int32
-	entered       chan struct{}
-	enterOnce     sync.Once
-	release       chan struct{}
-}
-
-func newBlockingConcurrentWriter() *blockingConcurrentWriter {
-	return &blockingConcurrentWriter{
-		entered: make(chan struct{}),
-		release: make(chan struct{}),
-	}
-}
-
-func (w *blockingConcurrentWriter) Write(p []byte) (int, error) {
-	current := w.active.Add(1)
-	for {
-		maxSeen := w.maxConcurrent.Load()
-		if current <= maxSeen {
-			break
-		}
-		if w.maxConcurrent.CompareAndSwap(maxSeen, current) {
-			break
-		}
-	}
-	w.enterOnce.Do(func() {
-		close(w.entered)
-	})
-	<-w.release
-	w.active.Add(-1)
-	return len(p), nil
-}
-
-func (w *blockingConcurrentWriter) waitForWrite(t *testing.T) {
-	t.Helper()
-	select {
-	case <-w.entered:
-	case <-time.After(time.Second):
-		t.Fatal("writer did not receive a write")
-	}
-}
-
-func (w *blockingConcurrentWriter) unblock() {
-	close(w.release)
-}
-
 type tarEntry struct {
 	hdr  *tar.Header
 	body string
@@ -310,55 +262,6 @@ func zipArchiveBytes(t *testing.T, files map[string]string) []byte {
 		t.Fatalf("close zip writer: %v", err)
 	}
 	return buf.Bytes()
-}
-
-type zipTestEntry struct {
-	name string
-	body string
-	mode os.FileMode
-}
-
-func writeZipTestVolume(t *testing.T, path string, entries []zipTestEntry) {
-	t.Helper()
-
-	file, err := os.Create(path)
-	if err != nil {
-		t.Fatalf("create %s: %v", path, err)
-	}
-	defer file.Close() //nolint:errcheck
-
-	zw := zip.NewWriter(file)
-	for _, entry := range entries {
-		header := &zip.FileHeader{Name: entry.name, Method: zip.Store}
-		header.SetMode(entry.mode)
-		writer, err := zw.CreateHeader(header)
-		if err != nil {
-			t.Fatalf("CreateHeader(%s): %v", entry.name, err)
-		}
-		if _, err := io.WriteString(writer, entry.body); err != nil {
-			t.Fatalf("Write(%s): %v", entry.name, err)
-		}
-	}
-	if err := zw.Close(); err != nil {
-		t.Fatalf("close zip writer: %v", err)
-	}
-}
-
-func localArchiveVolumeFromPath(t *testing.T, path string) archiveVolume {
-	t.Helper()
-
-	info, err := os.Stat(path)
-	if err != nil {
-		t.Fatalf("stat %s: %v", path, err)
-	}
-	return archiveVolume{
-		ref:  locator.Ref{Kind: locator.KindLocal, Raw: path, Path: path},
-		info: archiveReaderInfo{Size: info.Size(), SizeKnown: true},
-	}
-}
-
-func newLocalSplitExtractTestRunner() *Runner {
-	return newRunner(&localstore.ArchiveStore{}, nil, nil, io.Discard, io.Discard)
 }
 
 type fixtureEntry struct {

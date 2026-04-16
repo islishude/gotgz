@@ -155,7 +155,7 @@ If you do pass an explicit tar-family compression flag in create mode, it must m
 
 Use `--split-size=<size>` in create mode to emit `.zip` or tar-family output as `partNNNN` volumes such as `archive.part0001.zip` or `archive.part0001.tar.gz`.  
 Split archives are discovered automatically from `part0001` during list/extract for local files and S3 objects.
-Split archives in extract mode automatically process volumes concurrently when that is safe; `-v`, `-O`, and detected cross-volume path/key conflicts fall back to the existing serial behavior.
+Split archives in extract mode are processed volume by volume in archive order.
 
 When extracting or listing, archive/compression format is auto-detected by magic bytes first, then filename extension, then content type.
 

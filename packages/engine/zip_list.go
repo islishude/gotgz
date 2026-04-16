@@ -3,7 +3,6 @@ package engine
 import (
 	"archive/zip"
 	"context"
-	"fmt"
 	"io"
 
 	"github.com/islishude/gotgz/packages/archivepath"
@@ -53,9 +52,7 @@ func (r *Runner) listZipReader(ctx context.Context, zr *zip.Reader, memberMatche
 		if archivepath.ShouldSkipMemberWithMatcher(memberMatcher, zf.Name) {
 			continue
 		}
-		reporter.BeforeExternalLineOutput()
-		_, _ = fmt.Fprintln(r.stdout, zf.Name)
-		reporter.AfterExternalLineOutput()
+		reporter.ExternalLinef(r.stdout, "%s\n", zf.Name)
 	}
 	return 0, nil
 }

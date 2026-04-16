@@ -23,9 +23,9 @@ const (
 
 // withZipReader opens a zip.Reader from local file directly when possible and
 // otherwise prefers remote range reads before copying source bytes to a
-// temporary file to satisfy ReaderAt. copyReporter tracks archive bytes
+// temporary file to satisfy ReaderAt. progressReporter tracks archive bytes
 // consumed while preparing the zip reader.
-func (r *Runner) withZipReader(ctx context.Context, archiveRef locator.Ref, ar io.ReadCloser, info archiveReaderInfo, copyReporter *archiveprogress.Reporter, fn func(zr *zip.Reader) (int, error)) (int, error) {
+func (r *Runner) withZipReader(ctx context.Context, archiveRef locator.Ref, ar io.ReadCloser, info archiveReaderInfo, progressReporter *archiveprogress.Reporter, fn func(zr *zip.Reader) (int, error)) (int, error) {
 	if archiveRef.Kind == locator.KindLocal && info.SizeKnown && archiveRef.Path != "" {
 		f, err := os.Open(archiveRef.Path)
 		if err == nil {
@@ -34,8 +34,8 @@ func (r *Runner) withZipReader(ctx context.Context, archiveRef locator.Ref, ar i
 			if statErr == nil && st.Mode().IsRegular() {
 				zr, zipErr := zip.NewReader(f, st.Size())
 				if zipErr == nil {
-					if copyReporter != nil {
-						copyReporter.AddDone(st.Size())
+					if progressReporter != nil {
+						progressReporter.AddDone(st.Size())
 					}
 					return fn(zr)
 				}
@@ -43,7 +43,7 @@ func (r *Runner) withZipReader(ctx context.Context, archiveRef locator.Ref, ar i
 		}
 	}
 
-	if zr, err := r.tryRemoteZipReader(ctx, archiveRef, ar, info); zr != nil && err == nil {
+	if zr, err := r.tryRemoteZipReader(ctx, archiveRef, ar, info, progressReporter); zr != nil && err == nil {
 		return fn(zr)
 	}
 
@@ -63,8 +63,8 @@ func (r *Runner) withZipReader(ctx context.Context, archiveRef locator.Ref, ar i
 	}()
 
 	copySrc := io.Reader(ar)
-	if copyReporter != nil {
-		copySrc = archiveprogress.NewCountingReader(ar, copyReporter)
+	if progressReporter != nil {
+		copySrc = archiveprogress.NewCountingReader(ar, progressReporter)
 	}
 	if enforceStagingLimit {
 		if _, err := archiveutil.CopyWithContextLimit(ctx, tmp, copySrc, stagingLimit); err != nil {
@@ -92,7 +92,7 @@ func (r *Runner) withZipReader(ctx context.Context, archiveRef locator.Ref, ar i
 
 // tryRemoteZipReader opens a zip.Reader backed by remote range requests when
 // the archive source supports random access and the total size is known.
-func (r *Runner) tryRemoteZipReader(ctx context.Context, archiveRef locator.Ref, ar io.ReadCloser, info archiveReaderInfo) (*zip.Reader, error) {
+func (r *Runner) tryRemoteZipReader(ctx context.Context, archiveRef locator.Ref, ar io.ReadCloser, info archiveReaderInfo, progressReporter *archiveprogress.Reporter) (*zip.Reader, error) {
 	if !info.SizeKnown {
 		return nil, nil
 	}
@@ -101,7 +101,11 @@ func (r *Runner) tryRemoteZipReader(ctx context.Context, archiveRef locator.Ref,
 	}
 
 	readerAt := newRemoteZipReaderAt(ctx, info.Size, defaultRemoteZipReadBlockSize, func(ctx context.Context, offset int64, length int64) (io.ReadCloser, error) {
-		return r.storage.openZipRangeReader(ctx, archiveRef, offset, length)
+		rc, err := r.storage.openZipRangeReader(ctx, archiveRef, offset, length)
+		if err != nil {
+			return nil, err
+		}
+		return archiveprogress.NewCountingReadCloser(rc, progressReporter), nil
 	})
 	zr, err := zip.NewReader(readerAt, info.Size)
 	if err != nil {
