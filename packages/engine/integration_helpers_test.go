@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"math/rand/v2"
 	"os"
 	"strings"
 	"testing"
@@ -46,9 +47,14 @@ func setupS3Bucket(t *testing.T, ctx context.Context, endpoint string) (*awss3.C
 	t.Helper()
 	client := integrationS3Client(t, ctx, endpoint)
 	name := strings.ToLower(strings.ReplaceAll(t.Name(), "/", "-"))
-	bucket := fmt.Sprintf("gotgz-%d-%s", os.Getpid(), name)
+	bucket := fmt.Sprintf("gotgz-%s-%d", name, rand.Int32N(1000000))
 	if len(bucket) > 63 {
 		bucket = bucket[:63]
+	}
+	// Bucket names cannot end with a hyphen, but our test names often do.
+	// Replace a trailing hyphen with 'x' if needed.
+	if strings.HasSuffix(bucket, "-") {
+		bucket = bucket[:len(bucket)-1] + "x"
 	}
 	_, err := client.CreateBucket(ctx, &awss3.CreateBucketInput{Bucket: new(bucket)})
 	if err != nil {
