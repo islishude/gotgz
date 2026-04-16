@@ -1,8 +1,6 @@
 package engine
 
 import (
-	"fmt"
-
 	"github.com/islishude/gotgz/packages/archiveprogress"
 	"github.com/islishude/gotgz/packages/cli"
 )
@@ -51,12 +49,6 @@ func normalizeCompressionHint(v cli.CompressionHint) cli.CompressionHint {
 
 // warnf prints one warning and returns 1 for warning-count accumulation.
 func (r *Runner) warnf(reporter *archiveprogress.Reporter, format string, args ...any) int {
-	if reporter != nil {
-		reporter.BeforeExternalLineOutput()
-	}
-	_, _ = fmt.Fprintf(r.stderr, "gotgz: warning: "+format+"\n", args...)
-	if reporter != nil {
-		reporter.AfterExternalLineOutput()
-	}
+	r.writeOutputLineLocked(r.stderr, reporter, "gotgz: warning: "+format+"\n", args...)
 	return 1
 }

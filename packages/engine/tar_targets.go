@@ -33,9 +33,7 @@ func (r *Runner) extractToS3(ctx context.Context, target locator.Ref, hdr *tar.H
 	meta = archiveutil.MergeMetadata(target.Metadata, meta)
 	if !ok {
 		warnings++
-		reporter.BeforeExternalLineOutput()
-		_, _ = fmt.Fprintf(r.stderr, "gotgz: warning: metadata exceeds S3 metadata limit for %s\n", hdr.Name)
-		reporter.AfterExternalLineOutput()
+		r.writeOutputLineLocked(r.stderr, reporter, "gotgz: warning: metadata exceeds S3 metadata limit for %s\n", hdr.Name)
 	}
 
 	switch hdr.Typeflag {

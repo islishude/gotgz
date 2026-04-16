@@ -2,26 +2,10 @@ package engine
 
 import (
 	"archive/zip"
-	"context"
-	"io"
 
 	"github.com/islishude/gotgz/packages/archivepath"
 	"github.com/islishude/gotgz/packages/cli"
-	"github.com/islishude/gotgz/packages/locator"
 )
-
-// sumSplitZipPayloadBytes pre-scans split zip volumes to compute one extraction total.
-func (r *Runner) sumSplitZipPayloadBytes(ctx context.Context, volumes []archiveVolume, first io.ReadCloser, firstInfo archiveReaderInfo, match func(zf *zip.File) bool) (int64, error) {
-	var total int64
-	_, err := r.forEachArchiveVolume(ctx, volumes, first, firstInfo, func(ref locator.Ref, reader io.ReadCloser, readerInfo archiveReaderInfo) (int, error) {
-		_, err := r.withZipReader(ctx, ref, reader, readerInfo, nil, func(zr *zip.Reader) (int, error) {
-			total = addArchiveVolumeSize(total, totalZipPayloadBytes(zr, match))
-			return 0, nil
-		})
-		return 0, err
-	})
-	return total, err
-}
 
 // matchingZipStdoutPayloadBytes sums uncompressed bytes that would be written to stdout.
 func matchingZipStdoutPayloadBytes(zr *zip.Reader, memberMatcher *archivepath.CompiledPathMatcher, opts cli.Options) int64 {
