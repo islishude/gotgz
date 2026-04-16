@@ -1,95 +1,17 @@
 package engine
 
 import (
-	"archive/zip"
 	"context"
 	"errors"
-	"io"
 	"os"
 	"path/filepath"
-	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/islishude/gotgz/packages/cli"
 	"github.com/islishude/gotgz/packages/locator"
-	localstore "github.com/islishude/gotgz/packages/storage/local"
 )
-
-// newLocalSplitExtractTestRunner builds a runner with only the local archive backend enabled.
-func newLocalSplitExtractTestRunner() *Runner {
-	return newRunner(&localstore.ArchiveStore{}, nil, nil, io.Discard, io.Discard)
-}
-
-// localArchiveVolumeFromPath builds one local archiveVolume from a filesystem path.
-func localArchiveVolumeFromPath(t *testing.T, path string) archiveVolume {
-	t.Helper()
-
-	info, err := os.Stat(path)
-	if err != nil {
-		t.Fatalf("stat %s: %v", path, err)
-	}
-	return archiveVolume{
-		ref:  locator.Ref{Kind: locator.KindLocal, Raw: path, Path: path},
-		info: archiveReaderInfo{Size: info.Size(), SizeKnown: true},
-	}
-}
-
-type zipTestEntry struct {
-	name string
-	body string
-	mode os.FileMode
-}
-
-// writeZipTestVolume writes one standalone zip volume used by split extract tests.
-func writeZipTestVolume(t *testing.T, path string, entries []zipTestEntry) {
-	t.Helper()
-
-	file, err := os.Create(path)
-	if err != nil {
-		t.Fatalf("create %s: %v", path, err)
-	}
-	defer file.Close() //nolint:errcheck
-
-	zw := zip.NewWriter(file)
-	for _, entry := range entries {
-		header := &zip.FileHeader{Name: entry.name, Method: zip.Store}
-		header.SetMode(entry.mode)
-		writer, err := zw.CreateHeader(header)
-		if err != nil {
-			t.Fatalf("CreateHeader(%s): %v", entry.name, err)
-		}
-		if _, err := io.WriteString(writer, entry.body); err != nil {
-			t.Fatalf("Write(%s): %v", entry.name, err)
-		}
-	}
-	if err := zw.Close(); err != nil {
-		t.Fatalf("close zip writer: %v", err)
-	}
-}
-
-type blockingConcurrentWriter struct {
-	active        atomic.Int32
-	maxConcurrent atomic.Int32
-}
-
-// Write records concurrent calls so warning serialization can be asserted deterministically.
-func (w *blockingConcurrentWriter) Write(p []byte) (int, error) {
-	current := w.active.Add(1)
-	for {
-		maxSeen := w.maxConcurrent.Load()
-		if current <= maxSeen {
-			break
-		}
-		if w.maxConcurrent.CompareAndSwap(maxSeen, current) {
-			break
-		}
-	}
-	time.Sleep(5 * time.Millisecond)
-	w.active.Add(-1)
-	return len(p), nil
-}
 
 func TestSplitExtractPlannerFinalizeLocal(t *testing.T) {
 	t.Parallel()
@@ -340,16 +262,26 @@ func TestExecuteSplitExtractVolumesCancelsOnFirstError(t *testing.T) {
 func TestWarnfSerializesConcurrentOutput(t *testing.T) {
 	t.Parallel()
 
-	writer := &blockingConcurrentWriter{}
+	writer := newBlockingConcurrentWriter()
 	r := &Runner{stderr: writer}
 
-	var workers sync.WaitGroup
+	var workers atomic.Int32
+	done := make(chan struct{}, 8)
 	for range 8 {
-		workers.Go(func() {
+		workers.Add(1)
+		go func() {
+			defer func() {
+				workers.Add(-1)
+				done <- struct{}{}
+			}()
 			r.warnf(nil, "concurrent warning")
-		})
+		}()
 	}
-	workers.Wait()
+	writer.waitForWrite(t)
+	writer.unblock()
+	for range 8 {
+		<-done
+	}
 
 	if writer.maxConcurrent.Load() != 1 {
 		t.Fatalf("max concurrent writes = %d, want 1", writer.maxConcurrent.Load())

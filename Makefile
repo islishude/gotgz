@@ -14,12 +14,21 @@ fmt:
 	gofmt -w -s .
 	go fix ./...
 
-test: s3mock
-	GOTGZ_TEST_S3_ENDPOINT=http://localhost:4566 go test -v -race -count=1 -coverprofile=coverage.txt ./...
-	docker compose down
+test: unit-test integration-test e2e-test
 
 unit-test:
-	go test -v -race ./...
+	go test -v -race -count=1 -coverprofile=coverage.txt ./...
+
+integration-test:
+	@set -e; \
+		docker compose down; \
+		docker compose up -d --wait; \
+		trap 'docker compose down' EXIT; \
+		GOTGZ_TEST_S3_ENDPOINT=http://localhost:4566 go test -v -race -count=1 -tags=integration ./...; \
+		docker compose down
+
+e2e-test:
+	go test -v -race -count=1 -tags=e2e ./cmd/gotgz
 
 s3mock:
 	docker compose down

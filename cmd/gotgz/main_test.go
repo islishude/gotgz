@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -71,75 +70,6 @@ func TestMainHelpShortIncludesVersion(t *testing.T) {
 	}
 	if stderr != "" {
 		t.Fatalf("stderr = %q, want empty", stderr)
-	}
-}
-
-// TestMainNoProgressPrintsStandaloneCompletionLine verifies that successful
-// runs with --no-progress still report the total elapsed time.
-func TestMainNoProgressPrintsStandaloneCompletionLine(t *testing.T) {
-	root := t.TempDir()
-	srcDir := filepath.Join(root, "src")
-	archive := filepath.Join(root, "out.tar")
-	if err := os.MkdirAll(srcDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(srcDir, "note.txt"), []byte("payload"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	_, stderr, exitCode := runMainProcess(t,
-		"--create",
-		"-f", archive,
-		"--directory", root,
-		"--no-progress",
-		"src",
-	)
-	if exitCode != 0 {
-		t.Fatalf("exit code = %d, want 0; stderr:\n%s", exitCode, stderr)
-	}
-	if !strings.Contains(stderr, "gotgz: completed in ") {
-		t.Fatalf("stderr = %q, want completion line", stderr)
-	}
-	if !strings.HasSuffix(stderr, "\n") {
-		t.Fatalf("stderr = %q, want trailing newline", stderr)
-	}
-}
-
-// TestMainProgressOmitsStandaloneCompletionLine verifies that progress-enabled
-// runs report elapsed time in the progress line instead of a separate
-// completion-time message.
-func TestMainProgressOmitsStandaloneCompletionLine(t *testing.T) {
-	root := t.TempDir()
-	srcDir := filepath.Join(root, "src")
-	archive := filepath.Join(root, "out.tar")
-	if err := os.MkdirAll(srcDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(srcDir, "note.txt"), []byte("payload"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	_, stderr, exitCode := runMainProcess(t,
-		"--create",
-		"-f", archive,
-		"--directory", root,
-		"--progress",
-		"src",
-	)
-	if exitCode != 0 {
-		t.Fatalf("exit code = %d, want 0; stderr:\n%s", exitCode, stderr)
-	}
-	if !strings.Contains(stderr, "gotgz:") {
-		t.Fatalf("stderr = %q, want progress output", stderr)
-	}
-	if !strings.Contains(stderr, "ETA ") {
-		t.Fatalf("stderr = %q, want ETA in progress output", stderr)
-	}
-	if !strings.Contains(stderr, "elapsed ") {
-		t.Fatalf("stderr = %q, want elapsed in progress output", stderr)
-	}
-	if strings.Contains(stderr, "completed in") {
-		t.Fatalf("stderr = %q, did not expect completion line", stderr)
 	}
 }
 

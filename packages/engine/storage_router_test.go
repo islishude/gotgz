@@ -1,7 +1,6 @@
 package engine
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"io"
@@ -13,91 +12,6 @@ import (
 	localstore "github.com/islishude/gotgz/packages/storage/local"
 	s3store "github.com/islishude/gotgz/packages/storage/s3"
 )
-
-type fakeS3ArchiveStore struct {
-	openReader   func(ctx context.Context, ref locator.Ref) (io.ReadCloser, s3store.Metadata, error)
-	stat         func(ctx context.Context, ref locator.Ref) (s3store.Metadata, error)
-	openWriter   func(ctx context.Context, ref locator.Ref, metadata map[string]string) (io.WriteCloser, error)
-	uploadStream func(ctx context.Context, ref locator.Ref, body io.Reader, metadata map[string]string) error
-	listPrefix   func(ctx context.Context, bucket string, prefix string) ([]s3store.ListedObject, error)
-}
-
-func (f fakeS3ArchiveStore) OpenReader(ctx context.Context, ref locator.Ref) (io.ReadCloser, s3store.Metadata, error) {
-	if f.openReader == nil {
-		return nil, s3store.Metadata{}, nil
-	}
-	return f.openReader(ctx, ref)
-}
-
-func (f fakeS3ArchiveStore) Stat(ctx context.Context, ref locator.Ref) (s3store.Metadata, error) {
-	if f.stat == nil {
-		return s3store.Metadata{}, nil
-	}
-	return f.stat(ctx, ref)
-}
-
-func (f fakeS3ArchiveStore) OpenWriter(ctx context.Context, ref locator.Ref, metadata map[string]string) (io.WriteCloser, error) {
-	if f.openWriter == nil {
-		return nil, nil
-	}
-	return f.openWriter(ctx, ref, metadata)
-}
-
-func (f fakeS3ArchiveStore) UploadStream(ctx context.Context, ref locator.Ref, body io.Reader, metadata map[string]string) error {
-	if f.uploadStream == nil {
-		return nil
-	}
-	return f.uploadStream(ctx, ref, body, metadata)
-}
-
-func (f fakeS3ArchiveStore) ListPrefix(ctx context.Context, bucket string, prefix string) ([]s3store.ListedObject, error) {
-	if f.listPrefix == nil {
-		return nil, nil
-	}
-	return f.listPrefix(ctx, bucket, prefix)
-}
-
-type fakeHTTPArchiveStore struct {
-	openReader func(ctx context.Context, ref locator.Ref) (io.ReadCloser, httpstore.Metadata, error)
-}
-
-func (f fakeHTTPArchiveStore) OpenReader(ctx context.Context, ref locator.Ref) (io.ReadCloser, httpstore.Metadata, error) {
-	if f.openReader == nil {
-		return nil, httpstore.Metadata{}, nil
-	}
-	return f.openReader(ctx, ref)
-}
-
-type fakeS3ZipArchiveStore struct {
-	fakeS3ArchiveStore
-	openRange func(ctx context.Context, ref locator.Ref, offset int64, length int64) (io.ReadCloser, error)
-}
-
-func (f fakeS3ZipArchiveStore) OpenRangeReader(ctx context.Context, ref locator.Ref, offset int64, length int64) (io.ReadCloser, error) {
-	if f.openRange == nil {
-		return nil, errors.New("fakeS3ZipArchiveStore: OpenRangeReader not implemented")
-	}
-	return f.openRange(ctx, ref, offset, length)
-}
-
-type fakeHTTPZipArchiveStore struct {
-	fakeHTTPArchiveStore
-	openRange func(ctx context.Context, ref locator.Ref, offset int64, length int64) (io.ReadCloser, error)
-}
-
-func (f fakeHTTPZipArchiveStore) OpenRangeReader(ctx context.Context, ref locator.Ref, offset int64, length int64) (io.ReadCloser, error) {
-	if f.openRange == nil {
-		return nil, errors.New("fakeHTTPZipArchiveStore: OpenRangeReader not implemented")
-	}
-	return f.openRange(ctx, ref, offset, length)
-}
-
-type fakeWriteCloser struct {
-	bytes.Buffer
-	closeErr error
-}
-
-func (f *fakeWriteCloser) Close() error { return f.closeErr }
 
 func TestStorageRouterOpenArchiveReaderHTTPUnknownSize(t *testing.T) {
 	router := &storageRouter{
