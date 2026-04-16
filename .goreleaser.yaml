@@ -43,6 +43,3 @@ snapshot:
   version_template: "{{ incpatch .Version }}-next"
 changelog:
   sort: asc
-  filters:
-    exclude:
-      - "^testdata:"
