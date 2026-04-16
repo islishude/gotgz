@@ -53,11 +53,14 @@ func (r *Runner) runExtractZip(ctx context.Context, opts cli.Options, reporter *
 		return warnings + zipWarnings, err
 	}
 
-	plan, err := r.planSplitZipExtract(ctx, opts, volumes, ar, info, parsedTarget)
+	planningTotal, planningKnown := sumArchiveVolumeSizes(volumes)
+	reporter.ResetProgress(planningTotal, planningKnown)
+
+	plan, err := r.planSplitZipExtract(ctx, opts, reporter, volumes, ar, info, parsedTarget)
 	if err != nil {
 		return warnings, err
 	}
-	reporter.SetTotal(plan.zipPayloadBytes, true)
+	reporter.ResetProgress(plan.zipPayloadBytes, true)
 	if !plan.parallel {
 		zipWarnings, err := r.runSplitZipExtractSequential(ctx, opts, reporter, volumes, nil, info, parsedTarget, target, policy, safetyCache, memberMatcher)
 		return warnings + zipWarnings, err

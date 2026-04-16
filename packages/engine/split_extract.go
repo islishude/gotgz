@@ -12,6 +12,7 @@ import (
 	"sync"
 
 	"github.com/islishude/gotgz/packages/archivepath"
+	"github.com/islishude/gotgz/packages/archiveprogress"
 	"github.com/islishude/gotgz/packages/archiveutil"
 	"github.com/islishude/gotgz/packages/cli"
 	"github.com/islishude/gotgz/packages/locator"
@@ -80,7 +81,7 @@ func splitExtractWorkerCount(volumeCount int) int {
 }
 
 // planSplitTarExtract scans split tar volumes and decides whether concurrent extract is safe.
-func (r *Runner) planSplitTarExtract(ctx context.Context, opts cli.Options, volumes []archiveVolume, first io.ReadCloser, firstInfo archiveReaderInfo, target locator.Ref) (splitExtractPlan, error) {
+func (r *Runner) planSplitTarExtract(ctx context.Context, opts cli.Options, reporter *archiveprogress.Reporter, volumes []archiveVolume, first io.ReadCloser, firstInfo archiveReaderInfo, target locator.Ref) (splitExtractPlan, error) {
 	planner := newSplitExtractPlanner(opts, target, archivepath.NewMemberMatcher(opts.Members, opts.Wildcards))
 	volumeIndex := 0
 
@@ -88,7 +89,7 @@ func (r *Runner) planSplitTarExtract(ctx context.Context, opts cli.Options, volu
 		currentVolume := volumeIndex
 		volumeIndex++
 
-		_, err := r.scanTarArchiveFromReader(ctx, opts, nil, readerInfo, archiveutil.NameHint(ref), reader, func(hdr *tar.Header, _ *tar.Reader) (int, error) {
+		_, err := r.scanTarArchiveFromReader(ctx, opts, reporter, readerInfo, archiveutil.NameHint(ref), reader, func(hdr *tar.Header, _ *tar.Reader) (int, error) {
 			planner.recordTarEntry(currentVolume, hdr)
 			return 0, nil
 		})
@@ -104,7 +105,7 @@ func (r *Runner) planSplitTarExtract(ctx context.Context, opts cli.Options, volu
 }
 
 // planSplitZipExtract scans split zip volumes and decides whether concurrent extract is safe.
-func (r *Runner) planSplitZipExtract(ctx context.Context, opts cli.Options, volumes []archiveVolume, first io.ReadCloser, firstInfo archiveReaderInfo, target locator.Ref) (splitExtractPlan, error) {
+func (r *Runner) planSplitZipExtract(ctx context.Context, opts cli.Options, reporter *archiveprogress.Reporter, volumes []archiveVolume, first io.ReadCloser, firstInfo archiveReaderInfo, target locator.Ref) (splitExtractPlan, error) {
 	planner := newSplitExtractPlanner(opts, target, archivepath.NewMemberMatcher(opts.Members, opts.Wildcards))
 	volumeIndex := 0
 
@@ -112,7 +113,7 @@ func (r *Runner) planSplitZipExtract(ctx context.Context, opts cli.Options, volu
 		currentVolume := volumeIndex
 		volumeIndex++
 
-		_, err := r.withZipReader(ctx, ref, reader, readerInfo, nil, func(zr *zip.Reader) (int, error) {
+		_, err := r.withZipReader(ctx, ref, reader, readerInfo, reporter, func(zr *zip.Reader) (int, error) {
 			for _, zf := range zr.File {
 				planner.recordZipEntry(currentVolume, zf)
 			}

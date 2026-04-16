@@ -74,6 +74,29 @@ func (p *Reporter) SetTotal(total int64, known bool) {
 	p.renderLocked(time.Now(), false)
 }
 
+// ResetProgress starts a new progress phase with a fresh done counter.
+func (p *Reporter) ResetProgress(total int64, known bool) {
+	if p == nil || !p.enabled {
+		return
+	}
+	if total < 0 {
+		total = 0
+	}
+
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	if p.finished {
+		return
+	}
+	p.total = total
+	p.totalKnown = known
+	p.done.Store(0)
+	p.lastDraw = time.Time{}
+	p.lastDrawUnix.Store(0)
+	p.renderLocked(time.Now(), true)
+}
+
 // AddDone increments processed bytes and triggers a throttled refresh.
 func (p *Reporter) AddDone(n int64) {
 	if p == nil || n <= 0 || !p.enabled {

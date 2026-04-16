@@ -1,14 +1,17 @@
 package engine
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/islishude/gotgz/packages/archiveprogress"
 	"github.com/islishude/gotgz/packages/cli"
 	"github.com/islishude/gotgz/packages/locator"
 )
@@ -152,7 +155,7 @@ func TestPlanSplitZipExtractCountsPayloadBytes(t *testing.T) {
 		Archive:         firstPart,
 		Members:         []string{"root/keep.txt", "root/dir/nested.txt"},
 		StripComponents: 1,
-	}, volumes, firstReader, firstInfo, target)
+	}, nil, volumes, firstReader, firstInfo, target)
 	if err != nil {
 		t.Fatalf("planSplitZipExtract() error = %v", err)
 	}
@@ -162,6 +165,51 @@ func TestPlanSplitZipExtractCountsPayloadBytes(t *testing.T) {
 	}
 	if plan.zipPayloadBytes != int64(len("one")+len("two!")) {
 		t.Fatalf("zipPayloadBytes = %d, want %d", plan.zipPayloadBytes, len("one")+len("two!"))
+	}
+}
+
+func TestPlanSplitTarExtractReportsProgress(t *testing.T) {
+	root := t.TempDir()
+	firstPart := filepath.Join(root, "bundle.part0001.tar")
+	secondPart := filepath.Join(root, "bundle.part0002.tar")
+	if err := os.WriteFile(firstPart, tarArchiveBytes(t, map[string]string{"one.txt": "one"}), 0o644); err != nil {
+		t.Fatalf("WriteFile(firstPart) error = %v", err)
+	}
+	if err := os.WriteFile(secondPart, tarArchiveBytes(t, map[string]string{"two.txt": "two"}), 0o644); err != nil {
+		t.Fatalf("WriteFile(secondPart) error = %v", err)
+	}
+
+	r := newLocalSplitExtractTestRunner()
+	volumes := []archiveVolume{
+		localArchiveVolumeFromPath(t, firstPart),
+		localArchiveVolumeFromPath(t, secondPart),
+	}
+	firstReader, firstInfo, err := r.openArchiveReader(context.Background(), volumes[0].ref)
+	if err != nil {
+		t.Fatalf("openArchiveReader(%s): %v", firstPart, err)
+	}
+	defer firstReader.Close() //nolint:errcheck
+
+	target, err := locator.ParseExtractTarget("", "", nil)
+	if err != nil {
+		t.Fatalf("ParseExtractTarget() error = %v", err)
+	}
+
+	var buf bytes.Buffer
+	reporter := archiveprogress.NewReporter(&buf, cli.ProgressAlways, 0, false, time.Now().Add(-time.Second), false)
+	plan, err := r.planSplitTarExtract(context.Background(), cli.Options{
+		Mode:    cli.ModeExtract,
+		Archive: firstPart,
+	}, reporter, volumes, firstReader, firstInfo, target)
+	if err != nil {
+		t.Fatalf("planSplitTarExtract() error = %v", err)
+	}
+
+	if !plan.parallel {
+		t.Fatalf("parallel = false, want true")
+	}
+	if got := buf.String(); !strings.Contains(got, "gotgz:") {
+		t.Fatalf("expected planning progress output, got %q", got)
 	}
 }
 

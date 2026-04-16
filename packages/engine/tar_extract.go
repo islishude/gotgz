@@ -31,15 +31,19 @@ func (r *Runner) runExtractTar(ctx context.Context, opts cli.Options, reporter *
 		return r.scanTarArchiveFromVolumes(ctx, opts, reporter, volumes, ar, scan)
 	}
 
+	planningTotal, planningKnown := sumArchiveVolumeSizes(volumes)
+	reporter.ResetProgress(planningTotal, planningKnown)
+
 	target, err := locator.ParseExtractTarget(opts.Chdir, opts.S3CacheControl, opts.S3ObjectTags)
 	if err != nil {
 		return 0, err
 	}
 
-	plan, err := r.planSplitTarExtract(ctx, opts, volumes, ar, info, target)
+	plan, err := r.planSplitTarExtract(ctx, opts, reporter, volumes, ar, info, target)
 	if err != nil {
 		return 0, err
 	}
+	reporter.ResetProgress(planningTotal, planningKnown)
 	if !plan.parallel {
 		return r.runSplitTarExtractSequential(ctx, opts, reporter, volumes)
 	}
