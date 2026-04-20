@@ -3,30 +3,11 @@
 ## Commands
 
 - **Build:** `make build`
-- **Test:** `make test` for the full three-layer suite, `make unit-test` for default unit tests, `make integration-test` for tagged collaboration tests, `make e2e-test` for tagged CLI end-to-end tests
-- **Lint:** `make lint`
+- **Test:** `make test` for the full three-layer suite, `make unit-test` for default unit tests, `make integration-test` for tagged collaboration tests(requires docker and docker-compose), `make e2e-test` for tagged CLI end-to-end tests
+- **Lint:** `make lint` (requires golangci-lint)
 - **Format:** `make fmt`
 
 Run `make all` to execute all of the above after modifying the code.
-
-## Install missing tools
-
-Linting is done with [golangci-lint](https://golangci-lint.run/).
-
-You can install it with the following command:
-
-```bash
-go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest
-```
-
-Testing requires Docker Compose. You can install it with the following command:
-
-```
-# For Linux
-sudo apt-get install docker-compose-plugin
-# For macOS with Homebrew
-brew install docker docker-compose
-```
 
 ## Code Style
 
@@ -72,18 +53,25 @@ Split code by responsibility whenever possible; do not put too much logic in a s
 
 ### Code Documentation and Commenting
 
-- At a minimum every function must be commented with its intended purpose and
-  any assumptions that it makes
-  - Function comments must always begin with the name of the function per
-    [Effective Go](https://go.dev/doc/effective_go)
-  - Function comments should be complete sentences since they allow a wide
-    variety of automated presentations such as [go.dev](https://go.dev)
-  - The general rule of thumb is to look at it as if you were completely
-    unfamiliar with the code and ask yourself, would this give me enough
-    information to understand what this function does and how I'd probably want
-    to use it?
-- Exported functions should also include detailed information the caller of the
-  function will likely need to know and/or understand:
-- Comments in the body of the code are highly encouraged, but they should
-  explain the intention of the code as opposed to just calling out the
-  obvious
+- Use comments to explain the "why" behind complex logic, not the "what". The code itself should be clear enough to convey the "what".
+- Use Go's documentation comment style (starting with the name of the function, type, or variable being documented) for public APIs. For example:
+
+```go
+// GetObject retrieves an object from the specified S3 bucket.
+func GetObject(bucketName, objectKey string) (*s3.GetObjectOutput, error) {
+    // implementation
+}
+```
+
+- For internal functions and complex logic, use inline comments to clarify the intent and reasoning. For example:
+
+```go
+// Check if the object is a directory by looking for a trailing slash in the key.
+if strings.HasSuffix(objectKey, "/") {
+    // This is a directory, handle accordingly
+}
+```
+
+- Avoid redundant comments that simply restate what the code does. Instead, focus on providing insights into the design decisions and potential pitfalls.
+- Ensure that comments are kept up-to-date with code changes to prevent confusion. Outdated comments can be more harmful than no comments at all.
+- Use comments to indicate any assumptions, limitations, or edge cases that the code handles. This can help other developers understand the context and constraints of the implementation.
