@@ -2,9 +2,8 @@ name: "gotgz"
 
 services:
   s3mock:
-    image: ghcr.io/tyrchen/ruststack:0.4.2
+    image: ghcr.io/tyrchen/rustack:0.7.2
     environment:
-      DEFAULT_REGION: us-east-1
       SERVICES: s3
     ports:
       - 4566:4566
