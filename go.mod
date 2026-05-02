@@ -8,7 +8,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/feature/s3/transfermanager v0.1.20
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.100.1
 	github.com/dsnet/compress v0.0.1
-	github.com/klauspost/compress v1.18.5
+	github.com/klauspost/compress v1.18.6
 	github.com/klauspost/pgzip v1.2.6
 	github.com/mikelolasagasti/xz v1.0.1
 	github.com/pierrec/lz4/v4 v4.1.26
