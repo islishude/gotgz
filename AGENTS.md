@@ -1,77 +1,88 @@
 # Agent Development Guide
 
+This repository contains the `gotgz` Go CLI. Keep changes small, focused, and aligned with the existing package boundaries.
+
+## Repository Layout
+
+- `cmd/gotgz`: CLI entrypoint and command-level tests.
+- `packages/*`: reusable implementation packages.
+- `internal/compress`: local replacement for `github.com/dsnet/compress`.
+- `docker-compose.yaml`: services used by integration tests.
+
 ## Commands
 
-- **Build:** `make build`
-- **Test:** `make test` for the full three-layer suite, `make unit-test` for default unit tests, `make integration-test` for tagged collaboration tests(requires docker and docker-compose), `make e2e-test` for tagged CLI end-to-end tests
-- **Lint:** `make lint` (requires golangci-lint)
-- **Format:** `make fmt`
+- Build: `make build`
+- Format: `make fmt`
+- Lint: `make lint` (requires `golangci-lint`)
+- Unit tests: `make unit-test`
+- Integration tests: `make integration-test` (requires Docker and Docker Compose)
+- CLI end-to-end tests: `make e2e-test`
+- Full test suite: `make test`
+- Full validation after code changes: `make all`
 
-Run `make all` to execute all of the above after modifying the code.
+Prefer the narrowest useful command while iterating. Before finishing a code change, run the relevant tests; use `make all` when the change affects shared behavior or release confidence.
 
-## Code Style
+## Go Style
 
-### Check the error return values of all functions.
+### Handle Errors Explicitly
 
-If you want to ignore an error, assign it to the blank identifier (`_`) or add a comment `// nolint: errcheck` at the end of the line.
+Check error return values from all functions. If an error is intentionally ignored, make that choice explicit with the blank identifier or an inline `errcheck` suppression.
 
 ```go
 _, _ = fmt.Fprintf(r.stderr, "gotgz: warning: %s: %v\n", hdr.Name, err) // nolint: errcheck
 ```
 
+For cleanup, prefer a deferred closure when the close error matters.
+
 ```go
 defer func() {
-    if err := r.Close(); err != nil {
-        // handle error, e.g. log it
-    }
+	if err := r.Close(); err != nil {
+		// Handle or report the close failure.
+	}
 }()
 ```
 
-### Don't use `aws.String` or similar helper functions to create pointer values from the AWS SDK. Use `new(expr)` instead.
+### Avoid AWS Pointer Helpers
 
-**Wrong**
+Do not use AWS SDK helper functions such as `aws.String`, `aws.Int`, or similar helpers to allocate pointer values. This project targets Go 1.26, so use `new(expr)` instead.
+
+Wrong:
 
 ```go
-// Pointer to a string variable with the value "my-object-key".
 aws.String("my-object-key")
-// Pointer to a int variable with the value 42.
 aws.Int(42)
 ```
 
-**Right**
+Right:
 
 ```go
 new("my-object-key")
 new(42)
 ```
 
-The feature was introduced in Go 1.26.
+### Keep Files Focused
 
-### Keep files small and focused.
+Keep files small and organized around one responsibility. Split code when a file starts mixing unrelated concerns or becomes difficult to scan.
 
-Split code by responsibility whenever possible; do not put too much logic in a single Go file.
+### Comment With Intent
 
-### Code Documentation and Commenting
+- Public Go APIs should use documentation comments that start with the exported identifier name.
+- Internal comments should explain intent, constraints, assumptions, or edge cases.
+- Avoid comments that merely repeat the code.
+- Update comments when changing the behavior they describe.
 
-- Use comments to explain the "why" behind complex logic, not the "what". The code itself should be clear enough to convey the "what".
-- Use Go's documentation comment style (starting with the name of the function, type, or variable being documented) for public APIs. For example:
+Example:
 
 ```go
 // GetObject retrieves an object from the specified S3 bucket.
 func GetObject(bucketName, objectKey string) (*s3.GetObjectOutput, error) {
-    // implementation
+	// ...
 }
 ```
 
-- For internal functions and complex logic, use inline comments to clarify the intent and reasoning. For example:
+## Change Discipline
 
-```go
-// Check if the object is a directory by looking for a trailing slash in the key.
-if strings.HasSuffix(objectKey, "/") {
-    // This is a directory, handle accordingly
-}
-```
-
-- Avoid redundant comments that simply restate what the code does. Instead, focus on providing insights into the design decisions and potential pitfalls.
-- Ensure that comments are kept up-to-date with code changes to prevent confusion. Outdated comments can be more harmful than no comments at all.
-- Use comments to indicate any assumptions, limitations, or edge cases that the code handles. This can help other developers understand the context and constraints of the implementation.
+- Preserve existing behavior unless the task requires changing it.
+- Do not revert unrelated local changes.
+- Keep generated artifacts and binaries out of commits unless the task explicitly requires them.
+- Add or update tests when behavior changes, especially in shared packages under `packages/*`.
