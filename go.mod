@@ -13,7 +13,7 @@ require (
 	github.com/mikelolasagasti/xz v1.0.1
 	github.com/pierrec/lz4/v4 v4.1.26
 	github.com/ulikunitz/xz v0.5.15
-	golang.org/x/sys v0.42.0
+	golang.org/x/sys v0.43.0
 )
 
 replace github.com/dsnet/compress => ./internal/compress
