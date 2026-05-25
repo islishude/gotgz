@@ -7,7 +7,6 @@ require (
 	github.com/aws/aws-sdk-go-v2/config v1.32.17
 	github.com/aws/aws-sdk-go-v2/feature/s3/transfermanager v0.1.20
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.100.1
-	github.com/dsnet/compress v0.0.1
 	github.com/klauspost/compress v1.18.5
 	github.com/klauspost/pgzip v1.2.6
 	github.com/mikelolasagasti/xz v1.0.1
@@ -15,8 +14,6 @@ require (
 	github.com/ulikunitz/xz v0.5.15
 	golang.org/x/sys v0.43.0
 )
-
-replace github.com/dsnet/compress => ./internal/compress
 
 require (
 	github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream v1.7.10 // indirect

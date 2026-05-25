@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/dsnet/compress/internal/testutil"
+	"github.com/islishude/gotgz/internal/compress/internal/testutil"
 )
 
 func TestRunLengthEncoder(t *testing.T) {

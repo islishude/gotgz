@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/dsnet/compress/bzip2"
+	"github.com/islishude/gotgz/internal/compress/bzip2"
 	"github.com/klauspost/compress/zstd"
 	gzip "github.com/klauspost/pgzip"
 	"github.com/pierrec/lz4/v4"

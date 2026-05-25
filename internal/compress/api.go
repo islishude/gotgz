@@ -9,7 +9,7 @@ import (
 	"bufio"
 	"io"
 
-	"github.com/dsnet/compress/internal/errors"
+	"github.com/islishude/gotgz/internal/compress/internal/errors"
 )
 
 // The Error interface identifies all compression related errors.

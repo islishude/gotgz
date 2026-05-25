@@ -11,9 +11,9 @@ import (
 	"io"
 	"strings"
 
-	"github.com/dsnet/compress"
-	"github.com/dsnet/compress/internal"
-	"github.com/dsnet/compress/internal/errors"
+	"github.com/islishude/gotgz/internal/compress"
+	"github.com/islishude/gotgz/internal/compress/internal"
+	"github.com/islishude/gotgz/internal/compress/internal/errors"
 )
 
 // Reader implements a prefix decoder. If the input io.Reader satisfies the

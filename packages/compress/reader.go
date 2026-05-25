@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/dsnet/compress/bzip2"
+	"github.com/islishude/gotgz/internal/compress/bzip2"
 	"github.com/klauspost/compress/zstd"
 	gzip "github.com/klauspost/pgzip"
 	xzreader "github.com/mikelolasagasti/xz"

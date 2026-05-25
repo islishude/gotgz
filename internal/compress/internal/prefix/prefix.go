@@ -9,8 +9,8 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/dsnet/compress/internal"
-	"github.com/dsnet/compress/internal/errors"
+	"github.com/islishude/gotgz/internal/compress/internal"
+	"github.com/islishude/gotgz/internal/compress/internal/errors"
 )
 
 func errorf(c int, f string, a ...any) error {

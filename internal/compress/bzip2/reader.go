@@ -7,9 +7,9 @@ package bzip2
 import (
 	"io"
 
-	"github.com/dsnet/compress/internal"
-	"github.com/dsnet/compress/internal/errors"
-	"github.com/dsnet/compress/internal/prefix"
+	"github.com/islishude/gotgz/internal/compress/internal"
+	"github.com/islishude/gotgz/internal/compress/internal/errors"
+	"github.com/islishude/gotgz/internal/compress/internal/prefix"
 )
 
 type Reader struct {
