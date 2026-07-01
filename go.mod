@@ -10,7 +10,7 @@ require (
 	github.com/klauspost/compress v1.19.0
 	github.com/klauspost/pgzip v1.2.6
 	github.com/mikelolasagasti/xz v1.0.1
-	github.com/pierrec/lz4/v4 v4.1.26
+	github.com/pierrec/lz4/v4 v4.1.27
 	github.com/ulikunitz/xz v0.5.15
 	golang.org/x/sys v0.45.0
 )
