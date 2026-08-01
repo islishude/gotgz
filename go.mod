@@ -11,7 +11,7 @@ require (
 	github.com/klauspost/pgzip v1.2.6
 	github.com/mikelolasagasti/xz v1.0.1
 	github.com/pierrec/lz4/v4 v4.1.27
-	github.com/ulikunitz/xz v0.5.15
+	github.com/ulikunitz/xz v0.5.16
 	golang.org/x/sys v0.47.0
 )
 
