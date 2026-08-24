@@ -156,18 +156,6 @@ func (s plannedCreateInputSource) Close() error {
 	return s.plan.Close()
 }
 
-// newCreateInputSource always validates and orders the complete create
-// workload before any destination is opened. precomputeTotal is retained in
-// the signature for compatibility with focused tests; create correctness no
-// longer depends on whether progress output is enabled.
-func (r *Runner) newCreateInputSource(ctx context.Context, opts cli.Options, excludeMatcher *archivepath.CompiledPathMatcher, _ bool) (createInputSource, error) {
-	plan, err := r.buildCreatePlan(ctx, opts, excludeMatcher)
-	if err != nil {
-		return nil, err
-	}
-	return plannedCreateInputSource{plan: plan}, nil
-}
-
 // visitLocalCreateSource consumes one local create source and accumulates any
 // warnings reported by the caller-supplied entry handler.
 func visitLocalCreateSource(ctx context.Context, source localCreateSource, handle func(record localCreateRecord, info fs.FileInfo) (int, error)) (int, error) {

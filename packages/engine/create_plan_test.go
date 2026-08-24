@@ -37,7 +37,7 @@ func TestBuildCreatePlanPreservesInputOrderAcrossConcurrentCompletion(t *testing
 		return s3.Metadata{Size: 1}, nil
 	}}, nil, io.Discard, io.Discard)
 
-	plan, err := runner.buildCreatePlan(context.Background(), cli.Options{Members: []string{"s3://bucket/slow", "s3://bucket/fast"}}, nil)
+	plan, err := runner.buildCreatePlan(context.Background(), cli.Options{Members: []string{"s3://bucket/slow", "s3://bucket/fast"}})
 	if err != nil {
 		t.Fatalf("buildCreatePlan() error = %v", err)
 	}
@@ -56,7 +56,7 @@ func TestBuildCreatePlanUsesPrivateDiskSpoolAndCleansIt(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "file.txt"), []byte("payload"), 0o644); err != nil {
 		t.Fatalf("WriteFile() error = %v", err)
 	}
-	plan, err := (&Runner{}).buildCreatePlan(context.Background(), cli.Options{Members: []string{"."}, Chdir: root}, nil)
+	plan, err := (&Runner{}).buildCreatePlan(context.Background(), cli.Options{Members: []string{"."}, Chdir: root})
 	if err != nil {
 		t.Fatalf("buildCreatePlan() error = %v", err)
 	}
@@ -116,7 +116,7 @@ func TestBuildCreatePlanFailsBeforeDestinationWhenTempStorageUnavailable(t *test
 	t.Setenv("TMPDIR", missingTempRoot)
 	t.Setenv("TMP", missingTempRoot)
 	t.Setenv("TEMP", missingTempRoot)
-	if _, err := (&Runner{}).buildCreatePlan(context.Background(), cli.Options{Members: []string{"file.txt"}, Chdir: root}, nil); err == nil || !strings.Contains(err.Error(), "create plan spool directory") {
+	if _, err := (&Runner{}).buildCreatePlan(context.Background(), cli.Options{Members: []string{"file.txt"}, Chdir: root}); err == nil || !strings.Contains(err.Error(), "create plan spool directory") {
 		t.Fatalf("buildCreatePlan() error = %v, want temp storage failure", err)
 	}
 }
@@ -150,7 +150,7 @@ func TestBuildCreatePlanReusesLocalEntriesAfterMutation(t *testing.T) {
 	plan, err := (&Runner{}).buildCreatePlan(context.Background(), cli.Options{
 		Members: []string{"src"},
 		Chdir:   root,
-	}, nil)
+	})
 	if err != nil {
 		t.Fatalf("buildCreatePlan() error = %v", err)
 	}
@@ -213,7 +213,7 @@ func TestBuildCreatePlanMixedMemberSizes(t *testing.T) {
 	plan, err := runner.buildCreatePlan(context.Background(), cli.Options{
 		Members: []string{"file.txt", "s3://bucket/object.txt"},
 		Chdir:   root,
-	}, nil)
+	})
 	if err != nil {
 		t.Fatalf("buildCreatePlan() error = %v", err)
 	}
@@ -266,7 +266,7 @@ func TestBuildCreatePlanReturnsS3StatFailure(t *testing.T) {
 
 	_, err := runner.buildCreatePlan(context.Background(), cli.Options{
 		Members: []string{"s3://bucket/object.txt"},
-	}, nil)
+	})
 	if err == nil || !strings.Contains(err.Error(), "head failed") {
 		t.Fatalf("err = %v, want head failed", err)
 	}
@@ -302,7 +302,7 @@ func TestBuildCreatePlanCancelsConcurrentTasksAfterFailure(t *testing.T) {
 
 	_, err := runner.buildCreatePlan(context.Background(), cli.Options{
 		Members: []string{"s3://bucket/slow", "s3://bucket/fail"},
-	}, nil)
+	})
 	if err == nil || !strings.Contains(err.Error(), "stat failed") {
 		t.Fatalf("err = %v, want stat failed", err)
 	}

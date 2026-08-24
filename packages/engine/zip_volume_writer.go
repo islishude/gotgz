@@ -57,6 +57,14 @@ type singleZipArchiveWriter struct {
 	session archiveWriteSession
 }
 
+func (w *singleZipArchiveWriter) EphemeralLocalPaths() []string {
+	artifacts, ok := w.session.(archiveWriteArtifacts)
+	if !ok {
+		return nil
+	}
+	return artifacts.EphemeralLocalPaths()
+}
+
 // CreateHeader writes one zip header to the underlying stream.
 func (w *singleZipArchiveWriter) CreateHeader(hdr *zip.FileHeader) (io.Writer, error) {
 	return w.zw.CreateHeader(hdr)

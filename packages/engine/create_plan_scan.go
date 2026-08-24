@@ -125,6 +125,7 @@ type createPlanMetadataJob struct {
 type createPlanMetadataResult struct {
 	seq    uint64
 	record createPlanRecord
+	info   fs.FileInfo
 	size   int64
 	err    error
 }
@@ -206,6 +207,10 @@ func scanLocalCreateRecords(
 				pipelineErr = ordered.err
 				cancel(pipelineErr)
 				break
+			}
+			if outputPolicy.shouldSkipEphemeralIdentity(ordered.info) {
+				next++
+				continue
 			}
 			if err := sink.Append(ordered.record); err != nil {
 				pipelineErr = err
@@ -304,6 +309,7 @@ func inspectCreatePlanMetadata(ctx context.Context, job createPlanMetadataJob, c
 			return result
 		}
 		if info.Mode().IsRegular() {
+			result.info = info
 			result.size = info.Size()
 		}
 	}

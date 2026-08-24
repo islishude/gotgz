@@ -52,65 +52,34 @@ type createPlanTaskResult struct {
 
 // buildCreatePlan parses create members once, caches local walk results, and
 // computes progress totals when possible.
-func (r *Runner) buildCreatePlan(ctx context.Context, opts cli.Options, excludeMatcher *archivepath.CompiledPathMatcher) (_ *createPlan, retErr error) {
-	outputPolicy, err := newCreateOutputPolicy(opts)
+func (r *Runner) buildCreatePlan(ctx context.Context, opts cli.Options) (_ *createPlan, retErr error) {
+	request, err := r.prepareCreateRequest(ctx, opts, nil)
 	if err != nil {
 		return nil, err
 	}
+	return r.buildPreparedCreatePlan(ctx, request)
+}
+
+func (r *Runner) buildPreparedCreatePlan(ctx context.Context, request preparedCreateRequest) (_ *createPlan, retErr error) {
 	plan := &createPlan{
 		totalKnown: true,
-		members:    make([]createPlanMember, 0, len(opts.Members)),
+		members:    make([]createPlanMember, 0, len(request.opts.Members)),
 	}
 	defer func() {
 		if retErr != nil {
 			retErr = errors.Join(retErr, plan.Close())
 		}
 	}()
-	tasks := make([]createPlanTask, 0, len(opts.Members))
-	localTaskCount := 0
-
-	for index, member := range opts.Members {
-		select {
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		default:
-		}
-
-		ref, err := locator.ParseMember(member)
-		if err != nil {
-			return nil, err
-		}
-		if err := outputPolicy.rejectExplicitMember(ref, member, opts.Chdir); err != nil {
-			return nil, err
-		}
-
-		switch ref.Kind {
-		case locator.KindS3:
-			if archivepath.MatchExcludeWithMatcher(excludeMatcher, ref.Key) {
-				continue
-			}
-		case locator.KindLocal:
-			localTaskCount++
-		default:
-			return nil, fmt.Errorf("unsupported member reference %q", member)
-		}
-
-		tasks = append(tasks, createPlanTask{
-			index:  index,
-			member: member,
-			ref:    ref,
-		})
-	}
-
-	workerCount := buildCreatePlanWorkerCount(len(tasks))
+	workerCount := buildCreatePlanWorkerCount(len(request.tasks))
 	if workerCount == 0 {
 		return plan, nil
 	}
-	if localTaskCount > 0 {
-		plan.spoolDir, err = os.MkdirTemp("", "gotgz-create-plan-*")
+	if request.localTaskCount > 0 {
+		spoolDir, err := os.MkdirTemp("", "gotgz-create-plan-*")
 		if err != nil {
 			return nil, fmt.Errorf("create plan spool directory: %w", err)
 		}
+		plan.spoolDir = spoolDir
 		if err := os.Chmod(plan.spoolDir, 0o700); err != nil {
 			return nil, fmt.Errorf("secure plan spool directory: %w", err)
 		}
@@ -122,7 +91,7 @@ func (r *Runner) buildCreatePlan(ctx context.Context, opts cli.Options, excludeM
 
 	tasksCh := make(chan createPlanTask)
 	resultsCh := make(chan createPlanTaskResult, workerCount)
-	orderedResults := make([]createPlanTaskResult, len(opts.Members))
+	orderedResults := make([]createPlanTaskResult, len(request.opts.Members))
 
 	var workers sync.WaitGroup
 	for range workerCount {
@@ -136,7 +105,7 @@ func (r *Runner) buildCreatePlan(ctx context.Context, opts cli.Options, excludeM
 						return
 					}
 
-					result, include, err := r.runCreatePlanTask(workCtx, task, opts.Chdir, plan.spoolDir, excludeMatcher, outputPolicy, metadataLimiter)
+					result, include, err := r.runCreatePlanTask(workCtx, task, request.opts.Chdir, plan.spoolDir, request.excludeMatcher, request.outputPolicy, metadataLimiter)
 					if err != nil {
 						cancel(err)
 						return
@@ -156,7 +125,7 @@ func (r *Runner) buildCreatePlan(ctx context.Context, opts cli.Options, excludeM
 
 	go func() {
 		defer close(tasksCh)
-		for _, task := range tasks {
+		for _, task := range request.tasks {
 			select {
 			case <-workCtx.Done():
 				return
@@ -185,7 +154,7 @@ func (r *Runner) buildCreatePlan(ctx context.Context, opts cli.Options, excludeM
 		plan.members = append(plan.members, result.member)
 		plan.totalBytes = addCreatePlanSize(plan.totalBytes, result.totalBytes)
 	}
-	plan.outputSkipped = outputPolicy.outputWasSkipped()
+	plan.outputSkipped = request.outputPolicy.outputWasSkipped()
 
 	return plan, nil
 }

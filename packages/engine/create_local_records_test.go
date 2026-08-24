@@ -92,7 +92,7 @@ func TestAddLocalRecordsUsesCurrentTarMetadata(t *testing.T) {
 	plan, err := runner.buildCreatePlan(context.Background(), cli.Options{
 		Members: []string{"file.txt"},
 		Chdir:   root,
-	}, nil)
+	})
 	if err != nil {
 		t.Fatalf("buildCreatePlan() error = %v", err)
 	}
@@ -137,7 +137,7 @@ func TestAddLocalRecordsZipUsesCurrentMetadata(t *testing.T) {
 	plan, err := runner.buildCreatePlan(context.Background(), cli.Options{
 		Members: []string{"file.txt"},
 		Chdir:   root,
-	}, nil)
+	})
 	if err != nil {
 		t.Fatalf("buildCreatePlan() error = %v", err)
 	}

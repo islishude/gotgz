@@ -18,6 +18,32 @@ type Metadata struct {
 	Size int64
 }
 
+// WriteCapabilities describes publication and artifact guarantees available
+// before a destination writer is opened.
+type WriteCapabilities struct {
+	RollbackSafe        bool
+	SingleLogicalOutput bool
+	ExposesTempPaths    bool
+}
+
+// WriteCapabilities reports local destination guarantees without opening or
+// modifying the target.
+func (s *ArchiveStore) WriteCapabilities(ref locator.Ref) WriteCapabilities {
+	_ = s
+	switch ref.Kind {
+	case locator.KindLocal:
+		return WriteCapabilities{
+			RollbackSafe:        true,
+			SingleLogicalOutput: true,
+			ExposesTempPaths:    true,
+		}
+	case locator.KindStdio:
+		return WriteCapabilities{SingleLogicalOutput: true}
+	default:
+		return WriteCapabilities{}
+	}
+}
+
 func (s *ArchiveStore) OpenReader(ref locator.Ref) (io.ReadCloser, Metadata, error) {
 	switch ref.Kind {
 	case locator.KindLocal:
@@ -119,6 +145,17 @@ func (w *localFileWriteSession) Write(p []byte) (int, error) {
 		return 0, os.ErrClosed
 	}
 	return w.file.Write(p)
+}
+
+// EphemeralLocalPaths returns the exact transaction artifacts that must be
+// excluded if archive planning overlaps destination writes.
+func (w *localFileWriteSession) EphemeralLocalPaths() []string {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.tempPath == "" {
+		return nil
+	}
+	return []string{w.tempPath}
 }
 
 func (w *localFileWriteSession) Commit() error {

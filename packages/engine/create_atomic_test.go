@@ -35,6 +35,27 @@ type removeSourceAndFailAbortStore struct {
 	abortErr error
 }
 
+type missingArtifactWriteSession struct {
+	bytes.Buffer
+	aborted bool
+}
+
+func (*missingArtifactWriteSession) Commit() error  { return nil }
+func (s *missingArtifactWriteSession) Close() error { return s.Commit() }
+func (s *missingArtifactWriteSession) Abort(error) error {
+	s.aborted = true
+	return nil
+}
+
+type missingArtifactStore struct {
+	*localstore.ArchiveStore
+	session *missingArtifactWriteSession
+}
+
+func (s *missingArtifactStore) BeginWriter(locator.Ref) (localstore.WriteSession, error) {
+	return s.session, nil
+}
+
 func (s *removeSourceAndFailAbortStore) BeginWriter(locator.Ref) (localstore.WriteSession, error) {
 	if err := os.Remove(s.source); err != nil {
 		return nil, err
@@ -82,6 +103,7 @@ func TestCreateMissingMemberPreservesExistingArchive(t *testing.T) {
 
 func TestCreateSourceFailureAfterPreflightAbortsTransaction(t *testing.T) {
 	root := t.TempDir()
+	t.Setenv("TMPDIR", root)
 	source := filepath.Join(root, "source.txt")
 	archivePath := filepath.Join(root, "existing.tar")
 	if err := os.WriteFile(source, []byte("source"), 0o644); err != nil {
@@ -101,6 +123,28 @@ func TestCreateSourceFailureAfterPreflightAbortsTransaction(t *testing.T) {
 	got, err := os.ReadFile(archivePath)
 	if err != nil || !bytes.Equal(got, original) {
 		t.Fatalf("archive = %q, err=%v, want original", got, err)
+	}
+	if matches, err := filepath.Glob(filepath.Join(root, "gotgz-create-stream-*")); err != nil || len(matches) != 0 {
+		t.Fatalf("streaming plan artifacts = %v, err=%v", matches, err)
+	}
+}
+
+func TestStreamingCreateAbortsWhenWriterDoesNotExposeArtifacts(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "source.txt"), []byte("source"), 0o644); err != nil {
+		t.Fatalf("WriteFile(source) error = %v", err)
+	}
+	session := &missingArtifactWriteSession{}
+	store := &missingArtifactStore{ArchiveStore: &localstore.ArchiveStore{}, session: session}
+	runner := newRunner(store, nil, nil, io.Discard, io.Discard)
+	result := runner.Run(context.Background(), cli.Options{
+		Mode: cli.ModeCreate, Archive: filepath.Join(root, "archive.tar"), Chdir: root, Members: []string{"source.txt"},
+	})
+	if result.ExitCode != ExitFatal || result.Err == nil || !strings.Contains(result.Err.Error(), "exposed no temporary output paths") {
+		t.Fatalf("Run() = %+v, want artifact registration failure", result)
+	}
+	if !session.aborted {
+		t.Fatal("writer session was not aborted after artifact registration failure")
 	}
 }
 

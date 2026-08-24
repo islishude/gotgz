@@ -168,6 +168,43 @@ func TestArchiveStoreBeginWriterAbortPreservesExistingTarget(t *testing.T) {
 	}
 }
 
+func TestArchiveStoreReportsTransactionalArtifacts(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "archive.tar")
+	ref := locator.Ref{Kind: locator.KindLocal, Raw: path, Path: path}
+	store := &ArchiveStore{}
+	capabilities := store.WriteCapabilities(ref)
+	if !capabilities.RollbackSafe || !capabilities.SingleLogicalOutput || !capabilities.ExposesTempPaths {
+		t.Fatalf("WriteCapabilities() = %+v, want transactional local guarantees", capabilities)
+	}
+	session, err := store.BeginWriter(ref)
+	if err != nil {
+		t.Fatalf("BeginWriter() error = %v", err)
+	}
+	artifacts, ok := session.(interface{ EphemeralLocalPaths() []string })
+	if !ok {
+		t.Fatal("local write session does not expose ephemeral paths")
+	}
+	paths := artifacts.EphemeralLocalPaths()
+	if len(paths) != 1 || filepath.Dir(paths[0]) != root {
+		t.Fatalf("EphemeralLocalPaths() = %v, want one same-directory path", paths)
+	}
+	if _, err := os.Lstat(paths[0]); err != nil {
+		t.Fatalf("Lstat(ephemeral path) error = %v", err)
+	}
+	if err := session.Abort(errors.New("test complete")); err != nil {
+		t.Fatalf("Abort() error = %v", err)
+	}
+	if _, err := os.Lstat(paths[0]); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("ephemeral path still exists after abort: %v", err)
+	}
+
+	stdio := store.WriteCapabilities(locator.Ref{Kind: locator.KindStdio, Raw: "-"})
+	if stdio.RollbackSafe || !stdio.SingleLogicalOutput || stdio.ExposesTempPaths {
+		t.Fatalf("stdio WriteCapabilities() = %+v", stdio)
+	}
+}
+
 func TestArchiveStoreBeginWriterCommitReplacesAndPreservesMode(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "archive.tar")
 	if err := os.WriteFile(path, []byte("original"), 0o640); err != nil {

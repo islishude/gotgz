@@ -28,6 +28,14 @@ type transactionalLocalArchiveStore interface {
 	BeginWriter(ref locator.Ref) (localstore.WriteSession, error)
 }
 
+type localArchiveCapabilityStore interface {
+	WriteCapabilities(ref locator.Ref) localstore.WriteCapabilities
+}
+
+type archiveWriteArtifacts interface {
+	EphemeralLocalPaths() []string
+}
+
 type transactionalS3ArchiveStore interface {
 	BeginWriter(ctx context.Context, ref locator.Ref, metadata map[string]string) (s3store.WriteSession, error)
 }

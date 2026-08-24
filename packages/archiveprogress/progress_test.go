@@ -154,6 +154,24 @@ func TestProgressReporterSetTotalPreservesPayloadClockAndDone(t *testing.T) {
 	}
 }
 
+func TestProgressReporterDynamicTotalClampsConcurrentGrowth(t *testing.T) {
+	var buf bytes.Buffer
+	p := NewReporter(&buf, cli.ProgressAlways, 0, false, time.Now().Add(-time.Second), false)
+	p.BeginPayload()
+	p.AddDone(2)
+	p.lastDrawUnix.Store(0)
+	p.SetTotal(1, true)
+	p.Finish()
+
+	out := buf.String()
+	if !strings.Contains(out, "100.0%") {
+		t.Fatalf("dynamic total did not clamp progress ratio: %q", out)
+	}
+	if strings.Contains(out, "-") {
+		t.Fatalf("dynamic total rendered a negative value: %q", out)
+	}
+}
+
 func TestProgressReporterBeginPayloadDisabledIsSafe(t *testing.T) {
 	p := NewReporter(io.Discard, cli.ProgressNever, 100, true, time.Now(), false)
 	p.BeginPayload()

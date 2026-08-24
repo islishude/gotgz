@@ -23,6 +23,10 @@ func (r *Runner) runCreateZip(ctx context.Context, opts cli.Options, archiveRef 
 	if err != nil {
 		return warnings, errors.Join(err, input.source.Close())
 	}
+	if err := input.registerWriterArtifacts(zw); err != nil {
+		rootErr := errors.Join(err, input.source.Close())
+		return warnings, errors.Join(rootErr, zw.Abort(rootErr))
+	}
 	reporter.BeginPayload()
 	createWarnings, err := input.source.Visit(
 		ctx,
@@ -35,6 +39,9 @@ func (r *Runner) runCreateZip(ctx context.Context, opts cli.Options, archiveRef 
 			})
 		},
 	)
+	if err == nil && input.streamingOutputWasSkipped() {
+		createWarnings += r.warnf(reporter, "create: archive output inside an input tree was skipped")
+	}
 	warnings += input.warnings + createWarnings
 	cleanupErr := input.source.Close()
 	if err != nil || cleanupErr != nil {

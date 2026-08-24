@@ -28,6 +28,12 @@ type storageRouter struct {
 	httpSnapshotZipRange snapshotZipArchiveRangeStore
 }
 
+type createWriteCapabilities struct {
+	rollbackSafe        bool
+	singleLogicalOutput bool
+	exposesTempPaths    bool
+}
+
 func newStorageRouterWithS3Factory(local localArchiveStore, factory func(context.Context) (s3ArchiveStore, error), http httpArchiveStore) *storageRouter {
 	router := newStorageRouter(local, nil, http)
 	router.s3Factory = factory
@@ -94,6 +100,24 @@ func (r *storageRouter) requireHTTP() error {
 		return fmt.Errorf("http archive store is not configured")
 	}
 	return nil
+}
+
+// createWriterCapabilities reports destination guarantees without opening a
+// writer or otherwise changing external state.
+func (r *storageRouter) createWriterCapabilities(ref locator.Ref) createWriteCapabilities {
+	if r == nil || ref.Kind != locator.KindLocal {
+		return createWriteCapabilities{}
+	}
+	store, ok := r.local.(localArchiveCapabilityStore)
+	if !ok {
+		return createWriteCapabilities{}
+	}
+	capabilities := store.WriteCapabilities(ref)
+	return createWriteCapabilities{
+		rollbackSafe:        capabilities.RollbackSafe,
+		singleLogicalOutput: capabilities.SingleLogicalOutput,
+		exposesTempPaths:    capabilities.ExposesTempPaths,
+	}
 }
 
 // openArchiveReader resolves an archive source and returns its stream plus metadata.

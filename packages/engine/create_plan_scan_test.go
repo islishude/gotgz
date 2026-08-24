@@ -220,3 +220,43 @@ func TestScanLocalCreateRecordsCancellationStopsWorkers(t *testing.T) {
 		t.Fatal("scanLocalCreateRecords() did not stop after cancellation")
 	}
 }
+
+func TestScanLocalCreateRecordsSkipsEphemeralArtifactIdentityAlias(t *testing.T) {
+	root := t.TempDir()
+	source := filepath.Join(root, "source")
+	if err := os.Mkdir(source, 0o755); err != nil {
+		t.Fatalf("Mkdir(source) error = %v", err)
+	}
+	artifact := filepath.Join(root, ".archive.tar.gotgz-actual")
+	if err := os.WriteFile(artifact, []byte("archive bytes"), 0o600); err != nil {
+		t.Fatalf("WriteFile(artifact) error = %v", err)
+	}
+	if err := os.Link(artifact, filepath.Join(source, "artifact-alias")); err != nil {
+		t.Fatalf("Link(artifact alias) error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(source, ".archive.tar.gotgz-legitimate"), []byte("user data"), 0o600); err != nil {
+		t.Fatalf("WriteFile(legitimate) error = %v", err)
+	}
+	policy := &createOutputPolicy{}
+	if err := policy.registerEphemeralLocalPaths([]string{artifact}); err != nil {
+		t.Fatalf("registerEphemeralLocalPaths() error = %v", err)
+	}
+	spoolDir := t.TempDir()
+	spoolInfo, err := os.Stat(spoolDir)
+	if err != nil {
+		t.Fatalf("Stat(spoolDir) error = %v", err)
+	}
+	sink := &collectingCreatePlanSink{}
+	_, _, err = scanLocalCreateRecords(context.Background(), "source", root, nil, policy, spoolInfo, sink, newCreatePlanScannerConfig(nil))
+	if err != nil {
+		t.Fatalf("scanLocalCreateRecords() error = %v", err)
+	}
+	var names []string
+	for _, record := range sink.records {
+		names = append(names, record.ArchiveName)
+	}
+	want := []string{"source", "source/.archive.tar.gotgz-legitimate"}
+	if !reflect.DeepEqual(names, want) {
+		t.Fatalf("records = %v, want exact artifact identity skipped and legitimate name retained: %v", names, want)
+	}
+}
