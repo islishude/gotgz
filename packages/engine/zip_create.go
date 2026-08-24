@@ -3,7 +3,6 @@ package engine
 import (
 	"context"
 	"errors"
-	"io/fs"
 
 	"github.com/islishude/gotgz/packages/archiveprogress"
 	"github.com/islishude/gotgz/packages/cli"
@@ -34,8 +33,8 @@ func (r *Runner) runCreateZip(ctx context.Context, opts cli.Options, archiveRef 
 			return r.addS3ZipMember(ctx, zw, ref, opts.Verbose, reporter)
 		},
 		func(source localCreateSource) (int, error) {
-			return visitLocalCreateSource(ctx, source, func(record localCreateRecord, info fs.FileInfo) (int, error) {
-				return r.writeLocalZipRecord(ctx, zw, record, info, opts.Verbose, reporter)
+			return visitLocalCreateSource(ctx, source, func(entry *localEntryHandle) (int, error) {
+				return r.writeLocalZipRecord(ctx, zw, entry, opts.Verbose, reporter)
 			})
 		},
 	)

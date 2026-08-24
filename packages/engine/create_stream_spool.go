@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"sync"
 )
@@ -66,11 +67,12 @@ func (s *streamingMemberSpool) Append(record createPlanRecord) error {
 	if payloadLength <= 0 || payloadLength > maxStreamingPlanRecordBytes {
 		return fmt.Errorf("streaming plan record size %d is outside the supported range", payloadLength)
 	}
-	frame := make([]byte, 8+payloadLength)
-	binary.BigEndian.PutUint32(frame[:4], uint32(currentLength))
-	binary.BigEndian.PutUint32(frame[4:8], uint32(archiveNameLength))
-	copy(frame[8:], record.Current)
-	copy(frame[8+currentLength:], record.ArchiveName)
+	frame := make([]byte, 12+payloadLength)
+	binary.BigEndian.PutUint32(frame[:4], uint32(record.EntryType))
+	binary.BigEndian.PutUint32(frame[4:8], uint32(currentLength))
+	binary.BigEndian.PutUint32(frame[8:12], uint32(archiveNameLength))
+	copy(frame[12:], record.Current)
+	copy(frame[12+currentLength:], record.ArchiveName)
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -151,31 +153,33 @@ func (s *streamingMemberSpool) Next(ctx context.Context) (createPlanRecord, erro
 }
 
 func readStreamingPlanFrame(file *os.File, path string, offset, published int64) (createPlanRecord, int64, error) {
-	if published-offset < 8 {
+	if published-offset < 12 {
 		return createPlanRecord{}, offset, fmt.Errorf("streaming plan spool %q published a partial frame header", path)
 	}
-	var header [8]byte
+	var header [12]byte
 	if _, err := file.ReadAt(header[:], offset); err != nil {
 		return createPlanRecord{}, offset, fmt.Errorf("read streaming plan frame header %q: %w", path, err)
 	}
-	currentLength := uint64(binary.BigEndian.Uint32(header[:4]))
-	archiveNameLength := uint64(binary.BigEndian.Uint32(header[4:8]))
+	entryType := fs.FileMode(binary.BigEndian.Uint32(header[:4]))
+	currentLength := uint64(binary.BigEndian.Uint32(header[4:8]))
+	archiveNameLength := uint64(binary.BigEndian.Uint32(header[8:12]))
 	length := currentLength + archiveNameLength
 	if length == 0 || length > maxStreamingPlanRecordBytes {
 		return createPlanRecord{}, offset, fmt.Errorf("streaming plan spool %q contains invalid frame length %d", path, length)
 	}
-	if length > uint64(published-offset-8) {
+	if length > uint64(published-offset-12) {
 		return createPlanRecord{}, offset, fmt.Errorf("streaming plan spool %q published a partial frame", path)
 	}
 	payload := make([]byte, int(length))
-	if _, err := file.ReadAt(payload, offset+8); err != nil {
+	if _, err := file.ReadAt(payload, offset+12); err != nil {
 		return createPlanRecord{}, offset, fmt.Errorf("read streaming plan frame %q: %w", path, err)
 	}
 	record := createPlanRecord{
 		Current:     string(payload[:currentLength]),
 		ArchiveName: string(payload[currentLength:]),
+		EntryType:   entryType,
 	}
-	return record, offset + 8 + int64(length), nil
+	return record, offset + 12 + int64(length), nil
 }
 
 func (s *streamingMemberSpool) signalLocked() {

@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/fs"
 	"os"
 
 	"github.com/islishude/gotgz/packages/archivepath"
@@ -85,7 +84,7 @@ func removePlanFile(path string) error {
 
 // replayLocalCreateRecords decodes one private plan file and refreshes each
 // entry's filesystem metadata immediately before the archive writer sees it.
-func replayLocalCreateRecords(ctx context.Context, path string, visit func(record localCreateRecord, info fs.FileInfo) error) (retErr error) {
+func replayLocalCreateRecords(ctx context.Context, path string, visit func(entry *localEntryHandle) error) (retErr error) {
 	file, err := os.Open(path)
 	if err != nil {
 		return fmt.Errorf("open local plan spool %q: %w", path, err)
@@ -109,11 +108,11 @@ func replayLocalCreateRecords(ctx context.Context, path string, visit func(recor
 			return fmt.Errorf("decode local plan spool %q: %w", path, err)
 		}
 		record := localCreateRecord{current: wire.Current, archiveName: wire.ArchiveName}
-		info, err := os.Lstat(record.current)
+		entry, err := openLocalEntry(record, wire.EntryType)
 		if err != nil {
 			return err
 		}
-		if err := visit(record, info); err != nil {
+		if err := visitLocalEntry(entry, visit); err != nil {
 			return err
 		}
 	}

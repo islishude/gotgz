@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"testing"
@@ -34,9 +33,8 @@ func BenchmarkSpoolLocalCreateRecords(b *testing.B) {
 	spoolDir := b.TempDir()
 	b.ReportAllocs()
 	b.ReportMetric(entryCount, "entries/op")
-	b.ResetTimer()
 
-	for range b.N {
+	for b.Loop() {
 		path, _, count, err := spoolLocalCreateRecords(context.Background(), spoolDir, "source", root, nil, nil)
 		if err != nil {
 			b.Fatalf("spoolLocalCreateRecords() error = %v", err)
@@ -186,8 +184,8 @@ func BenchmarkCreateTimeToFirstPayload(b *testing.B) {
 					source = streaming
 				}
 				_, err = source.Visit(context.Background(), nil, func(local localCreateSource) (int, error) {
-					return visitLocalCreateSource(context.Background(), local, func(_ localCreateRecord, info fs.FileInfo) (int, error) {
-						if !info.Mode().IsRegular() {
+					return visitLocalCreateSource(context.Background(), local, func(entry *localEntryHandle) (int, error) {
+						if !entry.info.Mode().IsRegular() {
 							return 0, nil
 						}
 						firstPayloadTotal += time.Since(start)

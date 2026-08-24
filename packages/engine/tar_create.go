@@ -3,7 +3,6 @@ package engine
 import (
 	"context"
 	"errors"
-	"io/fs"
 
 	"github.com/islishude/gotgz/packages/archiveprogress"
 	"github.com/islishude/gotgz/packages/cli"
@@ -34,8 +33,8 @@ func (r *Runner) runCreateTar(ctx context.Context, opts cli.Options, archiveRef 
 			return r.addS3TarMember(ctx, tw, ref, opts.Verbose, reporter)
 		},
 		func(source localCreateSource) (int, error) {
-			return visitLocalCreateSource(ctx, source, func(record localCreateRecord, info fs.FileInfo) (int, error) {
-				return r.writeLocalTarRecord(ctx, tw, record, info, opts.Verbose, metadataPolicy, reporter)
+			return visitLocalCreateSource(ctx, source, func(entry *localEntryHandle) (int, error) {
+				return r.writeLocalTarRecord(ctx, tw, entry, opts.Verbose, metadataPolicy, reporter)
 			})
 		},
 	)

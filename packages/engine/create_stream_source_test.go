@@ -91,8 +91,8 @@ func TestStreamingCreateSourceWriterConsumesBeforeScannerCompletes(t *testing.T)
 	done := make(chan error, 1)
 	go func() {
 		_, err := source.Visit(context.Background(), nil, func(local localCreateSource) (int, error) {
-			return visitLocalCreateSource(context.Background(), local, func(record localCreateRecord, _ fs.FileInfo) (int, error) {
-				if record.archiveName == "source/a" {
+			return visitLocalCreateSource(context.Background(), local, func(entry *localEntryHandle) (int, error) {
+				if entry.record.archiveName == "source/a" {
 					close(aVisited)
 				}
 				return 0, nil
@@ -129,7 +129,7 @@ func TestStreamingCreateSourceScannerCompletesWhileWriterIsBlocked(t *testing.T)
 	go func() {
 		_, err := source.Visit(context.Background(), nil, func(local localCreateSource) (int, error) {
 			first := true
-			return visitLocalCreateSource(context.Background(), local, func(localCreateRecord, fs.FileInfo) (int, error) {
+			return visitLocalCreateSource(context.Background(), local, func(*localEntryHandle) (int, error) {
 				if first {
 					first = false
 					close(writerStarted)
@@ -167,8 +167,8 @@ func TestStreamingCreateSourcePreservesTopLevelMemberOrder(t *testing.T) {
 	}, "first", "second")
 	var seen []string
 	_, err := source.Visit(context.Background(), nil, func(local localCreateSource) (int, error) {
-		return visitLocalCreateSource(context.Background(), local, func(record localCreateRecord, _ fs.FileInfo) (int, error) {
-			seen = append(seen, record.archiveName)
+		return visitLocalCreateSource(context.Background(), local, func(entry *localEntryHandle) (int, error) {
+			seen = append(seen, entry.record.archiveName)
 			return 0, nil
 		})
 	})
@@ -200,7 +200,7 @@ func TestStreamingCreateSourceWriterFailureCancelsScanner(t *testing.T) {
 	done := make(chan error, 1)
 	go func() {
 		_, err := source.Visit(context.Background(), nil, func(local localCreateSource) (int, error) {
-			return visitLocalCreateSource(context.Background(), local, func(localCreateRecord, fs.FileInfo) (int, error) {
+			return visitLocalCreateSource(context.Background(), local, func(*localEntryHandle) (int, error) {
 				<-metadataBlocked
 				return 0, writerErr
 			})
@@ -244,8 +244,8 @@ func TestStreamingCreateSourceExcludesSpoolDirectoryInsideInput(t *testing.T) {
 	defer func() { _ = source.Close() }()
 	var seen []string
 	_, err = source.Visit(context.Background(), nil, func(local localCreateSource) (int, error) {
-		return visitLocalCreateSource(context.Background(), local, func(record localCreateRecord, _ fs.FileInfo) (int, error) {
-			seen = append(seen, record.archiveName)
+		return visitLocalCreateSource(context.Background(), local, func(entry *localEntryHandle) (int, error) {
+			seen = append(seen, entry.record.archiveName)
 			return 0, nil
 		})
 	})

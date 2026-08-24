@@ -5,7 +5,6 @@ import (
 	"bytes"
 	"context"
 	"io"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -199,8 +198,8 @@ func TestLiveCreateInputSourceVisit(t *testing.T) {
 			return nil
 		},
 		func(source localCreateSource) (int, error) {
-			err := source.Visit(ctx, func(record localCreateRecord, _ fs.FileInfo) error {
-				seen = append(seen, "local:"+record.archiveName)
+			err := source.Visit(ctx, func(entry *localEntryHandle) error {
+				seen = append(seen, "local:"+entry.record.archiveName)
 				return nil
 			})
 			return 2, err

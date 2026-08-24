@@ -19,6 +19,7 @@ const maxCreatePlanMetadataConcurrency = 4
 type createPlanRecord struct {
 	Current     string
 	ArchiveName string
+	EntryType   fs.FileMode
 }
 
 type createPlanSink interface {
@@ -277,6 +278,7 @@ func produceCreatePlanMetadataJobs(
 			record: createPlanRecord{
 				Current:     record.current,
 				ArchiveName: record.archiveName,
+				EntryType:   entry.Type(),
 			},
 			entryType: entry.Type(),
 		}

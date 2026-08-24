@@ -202,7 +202,7 @@ type streamingLocalCreateSource struct {
 
 // Visit tails planned records and deliberately refreshes metadata immediately
 // before the archive writer sees each entry.
-func (s streamingLocalCreateSource) Visit(ctx context.Context, visit func(record localCreateRecord, info fs.FileInfo) error) error {
+func (s streamingLocalCreateSource) Visit(ctx context.Context, visit func(entry *localEntryHandle) error) error {
 	for {
 		select {
 		case <-ctx.Done():
@@ -217,11 +217,11 @@ func (s streamingLocalCreateSource) Visit(ctx context.Context, visit func(record
 			return err
 		}
 		localRecord := localCreateRecord{current: record.Current, archiveName: record.ArchiveName}
-		info, err := os.Lstat(localRecord.current)
+		entry, err := openLocalEntry(localRecord, record.EntryType)
 		if err != nil {
 			return err
 		}
-		if err := visit(localRecord, info); err != nil {
+		if err := visitLocalEntry(entry, visit); err != nil {
 			return err
 		}
 	}
