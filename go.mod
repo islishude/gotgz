@@ -5,7 +5,6 @@ go 1.26.1
 require (
 	github.com/aws/aws-sdk-go-v2 v1.43.2
 	github.com/aws/aws-sdk-go-v2/config v1.32.33
-	github.com/aws/aws-sdk-go-v2/feature/s3/transfermanager v0.3.7
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.106.2
 	github.com/dsnet/compress v0.0.1
 	github.com/klauspost/compress v1.19.0

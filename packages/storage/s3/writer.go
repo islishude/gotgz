@@ -9,8 +9,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/aws/aws-sdk-go-v2/feature/s3/transfermanager"
-	tmtypes "github.com/aws/aws-sdk-go-v2/feature/s3/transfermanager/types"
+	s3types "github.com/aws/aws-sdk-go-v2/service/s3/types"
 	"github.com/islishude/gotgz/packages/archiveutil"
 	"github.com/islishude/gotgz/packages/locator"
 )
@@ -34,23 +33,15 @@ func (s *Store) BeginWriter(ctx context.Context, ref locator.Ref, metadata map[s
 	if ref.Kind != locator.KindS3 {
 		return nil, fmt.Errorf("ref %q is not s3", ref.Raw)
 	}
+	if s.transfers == nil {
+		return nil, fmt.Errorf("s3 transfer manager is not configured")
+	}
 	uploadCtx, cancel := context.WithCancel(ctx)
 	pr, pw := io.Pipe()
 	errCh := make(chan error, 1)
-	in := &transfermanager.UploadObjectInput{
-		Bucket:   new(ref.Bucket),
-		Key:      new(ref.Key),
-		Body:     pr,
-		Metadata: archiveutil.MergeMetadata(ref.Metadata, metadata),
-	}
-	if contentType := archiveutil.ContentTypeForKey(ref.Key); contentType != "" {
-		in.ContentType = new(contentType)
-	}
-	if cacheControl := strings.TrimSpace(ref.CacheControl); cacheControl != "" {
-		in.CacheControl = new(cacheControl)
-	}
-	if tagging := encodeObjectTagging(ref.ObjectTags); tagging != "" {
-		in.Tagging = new(tagging)
+	in := s.newUploadRequest(ref, pr, metadata)
+	in.cancelRead = func(cause error) {
+		_ = pr.CloseWithError(cause)
 	}
 	if err := s.applyEncryption(in); err != nil {
 		cancel()
@@ -59,7 +50,7 @@ func (s *Store) BeginWriter(ctx context.Context, ref locator.Ref, metadata map[s
 		return nil, err
 	}
 	go func() {
-		_, err := s.tm.UploadObject(uploadCtx, in)
+		err := s.transfers.upload(uploadCtx, in)
 		// CloseWithError propagates the real upload failure through the pipe
 		// so that ongoing pw.Write calls see the original error instead of the
 		// generic io.ErrClosedPipe that bare pr.Close() would produce.
@@ -80,41 +71,47 @@ func (s *Store) UploadStream(ctx context.Context, ref locator.Ref, body io.Reade
 	if ref.Kind != locator.KindS3 {
 		return fmt.Errorf("ref %q is not s3", ref.Raw)
 	}
-	in := &transfermanager.UploadObjectInput{
-		Bucket:   new(ref.Bucket),
-		Key:      new(ref.Key),
-		Body:     body,
-		Metadata: archiveutil.MergeMetadata(ref.Metadata, metadata),
+	if s.transfers == nil {
+		return fmt.Errorf("s3 transfer manager is not configured")
 	}
-	if contentType := archiveutil.ContentTypeForKey(ref.Key); contentType != "" {
-		in.ContentType = new(contentType)
-	}
-	if cacheControl := strings.TrimSpace(ref.CacheControl); cacheControl != "" {
-		in.CacheControl = new(cacheControl)
-	}
-	if tagging := encodeObjectTagging(ref.ObjectTags); tagging != "" {
-		in.Tagging = new(tagging)
-	}
+	in := s.newUploadRequest(ref, body, metadata)
 	if err := s.applyEncryption(in); err != nil {
 		return err
 	}
-	_, err := s.tm.UploadObject(ctx, in)
-	return err
+	return s.transfers.upload(ctx, in)
 }
 
-// applyEncryption maps gotgz encryption settings onto transfer-manager upload
-// fields for every write path.
-func (s *Store) applyEncryption(in *transfermanager.UploadObjectInput) error {
+func (s *Store) newUploadRequest(ref locator.Ref, body io.Reader, metadata map[string]string) *uploadRequest {
+	in := &uploadRequest{
+		bucket:   ref.Bucket,
+		key:      ref.Key,
+		body:     body,
+		metadata: archiveutil.MergeMetadata(ref.Metadata, metadata),
+	}
+	if contentType := archiveutil.ContentTypeForKey(ref.Key); contentType != "" {
+		in.contentType = new(contentType)
+	}
+	if cacheControl := strings.TrimSpace(ref.CacheControl); cacheControl != "" {
+		in.cacheControl = new(cacheControl)
+	}
+	if tagging := encodeObjectTagging(ref.ObjectTags); tagging != "" {
+		in.tagging = new(tagging)
+	}
+	return in
+}
+
+// applyEncryption maps gotgz encryption settings onto every upload path.
+func (s *Store) applyEncryption(in *uploadRequest) error {
 	if s.settings.SSEKMSKeyID != "" && s.settings.SSE != "aws:kms" && s.settings.SSE != "sse-kms" {
 		return fmt.Errorf("SSE KMS key requires aws:kms or sse-kms encryption")
 	}
 	switch s.settings.SSE {
 	case "", "aes256", "sse-s3":
-		in.ServerSideEncryption = tmtypes.ServerSideEncryptionAes256
+		in.serverSideEncryption = s3types.ServerSideEncryptionAes256
 	case "aws:kms", "sse-kms":
-		in.ServerSideEncryption = tmtypes.ServerSideEncryptionAwsKms
+		in.serverSideEncryption = s3types.ServerSideEncryptionAwsKms
 		if s.settings.SSEKMSKeyID != "" {
-			in.SSEKMSKeyID = new(s.settings.SSEKMSKeyID)
+			in.sseKMSKeyID = new(s.settings.SSEKMSKeyID)
 		}
 	case "none":
 		return nil
@@ -137,8 +134,8 @@ func encodeObjectTagging(tags map[string]string) string {
 	return values.Encode()
 }
 
-// uploadWriter bridges a streaming io.Writer caller to the asynchronous
-// transfer-manager upload goroutine.
+// uploadWriter bridges a streaming io.Writer caller to the asynchronous S3
+// upload goroutine.
 type uploadWriter struct {
 	pw     *io.PipeWriter
 	errCh  <-chan error
@@ -179,10 +176,27 @@ func (w *uploadWriter) Abort(cause error) error {
 			w.cancel()
 		}
 		uploadErr := <-w.errCh
-		if errors.Is(uploadErr, cause) || errors.Is(uploadErr, context.Canceled) {
-			uploadErr = nil
-		}
+		uploadErr = suppressExpectedAbortError(uploadErr, cause)
 		w.err = errors.Join(closeErr, uploadErr)
 	})
 	return w.err
+}
+
+func suppressExpectedAbortError(uploadErr, cause error) error {
+	if uploadErr == nil {
+		return nil
+	}
+	if errors.Is(uploadErr, cause) {
+		if cleanup, ok := errors.AsType[interface {
+			error
+			CleanupError() error
+		}](uploadErr); ok {
+			return cleanup.CleanupError()
+		}
+		return nil
+	}
+	if errors.Is(uploadErr, context.Canceled) {
+		return nil
+	}
+	return uploadErr
 }

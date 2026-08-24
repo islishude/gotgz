@@ -10,8 +10,7 @@ import (
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/feature/s3/transfermanager"
-	tmtypes "github.com/aws/aws-sdk-go-v2/feature/s3/transfermanager/types"
+	s3types "github.com/aws/aws-sdk-go-v2/service/s3/types"
 	"github.com/islishude/gotgz/packages/archiveutil"
 	"github.com/islishude/gotgz/packages/locator"
 )
@@ -29,23 +28,23 @@ func TestWriterMethodsRejectNonS3Refs(t *testing.T) {
 }
 
 // TestStoreApplyEncryption verifies that upload encryption settings are mapped
-// onto transfer-manager input fields.
+// onto the built-in transfer request.
 func TestStoreApplyEncryption(t *testing.T) {
 	tests := []struct {
 		name    string
 		store   Store
-		wantSSE tmtypes.ServerSideEncryption
+		wantSSE s3types.ServerSideEncryption
 		wantKMS string
 	}{
 		{
 			name:    "default aes256",
 			store:   Store{settings: Settings{SSE: ""}},
-			wantSSE: tmtypes.ServerSideEncryptionAes256,
+			wantSSE: s3types.ServerSideEncryptionAes256,
 		},
 		{
 			name:    "kms with key id",
 			store:   Store{settings: Settings{SSE: "sse-kms", SSEKMSKeyID: "kms-key-id"}},
-			wantSSE: tmtypes.ServerSideEncryptionAwsKms,
+			wantSSE: s3types.ServerSideEncryptionAwsKms,
 			wantKMS: "kms-key-id",
 		},
 		{
@@ -62,7 +61,7 @@ func TestStoreApplyEncryption(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			in := &transfermanager.UploadObjectInput{}
+			in := &uploadRequest{}
 			err := tt.store.applyEncryption(in)
 			if tt.name == "unknown is rejected" {
 				if err == nil {
@@ -74,10 +73,10 @@ func TestStoreApplyEncryption(t *testing.T) {
 				t.Fatalf("applyEncryption() error = %v", err)
 			}
 
-			if in.ServerSideEncryption != tt.wantSSE {
-				t.Fatalf("applyEncryption() SSE = %q, want %q", in.ServerSideEncryption, tt.wantSSE)
+			if in.serverSideEncryption != tt.wantSSE {
+				t.Fatalf("applyEncryption() SSE = %q, want %q", in.serverSideEncryption, tt.wantSSE)
 			}
-			if got := aws.ToString(in.SSEKMSKeyID); got != tt.wantKMS {
+			if got := aws.ToString(in.sseKMSKeyID); got != tt.wantKMS {
 				t.Fatalf("applyEncryption() SSEKMSKeyID = %q, want %q", got, tt.wantKMS)
 			}
 		})

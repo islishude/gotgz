@@ -3,44 +3,58 @@ package s3
 import (
 	"context"
 	"fmt"
-	"io"
 
-	"github.com/aws/aws-sdk-go-v2/feature/s3/transfermanager"
 	awss3 "github.com/aws/aws-sdk-go-v2/service/s3"
 )
 
-var _ transfermanager.S3APIClient = (*fakeTransferS3Client)(nil)
+var _ s3APIClient = (*fakeTransferS3Client)(nil)
 
-// fakeTransferS3Client implements the transfer-manager S3 interface with
-// overridable hooks for the download-focused tests in this package.
+// fakeTransferS3Client implements the S3 operations used by Store and the
+// built-in transfer manager with overridable test hooks.
 type fakeTransferS3Client struct {
-	headObjectFn func(context.Context, *awss3.HeadObjectInput, ...func(*awss3.Options)) (*awss3.HeadObjectOutput, error)
-	getObjectFn  func(context.Context, *awss3.GetObjectInput, ...func(*awss3.Options)) (*awss3.GetObjectOutput, error)
+	putObjectFn               func(context.Context, *awss3.PutObjectInput, ...func(*awss3.Options)) (*awss3.PutObjectOutput, error)
+	createMultipartUploadFn   func(context.Context, *awss3.CreateMultipartUploadInput, ...func(*awss3.Options)) (*awss3.CreateMultipartUploadOutput, error)
+	uploadPartFn              func(context.Context, *awss3.UploadPartInput, ...func(*awss3.Options)) (*awss3.UploadPartOutput, error)
+	completeMultipartUploadFn func(context.Context, *awss3.CompleteMultipartUploadInput, ...func(*awss3.Options)) (*awss3.CompleteMultipartUploadOutput, error)
+	abortMultipartUploadFn    func(context.Context, *awss3.AbortMultipartUploadInput, ...func(*awss3.Options)) (*awss3.AbortMultipartUploadOutput, error)
+	headObjectFn              func(context.Context, *awss3.HeadObjectInput, ...func(*awss3.Options)) (*awss3.HeadObjectOutput, error)
+	getObjectFn               func(context.Context, *awss3.GetObjectInput, ...func(*awss3.Options)) (*awss3.GetObjectOutput, error)
+	listObjectsV2Fn           func(context.Context, *awss3.ListObjectsV2Input, ...func(*awss3.Options)) (*awss3.ListObjectsV2Output, error)
 }
 
-// PutObject rejects unexpected upload calls in download tests.
-func (c *fakeTransferS3Client) PutObject(context.Context, *awss3.PutObjectInput, ...func(*awss3.Options)) (*awss3.PutObjectOutput, error) {
-	return nil, fmt.Errorf("unexpected PutObject call")
+func (c *fakeTransferS3Client) PutObject(ctx context.Context, in *awss3.PutObjectInput, optFns ...func(*awss3.Options)) (*awss3.PutObjectOutput, error) {
+	if c.putObjectFn == nil {
+		return nil, fmt.Errorf("unexpected PutObject call")
+	}
+	return c.putObjectFn(ctx, in, optFns...)
 }
 
-// UploadPart rejects unexpected multipart-upload calls in download tests.
-func (c *fakeTransferS3Client) UploadPart(context.Context, *awss3.UploadPartInput, ...func(*awss3.Options)) (*awss3.UploadPartOutput, error) {
-	return nil, fmt.Errorf("unexpected UploadPart call")
+func (c *fakeTransferS3Client) UploadPart(ctx context.Context, in *awss3.UploadPartInput, optFns ...func(*awss3.Options)) (*awss3.UploadPartOutput, error) {
+	if c.uploadPartFn == nil {
+		return nil, fmt.Errorf("unexpected UploadPart call")
+	}
+	return c.uploadPartFn(ctx, in, optFns...)
 }
 
-// CreateMultipartUpload rejects unexpected multipart-upload calls in download tests.
-func (c *fakeTransferS3Client) CreateMultipartUpload(context.Context, *awss3.CreateMultipartUploadInput, ...func(*awss3.Options)) (*awss3.CreateMultipartUploadOutput, error) {
-	return nil, fmt.Errorf("unexpected CreateMultipartUpload call")
+func (c *fakeTransferS3Client) CreateMultipartUpload(ctx context.Context, in *awss3.CreateMultipartUploadInput, optFns ...func(*awss3.Options)) (*awss3.CreateMultipartUploadOutput, error) {
+	if c.createMultipartUploadFn == nil {
+		return nil, fmt.Errorf("unexpected CreateMultipartUpload call")
+	}
+	return c.createMultipartUploadFn(ctx, in, optFns...)
 }
 
-// CompleteMultipartUpload rejects unexpected multipart-upload calls in download tests.
-func (c *fakeTransferS3Client) CompleteMultipartUpload(context.Context, *awss3.CompleteMultipartUploadInput, ...func(*awss3.Options)) (*awss3.CompleteMultipartUploadOutput, error) {
-	return nil, fmt.Errorf("unexpected CompleteMultipartUpload call")
+func (c *fakeTransferS3Client) CompleteMultipartUpload(ctx context.Context, in *awss3.CompleteMultipartUploadInput, optFns ...func(*awss3.Options)) (*awss3.CompleteMultipartUploadOutput, error) {
+	if c.completeMultipartUploadFn == nil {
+		return nil, fmt.Errorf("unexpected CompleteMultipartUpload call")
+	}
+	return c.completeMultipartUploadFn(ctx, in, optFns...)
 }
 
-// AbortMultipartUpload rejects unexpected multipart-upload calls in download tests.
-func (c *fakeTransferS3Client) AbortMultipartUpload(context.Context, *awss3.AbortMultipartUploadInput, ...func(*awss3.Options)) (*awss3.AbortMultipartUploadOutput, error) {
-	return nil, fmt.Errorf("unexpected AbortMultipartUpload call")
+func (c *fakeTransferS3Client) AbortMultipartUpload(ctx context.Context, in *awss3.AbortMultipartUploadInput, optFns ...func(*awss3.Options)) (*awss3.AbortMultipartUploadOutput, error) {
+	if c.abortMultipartUploadFn == nil {
+		return nil, fmt.Errorf("unexpected AbortMultipartUpload call")
+	}
+	return c.abortMultipartUploadFn(ctx, in, optFns...)
 }
 
 // GetObject delegates to the test hook when provided.
@@ -60,30 +74,14 @@ func (c *fakeTransferS3Client) HeadObject(ctx context.Context, in *awss3.HeadObj
 }
 
 // ListObjectsV2 rejects unexpected listing calls in download tests.
-func (c *fakeTransferS3Client) ListObjectsV2(context.Context, *awss3.ListObjectsV2Input, ...func(*awss3.Options)) (*awss3.ListObjectsV2Output, error) {
-	return nil, fmt.Errorf("unexpected ListObjectsV2 call")
+func (c *fakeTransferS3Client) ListObjectsV2(ctx context.Context, in *awss3.ListObjectsV2Input, optFns ...func(*awss3.Options)) (*awss3.ListObjectsV2Output, error) {
+	if c.listObjectsV2Fn == nil {
+		return nil, fmt.Errorf("unexpected ListObjectsV2 call")
+	}
+	return c.listObjectsV2Fn(ctx, in, optFns...)
 }
 
-// closeTrackingReader records Close calls so wrapper tests can verify
-// idempotent cleanup behavior.
-type closeTrackingReader struct {
-	reader     io.Reader
-	closeErr   error
-	closeCalls int
-}
-
-// Read forwards reads to the wrapped reader.
-func (r *closeTrackingReader) Read(p []byte) (int, error) {
-	return r.reader.Read(p)
-}
-
-// Close records the call and returns the configured error.
-func (r *closeTrackingReader) Close() error {
-	r.closeCalls++
-	return r.closeErr
-}
-
-// expectedByteRanges returns the transfer-manager range requests expected for a
+// expectedByteRanges returns the concurrent range requests expected for a
 // given payload length and part size.
 func expectedByteRanges(total int, partSize int64) []string {
 	ranges := make([]string, 0)
@@ -95,4 +93,13 @@ func expectedByteRanges(total int, partSize int64) []string {
 		ranges = append(ranges, fmt.Sprintf("bytes=%d-%d", start, end))
 	}
 	return ranges
+}
+
+func newTestTransferManager(client transferAPIClient, partSize int64, concurrency int) *transferManager {
+	return newTransferManager(client, transferOptions{
+		partSize:           partSize,
+		multipartThreshold: 8,
+		concurrency:        concurrency,
+		bodyAttempts:       defaultTransferAttempts,
+	})
 }

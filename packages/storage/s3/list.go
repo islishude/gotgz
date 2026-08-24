@@ -2,6 +2,7 @@ package s3
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	awss3 "github.com/aws/aws-sdk-go-v2/service/s3"
@@ -9,6 +10,9 @@ import (
 
 // ListPrefix returns all objects whose keys start with prefix.
 func (s *Store) ListPrefix(ctx context.Context, bucket string, prefix string) ([]ListedObject, error) {
+	if s.client == nil {
+		return nil, fmt.Errorf("s3 client is not configured")
+	}
 	pager := awss3.NewListObjectsV2Paginator(s.client, &awss3.ListObjectsV2Input{
 		Bucket: new(bucket),
 		Prefix: new(prefix),

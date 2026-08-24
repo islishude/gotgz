@@ -9,7 +9,6 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
-	"github.com/aws/aws-sdk-go-v2/feature/s3/transfermanager"
 	awss3 "github.com/aws/aws-sdk-go-v2/service/s3"
 )
 
@@ -34,11 +33,16 @@ func New(ctx context.Context) (*Store, error) {
 		o.DisableLogOutputChecksumValidationSkipped = true
 		o.UsePathStyle = settings.UsePathStyle
 	})
-	tm := transfermanager.New(client, func(o *transfermanager.Options) {
-		o.PartSizeBytes = settings.PartSizeMB * 1024 * 1024
-		o.Concurrency = settings.Concurrency
+	bodyAttempts := defaultTransferAttempts
+	if hasRetryMax {
+		bodyAttempts = retryMax
+	}
+	transfers := newTransferManager(client, transferOptions{
+		partSize:     settings.PartSizeMB * 1024 * 1024,
+		concurrency:  settings.Concurrency,
+		bodyAttempts: bodyAttempts,
 	})
-	return &Store{client: client, rangeClient: client, tm: tm, settings: settings}, nil
+	return &Store{client: client, transfers: transfers, settings: settings}, nil
 }
 
 func settingsFromEnv() (Settings, int, bool, error) {

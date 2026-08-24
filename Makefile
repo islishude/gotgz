@@ -31,7 +31,7 @@ integration-test:
 	set -e; \
 		docker compose down; \
 		docker compose up -d --wait; \
-		trap 'docker compose down' EXIT; \
+		trap 'docker compose down --volumes' EXIT; \
 		GOTGZ_TEST_S3_ENDPOINT=http://localhost:4566 go test -race -count=1 -tags=integration -coverprofile=coverage.txt ./...; \
 		docker compose down
 

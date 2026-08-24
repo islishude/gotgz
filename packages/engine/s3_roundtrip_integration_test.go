@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -57,6 +58,37 @@ func TestIntegrationLocalToS3ArchiveToLocalExtract(t *testing.T) {
 	}
 	if mustReadFile(t, filepath.Join(outDir, "src", "a.txt")) != "alpha" || mustReadFile(t, filepath.Join(outDir, "src", "b.txt")) != "bravo" {
 		t.Fatal("local extract did not restore expected files")
+	}
+}
+
+func TestIntegrationS3MultipartArchiveRoundTrip(t *testing.T) {
+	ctx := context.Background()
+	endpoint := integrationS3Endpoint(t)
+	_, bucket := setupS3Bucket(t, ctx, endpoint)
+
+	const payloadSize = 17*1024*1024 + 123
+	pattern := []byte("0123456789abcdef")
+	payload := bytes.Repeat(pattern, (payloadSize+len(pattern)-1)/len(pattern))[:payloadSize]
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "large.bin"), payload, 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	archiveURI := fmt.Sprintf("s3://%s/archives/large.tar", bucket)
+	outDir := filepath.Join(root, "out")
+	r := newRunnerWithEndpoint(t, endpoint, io.Discard, io.Discard)
+	if got := r.Run(ctx, cli.Options{Mode: cli.ModeCreate, Archive: archiveURI, Chdir: root, Members: []string{"large.bin"}}); got.ExitCode != ExitSuccess {
+		t.Fatalf("create exit=%d err=%v", got.ExitCode, got.Err)
+	}
+	if got := r.Run(ctx, cli.Options{Mode: cli.ModeExtract, Archive: archiveURI, Chdir: outDir}); got.ExitCode != ExitSuccess {
+		t.Fatalf("extract exit=%d err=%v", got.ExitCode, got.Err)
+	}
+	restored, err := os.ReadFile(filepath.Join(outDir, "large.bin"))
+	if err != nil {
+		t.Fatalf("ReadFile() error = %v", err)
+	}
+	if !bytes.Equal(restored, payload) {
+		t.Fatalf("restored payload length = %d, want %d", len(restored), len(payload))
 	}
 }
 

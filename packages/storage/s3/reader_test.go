@@ -13,7 +13,6 @@ import (
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/feature/s3/transfermanager"
 	awss3 "github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/islishude/gotgz/packages/archiveutil"
 	"github.com/islishude/gotgz/packages/locator"
@@ -27,8 +26,8 @@ func TestStatRejectsNonS3Ref(t *testing.T) {
 	}
 }
 
-// TestOpenReaderUsesTransferManagerRanges verifies that OpenReader uses
-// transfer manager range downloads and preserves metadata for the caller.
+// TestOpenReaderUsesConcurrentRanges verifies that OpenReader uses bounded
+// range downloads and preserves metadata for the caller.
 func TestOpenReaderUsesTransferManagerRanges(t *testing.T) {
 	ref := locator.Ref{Kind: locator.KindS3, Raw: "s3://bucket/object", Bucket: "bucket", Key: "object"}
 	payload := "hello-world!"
@@ -89,10 +88,8 @@ func TestOpenReaderUsesTransferManagerRanges(t *testing.T) {
 	}
 
 	store := &Store{
-		tm: transfermanager.New(client, func(o *transfermanager.Options) {
-			o.PartSizeBytes = 5
-			o.Concurrency = 2
-		}),
+		client:    client,
+		transfers: newTestTransferManager(client, 5, 2),
 	}
 
 	rc, meta, err := store.OpenReader(context.Background(), ref)
@@ -143,16 +140,18 @@ func TestOpenReaderUsesTransferManagerRanges(t *testing.T) {
 	}
 }
 
-// TestOpenReaderReturnsHeadObjectError verifies that setup failures from the
-// transfer-manager HeadObject call surface directly from OpenReader.
+// TestOpenReaderReturnsHeadObjectError verifies that setup failures surface
+// directly from OpenReader.
 func TestOpenReaderReturnsHeadObjectError(t *testing.T) {
 	wantErr := errors.New("head failed")
+	client := &fakeTransferS3Client{
+		headObjectFn: func(context.Context, *awss3.HeadObjectInput, ...func(*awss3.Options)) (*awss3.HeadObjectOutput, error) {
+			return nil, wantErr
+		},
+	}
 	store := &Store{
-		tm: transfermanager.New(&fakeTransferS3Client{
-			headObjectFn: func(context.Context, *awss3.HeadObjectInput, ...func(*awss3.Options)) (*awss3.HeadObjectOutput, error) {
-				return nil, wantErr
-			},
-		}),
+		client:    client,
+		transfers: newTestTransferManager(client, 5, 2),
 	}
 
 	_, _, err := store.OpenReader(context.Background(), locator.Ref{
@@ -166,25 +165,24 @@ func TestOpenReaderReturnsHeadObjectError(t *testing.T) {
 	}
 }
 
-// TestOpenReaderPropagatesGetObjectError verifies that transfer-manager read
-// failures from ranged GetObject calls surface while the caller reads.
+// TestOpenReaderPropagatesGetObjectError verifies that ranged GetObject
+// failures surface while the caller reads.
 func TestOpenReaderPropagatesGetObjectError(t *testing.T) {
 	wantErr := errors.New("download failed")
+	client := &fakeTransferS3Client{
+		headObjectFn: func(context.Context, *awss3.HeadObjectInput, ...func(*awss3.Options)) (*awss3.HeadObjectOutput, error) {
+			return &awss3.HeadObjectOutput{
+				ContentLength: new(int64(6)),
+				ETag:          new("etag"),
+			}, nil
+		},
+		getObjectFn: func(context.Context, *awss3.GetObjectInput, ...func(*awss3.Options)) (*awss3.GetObjectOutput, error) {
+			return nil, wantErr
+		},
+	}
 	store := &Store{
-		tm: transfermanager.New(&fakeTransferS3Client{
-			headObjectFn: func(context.Context, *awss3.HeadObjectInput, ...func(*awss3.Options)) (*awss3.HeadObjectOutput, error) {
-				return &awss3.HeadObjectOutput{
-					ContentLength: aws.Int64(6),
-					ETag:          aws.String("etag"),
-				}, nil
-			},
-			getObjectFn: func(context.Context, *awss3.GetObjectInput, ...func(*awss3.Options)) (*awss3.GetObjectOutput, error) {
-				return nil, wantErr
-			},
-		}, func(o *transfermanager.Options) {
-			o.PartSizeBytes = 3
-			o.Concurrency = 2
-		}),
+		client:    client,
+		transfers: newTestTransferManager(client, 3, 2),
 	}
 
 	rc, meta, err := store.OpenReader(context.Background(), locator.Ref{
@@ -210,47 +208,45 @@ func TestOpenReaderPropagatesGetObjectError(t *testing.T) {
 }
 
 // TestOpenReaderHandlesShortLenLargeCapBuffers verifies that callers can read
-// with a slice whose backing array has extra capacity without triggering the
-// transfer-manager concurrent-reader panic.
+// with a slice whose backing array has extra capacity.
 func TestOpenReaderHandlesShortLenLargeCapBuffers(t *testing.T) {
 	ref := locator.Ref{Kind: locator.KindS3, Raw: "s3://bucket/object", Bucket: "bucket", Key: "object"}
 	payload := "hello-world!"
 
+	client := &fakeTransferS3Client{
+		headObjectFn: func(_ context.Context, in *awss3.HeadObjectInput, _ ...func(*awss3.Options)) (*awss3.HeadObjectOutput, error) {
+			if got := aws.ToString(in.Bucket); got != ref.Bucket {
+				return nil, fmt.Errorf("HeadObject() bucket = %q, want %q", got, ref.Bucket)
+			}
+			if got := aws.ToString(in.Key); got != ref.Key {
+				return nil, fmt.Errorf("HeadObject() key = %q, want %q", got, ref.Key)
+			}
+			return &awss3.HeadObjectOutput{
+				ContentLength: aws.Int64(int64(len(payload))),
+				ETag:          aws.String("etag"),
+			}, nil
+		},
+		getObjectFn: func(_ context.Context, in *awss3.GetObjectInput, _ ...func(*awss3.Options)) (*awss3.GetObjectOutput, error) {
+			if in.Range == nil {
+				return nil, fmt.Errorf("GetObject() range is nil")
+			}
+
+			var start, end int64
+			if _, err := fmt.Sscanf(aws.ToString(in.Range), "bytes=%d-%d", &start, &end); err != nil {
+				return nil, fmt.Errorf("parse range %q: %w", aws.ToString(in.Range), err)
+			}
+			chunk := payload[start : end+1]
+
+			return &awss3.GetObjectOutput{
+				Body:          io.NopCloser(strings.NewReader(chunk)),
+				ContentLength: aws.Int64(int64(len(chunk))),
+				ContentRange:  aws.String(fmt.Sprintf("bytes %d-%d/%d", start, end, len(payload))),
+			}, nil
+		},
+	}
 	store := &Store{
-		tm: transfermanager.New(&fakeTransferS3Client{
-			headObjectFn: func(_ context.Context, in *awss3.HeadObjectInput, _ ...func(*awss3.Options)) (*awss3.HeadObjectOutput, error) {
-				if got := aws.ToString(in.Bucket); got != ref.Bucket {
-					return nil, fmt.Errorf("HeadObject() bucket = %q, want %q", got, ref.Bucket)
-				}
-				if got := aws.ToString(in.Key); got != ref.Key {
-					return nil, fmt.Errorf("HeadObject() key = %q, want %q", got, ref.Key)
-				}
-				return &awss3.HeadObjectOutput{
-					ContentLength: aws.Int64(int64(len(payload))),
-					ETag:          aws.String("etag"),
-				}, nil
-			},
-			getObjectFn: func(_ context.Context, in *awss3.GetObjectInput, _ ...func(*awss3.Options)) (*awss3.GetObjectOutput, error) {
-				if in.Range == nil {
-					return nil, fmt.Errorf("GetObject() range is nil")
-				}
-
-				var start, end int64
-				if _, err := fmt.Sscanf(aws.ToString(in.Range), "bytes=%d-%d", &start, &end); err != nil {
-					return nil, fmt.Errorf("parse range %q: %w", aws.ToString(in.Range), err)
-				}
-				chunk := payload[start : end+1]
-
-				return &awss3.GetObjectOutput{
-					Body:          io.NopCloser(strings.NewReader(chunk)),
-					ContentLength: aws.Int64(int64(len(chunk))),
-					ContentRange:  aws.String(fmt.Sprintf("bytes %d-%d/%d", start, end, len(payload))),
-				}, nil
-			},
-		}, func(o *transfermanager.Options) {
-			o.PartSizeBytes = 5
-			o.Concurrency = 2
-		}),
+		client:    client,
+		transfers: newTestTransferManager(client, 5, 2),
 	}
 
 	rc, meta, err := store.OpenReader(context.Background(), ref)
@@ -325,7 +321,7 @@ func TestOpenRangeReaderSnapshotUsesVersionOrETagFence(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			store := &Store{rangeClient: &fakeTransferS3Client{getObjectFn: func(_ context.Context, input *awss3.GetObjectInput, _ ...func(*awss3.Options)) (*awss3.GetObjectOutput, error) {
+			store := &Store{client: &fakeTransferS3Client{getObjectFn: func(_ context.Context, input *awss3.GetObjectInput, _ ...func(*awss3.Options)) (*awss3.GetObjectOutput, error) {
 				if got := aws.ToString(input.VersionId); got != tt.wantVersion {
 					t.Fatalf("VersionId = %q, want %q", got, tt.wantVersion)
 				}
@@ -340,66 +336,5 @@ func TestOpenRangeReaderSnapshotUsesVersionOrETagFence(t *testing.T) {
 			}
 			defer rc.Close() //nolint:errcheck
 		})
-	}
-}
-
-// TestDownloadReadCloserCloseIsIdempotent verifies that Close only cancels and
-// closes the wrapped reader once, even when the caller closes multiple times.
-func TestDownloadReadCloserCloseIsIdempotent(t *testing.T) {
-	wantErr := errors.New("close failed")
-	reader := &closeTrackingReader{
-		reader:   strings.NewReader("payload"),
-		closeErr: wantErr,
-	}
-
-	cancelCalls := 0
-	rc := newDownloadReadCloser(reader, func() {
-		cancelCalls++
-	})
-
-	if err := rc.Close(); !errors.Is(err, wantErr) {
-		t.Fatalf("first Close() error = %v, want %v", err, wantErr)
-	}
-	if err := rc.Close(); !errors.Is(err, wantErr) {
-		t.Fatalf("second Close() error = %v, want %v", err, wantErr)
-	}
-	if cancelCalls != 1 {
-		t.Fatalf("cancel calls = %d, want 1", cancelCalls)
-	}
-	if reader.closeCalls != 1 {
-		t.Fatalf("reader close calls = %d, want 1", reader.closeCalls)
-	}
-}
-
-// terminalErrorReader returns one terminal error and records how many times it
-// was asked to read.
-type terminalErrorReader struct {
-	err       error
-	readCalls int
-}
-
-// Read returns the configured error and increments the call count.
-func (r *terminalErrorReader) Read([]byte) (int, error) {
-	r.readCalls++
-	return 0, r.err
-}
-
-// TestDownloadReadCloserCachesTerminalReadError verifies that callers who read
-// again after a terminal read failure get the cached error without re-entering
-// the wrapped reader.
-func TestDownloadReadCloserCachesTerminalReadError(t *testing.T) {
-	wantErr := errors.New("download failed")
-	reader := &terminalErrorReader{err: wantErr}
-	rc := newDownloadReadCloser(reader, nil)
-	buf := make([]byte, 8)
-
-	if _, err := rc.Read(buf); !errors.Is(err, wantErr) {
-		t.Fatalf("first Read() error = %v, want %v", err, wantErr)
-	}
-	if _, err := rc.Read(buf); !errors.Is(err, wantErr) {
-		t.Fatalf("second Read() error = %v, want %v", err, wantErr)
-	}
-	if reader.readCalls != 1 {
-		t.Fatalf("wrapped reader read calls = %d, want 1", reader.readCalls)
 	}
 }
