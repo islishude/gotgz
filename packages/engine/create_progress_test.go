@@ -72,9 +72,9 @@ func runCreateWithProgressMode(t *testing.T, progress cli.ProgressMode, run func
 	return statCalls
 }
 
-// TestCreateModeSkipsS3SizeEstimationWhenProgressDisabled verifies that create
-// mode does not pre-scan remote members when progress output is off.
-func TestCreateModeSkipsS3SizeEstimationWhenProgressDisabled(t *testing.T) {
+// TestCreateModeValidatesS3InputsWhenProgressDisabled verifies that create
+// preflight no longer depends on progress output being active.
+func TestCreateModeValidatesS3InputsWhenProgressDisabled(t *testing.T) {
 	cases := []struct {
 		name       string
 		archiveRef locator.Ref
@@ -94,8 +94,8 @@ func TestCreateModeSkipsS3SizeEstimationWhenProgressDisabled(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			if statCalls := runCreateWithProgressMode(t, cli.ProgressNever, tc.run, tc.archiveRef); statCalls != 0 {
-				t.Fatalf("statCalls = %d, want 0", statCalls)
+			if statCalls := runCreateWithProgressMode(t, cli.ProgressNever, tc.run, tc.archiveRef); statCalls != 1 {
+				t.Fatalf("statCalls = %d, want 1", statCalls)
 			}
 		})
 	}

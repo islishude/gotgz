@@ -17,12 +17,14 @@ func TestStreamS3MemberToArchive(t *testing.T) {
 		var gotName string
 		var gotSize int64
 		var gotBody string
+		var gotModified time.Time
+		wantModified := time.Unix(1_700_000_000, 0).UTC()
 
 		r := &Runner{
 			storage: &storageRouter{
 				s3: fakeS3ArchiveStore{
 					openReader: func(_ context.Context, _ locator.Ref) (io.ReadCloser, s3.Metadata, error) {
-						return io.NopCloser(strings.NewReader("s3body")), s3.Metadata{Size: 6}, nil
+						return io.NopCloser(strings.NewReader("s3body")), s3.Metadata{Size: 6, LastModified: wantModified}, nil
 					},
 				},
 			},
@@ -30,9 +32,10 @@ func TestStreamS3MemberToArchive(t *testing.T) {
 			stdout: io.Discard,
 		}
 
-		err := r.streamS3MemberToArchive(context.Background(), locator.Ref{Kind: locator.KindS3, Bucket: "b", Key: "objects/file.txt"}, false, nil, func(name string, size int64, _ time.Time, body io.Reader) error {
+		err := r.streamS3MemberToArchive(context.Background(), locator.Ref{Kind: locator.KindS3, Bucket: "b", Key: "objects/file.txt"}, false, nil, func(name string, size int64, modified time.Time, body io.Reader) error {
 			gotName = name
 			gotSize = size
+			gotModified = modified
 			payload, err := io.ReadAll(body)
 			if err != nil {
 				return err
@@ -45,6 +48,9 @@ func TestStreamS3MemberToArchive(t *testing.T) {
 		}
 		if gotName != "objects/file.txt" || gotSize != 6 || gotBody != "s3body" {
 			t.Fatalf("got name=%q size=%d body=%q", gotName, gotSize, gotBody)
+		}
+		if !gotModified.Equal(wantModified) {
+			t.Fatalf("modified = %v, want %v", gotModified, wantModified)
 		}
 	})
 

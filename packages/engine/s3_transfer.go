@@ -24,7 +24,7 @@ func (r *Runner) streamS3MemberToArchive(ctx context.Context, ref locator.Ref, v
 	}()
 
 	name := filepath.ToSlash(ref.Key)
-	if err := write(name, meta.Size, time.Now(), archiveprogress.NewCountingReader(body, reporter)); err != nil {
+	if err := write(name, meta.Size, meta.LastModified, archiveprogress.NewCountingReader(body, reporter)); err != nil {
 		return err
 	}
 	if verbose {

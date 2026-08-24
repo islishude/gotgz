@@ -8,8 +8,11 @@ import (
 	"io"
 	"math"
 	"net/http"
+	"net/url"
+	"strconv"
 	"strings"
 
+	"github.com/islishude/gotgz/packages/archiveutil"
 	"github.com/islishude/gotgz/packages/locator"
 )
 
@@ -22,8 +25,11 @@ type Store struct {
 
 // Metadata carries basic metadata for an HTTP archive response.
 type Metadata struct {
-	Size        int64
-	ContentType string
+	Size         int64
+	ContentType  string
+	ETag         string
+	LastModified string
+	URL          string
 }
 
 // New creates a Store backed by the default HTTP client.
@@ -67,14 +73,25 @@ func (s *Store) OpenReader(ctx context.Context, ref locator.Ref) (io.ReadCloser,
 		return nil, Metadata{}, err
 	}
 	meta := Metadata{
-		Size:        size,
-		ContentType: strings.TrimSpace(resp.Header.Get("Content-Type")),
+		Size:         size,
+		ContentType:  strings.TrimSpace(resp.Header.Get("Content-Type")),
+		ETag:         strings.TrimSpace(resp.Header.Get("ETag")),
+		LastModified: strings.TrimSpace(resp.Header.Get("Last-Modified")),
+	}
+	if resp.Request != nil && resp.Request.URL != nil {
+		meta.URL = resp.Request.URL.String()
 	}
 	return body, meta, nil
 }
 
 // OpenRangeReader opens one byte range from an HTTP(S) archive source.
 func (s *Store) OpenRangeReader(ctx context.Context, ref locator.Ref, offset int64, length int64) (io.ReadCloser, error) {
+	return s.OpenRangeReaderSnapshot(ctx, ref, offset, length, archiveutil.Snapshot{})
+}
+
+// OpenRangeReaderSnapshot opens a byte range fenced to the initial HTTP
+// response validator and verifies the exact Content-Range returned.
+func (s *Store) OpenRangeReaderSnapshot(ctx context.Context, ref locator.Ref, offset int64, length int64, snapshot archiveutil.Snapshot) (io.ReadCloser, error) {
 	if ref.Kind != locator.KindHTTP {
 		return nil, fmt.Errorf("ref %q is not http", ref.Raw)
 	}
@@ -96,12 +113,24 @@ func (s *Store) OpenRangeReader(ctx context.Context, ref locator.Ref, offset int
 		client = http.DefaultClient
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, ref.URL, nil)
+	requestURL := ref.URL
+	if snapshot.URL != "" {
+		if _, err := url.ParseRequestURI(snapshot.URL); err != nil {
+			return nil, fmt.Errorf("invalid snapshot URL %q: %w", snapshot.URL, err)
+		}
+		requestURL = snapshot.URL
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, requestURL, nil)
 	if err != nil {
 		return nil, err
 	}
 	req.Header.Set("Range", fmt.Sprintf("bytes=%d-%d", offset, offset+length-1))
 	req.Header.Set("Accept-Encoding", "identity")
+	if etag := strings.TrimSpace(snapshot.ETag); etag != "" && !strings.HasPrefix(etag, "W/") {
+		req.Header.Set("If-Range", etag)
+	} else if modified := strings.TrimSpace(snapshot.LastModified); modified != "" {
+		req.Header.Set("If-Range", modified)
+	}
 
 	resp, err := client.Do(req)
 	if err != nil {
@@ -120,7 +149,39 @@ func (s *Store) OpenRangeReader(ctx context.Context, ref locator.Ref, offset int
 		_ = resp.Body.Close()
 		return nil, fmt.Errorf("http range GET %q returned unsupported content-encoding %q", ref.URL, encoding)
 	}
+	if err := validateContentRange(resp, offset, length, snapshot.Size); err != nil {
+		_ = resp.Body.Close()
+		return nil, err
+	}
 	return resp.Body, nil
+}
+
+func validateContentRange(resp *http.Response, offset, length, expectedTotal int64) error {
+	header := strings.TrimSpace(resp.Header.Get("Content-Range"))
+	rawRange, rawTotal, ok := strings.Cut(strings.TrimPrefix(header, "bytes "), "/")
+	if !ok || !strings.HasPrefix(header, "bytes ") {
+		return fmt.Errorf("invalid Content-Range %q", header)
+	}
+	rawStart, rawEnd, ok := strings.Cut(rawRange, "-")
+	if !ok {
+		return fmt.Errorf("invalid Content-Range %q", header)
+	}
+	start, startErr := strconv.ParseInt(rawStart, 10, 64)
+	end, endErr := strconv.ParseInt(rawEnd, 10, 64)
+	total, totalErr := strconv.ParseInt(rawTotal, 10, 64)
+	if startErr != nil || endErr != nil || totalErr != nil || start < 0 || end < start || total <= end {
+		return fmt.Errorf("invalid Content-Range %q", header)
+	}
+	if start != offset || end != offset+length-1 {
+		return fmt.Errorf("unexpected Content-Range %q for requested bytes %d-%d", header, offset, offset+length-1)
+	}
+	if expectedTotal > 0 && total != expectedTotal {
+		return fmt.Errorf("unexpected Content-Range total %d, want %d", total, expectedTotal)
+	}
+	if resp.ContentLength >= 0 && resp.ContentLength != length {
+		return fmt.Errorf("unexpected HTTP range length %d, want %d", resp.ContentLength, length)
+	}
+	return nil
 }
 
 // decodeResponseBody returns the response body and its content size.

@@ -7,7 +7,6 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"time"
 
 	"github.com/islishude/gotgz/packages/archive"
 	"github.com/islishude/gotgz/packages/archivepath"
@@ -15,13 +14,17 @@ import (
 )
 
 // computeExtractPerm normalizes extracted file permissions with optional fallbacks.
-func computeExtractPerm(mode fs.FileMode, fallback fs.FileMode, samePerms bool) fs.FileMode {
+func computeExtractPerm(mode fs.FileMode, fallback fs.FileMode, samePerms bool, umasks ...fs.FileMode) fs.FileMode {
 	perm := mode.Perm()
 	if perm == 0 {
 		perm = fallback
 	}
 	if !samePerms {
-		perm &^= archive.CurrentUmask()
+		umask := archive.CurrentUmask()
+		if len(umasks) > 0 {
+			umask = umasks[0]
+		}
+		perm &^= umask
 	}
 	return perm
 }
@@ -31,7 +34,11 @@ func ensureLocalDirTarget(base string, target string, perm fs.FileMode, cache *a
 	if err := archivepath.EnsureSymlinkFreePath(base, target, cache); err != nil {
 		return err
 	}
-	return os.MkdirAll(target, perm)
+	temporaryPerm := perm | 0o700
+	if err := os.MkdirAll(target, temporaryPerm); err != nil {
+		return err
+	}
+	return os.Chmod(target, temporaryPerm)
 }
 
 // writeLocalRegularTarget writes one regular file extraction target after path checks.
@@ -92,17 +99,4 @@ func replaceLocalHardlinkTarget(base string, target string, linkname string, cac
 	}
 	_ = os.Remove(target)
 	return os.Link(linkTarget, target)
-}
-
-// applyLocalExtractMetadata restores file mode and timestamps when supported.
-func applyLocalExtractMetadata(target string, mode fs.FileMode, modTime time.Time, samePerms bool, isSymlink bool) {
-	if samePerms && !isSymlink {
-		perm := mode.Perm()
-		if perm != 0 {
-			_ = os.Chmod(target, perm)
-		}
-	}
-	if !modTime.IsZero() && !isSymlink {
-		_ = os.Chtimes(target, modTime, modTime)
-	}
 }

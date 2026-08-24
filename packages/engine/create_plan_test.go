@@ -3,7 +3,9 @@ package engine
 import (
 	"context"
 	"errors"
+	"io"
 	"io/fs"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -14,6 +16,32 @@ import (
 	"github.com/islishude/gotgz/packages/locator"
 	"github.com/islishude/gotgz/packages/storage/s3"
 )
+
+func TestBuildCreatePlanPreservesInputOrderAcrossConcurrentCompletion(t *testing.T) {
+	fastDone := make(chan struct{})
+	runner := newRunner(nil, fakeS3ArchiveStore{stat: func(_ context.Context, ref locator.Ref) (s3.Metadata, error) {
+		if ref.Key == "slow" {
+			<-fastDone
+			return s3.Metadata{Size: 1}, nil
+		}
+		close(fastDone)
+		return s3.Metadata{Size: 1}, nil
+	}}, nil, io.Discard, io.Discard)
+
+	plan, err := runner.buildCreatePlan(context.Background(), cli.Options{Members: []string{"s3://bucket/slow", "s3://bucket/fast"}}, nil)
+	if err != nil {
+		t.Fatalf("buildCreatePlan() error = %v", err)
+	}
+	if len(plan.members) != 2 || plan.members[0].ref.Key != "slow" || plan.members[1].ref.Key != "fast" {
+		t.Fatalf("plan order = %+v, want slow then fast", plan.members)
+	}
+}
+
+func TestAddCreatePlanSizeClampsOverflow(t *testing.T) {
+	if got := addCreatePlanSize(math.MaxInt64-1, 2); got != math.MaxInt64 {
+		t.Fatalf("addCreatePlanSize() = %d, want MaxInt64", got)
+	}
+}
 
 func TestBuildCreatePlanReusesLocalEntriesAfterMutation(t *testing.T) {
 	root := t.TempDir()

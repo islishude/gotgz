@@ -11,7 +11,7 @@ import (
 )
 
 // extractZipEntryToLocal extracts one zip entry into the local filesystem.
-func (r *Runner) extractZipEntryToLocal(ctx context.Context, base string, zf *zip.File, extractName string, policy PermissionPolicy, safetyCache *archivepath.PathSafetyCache, reporter *archiveprogress.Reporter) (int, error) {
+func (r *Runner) extractZipEntryToLocal(ctx context.Context, base string, zf *zip.File, extractName string, policy PermissionPolicy, safetyCache *archivepath.PathSafetyCache, metadataSession *localMetadataSession, reporter *archiveprogress.Reporter) (int, error) {
 	target, err := archivepath.SafeJoin(base, extractName)
 	if err != nil {
 		return 0, err
@@ -19,10 +19,12 @@ func (r *Runner) extractZipEntryToLocal(ctx context.Context, base string, zf *zi
 	mode := zf.Mode()
 	modTime := zf.Modified
 	warnings := 0
+	perm := computeExtractPerm(mode, 0o644, policy.SamePerms, policy.Umask)
 
 	switch {
 	case isZipDir(zf):
-		if err := ensureLocalDirTarget(base, target, computeExtractPerm(mode, 0o755, policy.SamePerms), safetyCache); err != nil {
+		perm = computeExtractPerm(mode, 0o755, policy.SamePerms, policy.Umask)
+		if err := ensureLocalDirTarget(base, target, perm, safetyCache); err != nil {
 			return warnings, err
 		}
 	case isZipSymlink(zf):
@@ -54,7 +56,7 @@ func (r *Runner) extractZipEntryToLocal(ctx context.Context, base string, zf *zi
 		if rc == nil {
 			return warnings, nil
 		}
-		err = writeLocalRegularTarget(ctx, base, target, computeExtractPerm(mode, 0o644, policy.SamePerms), archiveprogress.NewCountingReader(rc, reporter), safetyCache)
+		err = writeLocalRegularTarget(ctx, base, target, perm, archiveprogress.NewCountingReader(rc, reporter), safetyCache)
 		rerr := rc.Close()
 		if err != nil {
 			return warnings, err
@@ -67,7 +69,18 @@ func (r *Runner) extractZipEntryToLocal(ctx context.Context, base string, zf *zi
 		return warnings, nil
 	}
 
-	applyLocalExtractMetadata(target, mode, modTime, policy.SamePerms, isZipSymlink(zf))
+	record := localMetadataRecord{
+		target:      target,
+		archiveName: extractName,
+		perm:        perm,
+		modTime:     modTime,
+		isSymlink:   isZipSymlink(zf),
+	}
+	if isZipDir(zf) {
+		metadataSession.queueDirectory(record)
+	} else {
+		warnings += metadataSession.apply(record)
+	}
 	return warnings, nil
 }
 

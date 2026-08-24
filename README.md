@@ -8,7 +8,7 @@ A Linux `tar`-compatible CLI tool written in Go, with native AWS S3 support as b
 - **AWS S3 integration** — use `s3://bucket/key` URIs or S3 ARNs directly in `-f` and member arguments
 - **HTTP archive source** — use `http://` or `https://` URLs directly in `-f` for list/extract
 - **Multiple archive/compression formats** — native `.zip` plus tar-family compression: gzip (`-z`/`--gzip`/`--gunzip`), bzip2 (`-j`/`--bzip`/`--bzip2`), xz (`-J`/`--xz`), zstd (`--zstd`), lz4 (`--lz4`), with auto-detection on create/extract/list
-- **PAX format** — preserves metadata on demand: `--xattrs` for extended attributes, `--acl` for ACLs
+- **PAX format** — preserves metadata on demand: `--xattrs` for extended attributes and, on Linux, `--acl` for POSIX/NFSv4 ACL xattrs
 - **Permission control** — `--same-owner`, `--same-permissions` (`--numeric-owner` accepted for tar compatibility)
 - **Exclude patterns** — `--exclude` and `--exclude-from` (glob matching)
 - **Member filtering on extract/list** — explicit member names, optionally with `--wildcards`
@@ -150,12 +150,18 @@ For tar-family output, compression is inferred from the archive name when you om
 Supported suffixes are `.tar.gz/.tgz/.gz`, `.tar.bz2/.tbz2/.tbz/.bz2`, `.tar.xz/.txz/.xz`, `.tar.zst/.tzst/.zst/.zstd`, and `.tar.lz4/.tlz4/.lz4`.  
 `.tar` and `.tape` mean uncompressed tar, and unknown suffixes default to uncompressed tar.  
 If you do pass an explicit tar-family compression flag in create mode, it must match the archive suffix. The only exception is `-f -`, because stdout has no filename.
+`--suffix` is applied before this inference. For example, `-f backup --suffix daily.gz` creates the gzip-compressed file `backup-daily.gz`; suffix values must be filename-only and cannot contain path separators.
+
+Single-file local and S3 archive outputs are committed only after input preflight and successful archive finalization. A failed create leaves an existing single-file destination unchanged. gotgz rejects an archive target explicitly listed as an input member and skips an existing output file found inside a recursively selected input tree.
 
 Use `--split-size=<size>` in create mode to emit `.zip` or tar-family output as `partNNNN` volumes such as `archive.part0001.zip` or `archive.part0001.tar.gz`.  
 Split archives are discovered automatically from `part0001` during list/extract for local files and S3 objects.
 Split archives in extract mode are processed volume by volume in archive order.
 
+> **Known split-archive limitation:** creating a shorter split archive with the same base name does not remove older higher-numbered `partNNNN` files or S3 objects. Because list/extract discovers every continuous sibling beginning at `part0001`, stale tail volumes will also be processed. Before overwriting a split archive, use a new base name or manually remove every existing member of that split group. Manual S3 cleanup requires `s3:DeleteObject`; gotgz does not request that permission or delete old parts. A split create is not a set-level transaction, so verify the expected part count before use, especially after an interrupted run.
+
 When extracting or listing, archive/compression format is auto-detected by magic bytes first, then filename extension, then content type.
+Remote ZIP range reads are fenced to the initial S3 Version ID/ETag or HTTP ETag/Last-Modified validator. HTTP sources without a usable validator are staged from the original single response instead of being assembled from unfenced requests.
 
 For extract/list on `.zip` archives, tar-specific compression flags (`-z/-j/-J/--zstd/--lz4`) and tar metadata-owner flags (`--xattrs`, `--acl`, `--same-owner`, `--numeric-owner`) are ignored with warnings. `--compression-level` still applies and maps to zip Deflate level during create.
 `--split-size` supports `.zip` plus uncompressed tar and gzip/bzip2/zstd/lz4 tar output, but not xz, `-f -`, or HTTP multi-volume input.
@@ -233,6 +239,10 @@ If your workflow is read-only or write-only, remove the actions you do not need.
 
 Current limitation: HTTP URLs are source-only in this release. Create mode (`-c`) does not support HTTP targets, and HTTP requests use anonymous GET without custom headers/auth.
 
+Explicit member names select both that member and its descendants, so `gotgz -xf archive.tar dir` extracts the complete `dir/` subtree. With `--wildcards`, `*` matches one path segment and `**` crosses directories. A pattern without `/`, such as `*.log`, matches basenames at any depth. `--exclude` and `--exclude-from` apply consistently to create, list, and extract after member selection.
+
+Creation rejects symlinks whose targets are absolute or lexically escape the archive root. During extraction, directory permissions and timestamps are restored after descendants; metadata restoration failures produce warnings and exit status 1 while content or path-safety failures remain fatal. ACL preservation is supported only on Linux CGO-free builds; other platforms warn and ignore `--acl`. Non-Unix builds likewise warn for `--xattrs`.
+
 ### Additional options
 
 ```bash
@@ -287,7 +297,7 @@ gotgz -cvf out.tar --no-progress dir/   # hides live updates but still prints "c
 
 | Variable                        | Description                                                                           | Default      |
 | ------------------------------- | ------------------------------------------------------------------------------------- | ------------ |
-| `GOTGZ_S3_SSE`                  | Server-side encryption type (`AES256`, `aws:kms`, `none`)                             | `AES256`     |
+| `GOTGZ_S3_SSE`                  | Server-side encryption type (`AES256`/`sse-s3`, `aws:kms`/`sse-kms`, `none`)           | `AES256`     |
 | `GOTGZ_S3_SSE_KMS_KEY_ID`       | KMS key ID for SSE-KMS encryption                                                     |              |
 | `GOTGZ_S3_PART_SIZE_MB`         | S3 transfer part size in MB for multipart uploads and transfer-manager downloads      | `16`         |
 | `GOTGZ_S3_CONCURRENCY`          | S3 transfer concurrency for multipart uploads and transfer-manager downloads          | `4`          |
@@ -296,6 +306,7 @@ gotgz -cvf out.tar --no-progress dir/   # hides live updates but still prints "c
 | `GOTGZ_ZIP_STAGING_LIMIT_BYTES` | Max bytes spooled for non-local ZIP list/extract staging (`-`, `s3://`, `http(s)://`) | `1073741824` |
 
 Standard AWS SDK environment variables (`AWS_REGION`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_ENDPOINT_URL`, etc.) are also respected.
+AWS configuration is loaded lazily only for an actual S3 operation, so invalid AWS profiles do not affect local or HTTP workflows. If set, gotgz-specific values are validated strictly: retries and concurrency must be positive, part size must be 5–5120 MiB, path style must be a valid boolean, and SSE must be one of `AES256`, `sse-s3`, `aws:kms`, `sse-kms`, or `none`. A KMS key ID is rejected unless KMS SSE is selected.
 
 ## Development
 

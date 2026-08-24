@@ -45,11 +45,11 @@ type splitTarArchiveWriter struct {
 
 // splitTarVolumeState holds the writer stack for one active output volume.
 type splitTarVolumeState struct {
-	ref locator.Ref
-	tw  *tar.Writer
-	cw  io.WriteCloser
-	raw io.WriteCloser
-	dst *countingWriteCloser
+	ref     locator.Ref
+	tw      *tar.Writer
+	cw      io.WriteCloser
+	session archiveWriteSession
+	dst     *countingWriteCloser
 }
 
 // WriteHeader opens or rotates volumes as needed and writes the next tar header.
@@ -107,6 +107,20 @@ func (w *splitTarArchiveWriter) Close() error {
 	return w.closeCurrentVolume()
 }
 
+// Abort cancels the active volume without publishing partial contents.
+// Volumes committed before a rotation remain visible by design.
+func (w *splitTarArchiveWriter) Abort(cause error) error {
+	if w.current == nil {
+		return nil
+	}
+	abortErr := w.current.session.Abort(cause)
+	_ = w.current.tw.Close()
+	_ = w.current.cw.Close()
+	w.current = nil
+	w.rotateOnEntry = false
+	return abortErr
+}
+
 // ensureVolume opens the first output volume or rotates to the next one when requested.
 func (w *splitTarArchiveWriter) ensureVolume() error {
 	if w.current == nil {
@@ -124,25 +138,25 @@ func (w *splitTarArchiveWriter) ensureVolume() error {
 // openNextVolume creates the next split volume writer stack and makes it current.
 func (w *splitTarArchiveWriter) openNextVolume() error {
 	ref := archiveSplitRef(w.baseRef, w.nextPart, w.partWidth)
-	raw, err := w.runner.openArchiveWriter(w.ctx, ref)
+	session, err := w.runner.beginArchiveWriter(w.ctx, ref)
 	if err != nil {
 		return err
 	}
-	dst := &countingWriteCloser{WriteCloser: raw}
+	dst := &countingWriteCloser{WriteCloser: nonClosingWriteCloser{Writer: session}}
 	cw, err := compress.NewWriter(dst, w.compression, compress.WriterOptions{Level: w.level})
 	if err != nil {
-		if closeErr := raw.Close(); closeErr != nil {
-			return fmt.Errorf("create archive writer: %w (close: %w)", err, closeErr)
+		if abortErr := session.Abort(err); abortErr != nil {
+			return fmt.Errorf("create archive writer: %w (abort: %w)", err, abortErr)
 		}
 		return err
 	}
 
 	w.current = &splitTarVolumeState{
-		ref: ref,
-		tw:  tar.NewWriter(cw),
-		cw:  cw,
-		raw: raw,
-		dst: dst,
+		ref:     ref,
+		tw:      tar.NewWriter(cw),
+		cw:      cw,
+		session: session,
+		dst:     dst,
 	}
 	w.nextPart++
 	w.rotateOnEntry = false
@@ -161,6 +175,13 @@ func (w *splitTarArchiveWriter) closeCurrentVolume() error {
 	}
 	if err := w.current.cw.Close(); err != nil && first == nil {
 		first = fmt.Errorf("closing archive for %s: %w", archiveutil.NameHint(w.current.ref), err)
+	}
+	if first == nil {
+		if err := w.current.session.Commit(); err != nil {
+			first = fmt.Errorf("committing archive for %s: %w", archiveutil.NameHint(w.current.ref), err)
+		}
+	} else {
+		_ = w.current.session.Abort(first)
 	}
 	w.current = nil
 	w.rotateOnEntry = false

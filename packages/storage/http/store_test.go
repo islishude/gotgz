@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/islishude/gotgz/packages/archiveutil"
 	"github.com/islishude/gotgz/packages/locator"
 )
 
@@ -19,6 +20,8 @@ func TestOpenReaderSuccessWithContentLength(t *testing.T) {
 		if r.Method != http.MethodGet {
 			t.Fatalf("method = %q, want %q", r.Method, http.MethodGet)
 		}
+		w.Header().Set("ETag", `"etag-v1"`)
+		w.Header().Set("Last-Modified", "Sun, 24 Aug 2026 00:00:00 GMT")
 		_, _ = io.WriteString(w, "archive-bytes")
 	}))
 	defer server.Close()
@@ -50,6 +53,9 @@ func TestOpenReaderSuccessWithContentLength(t *testing.T) {
 	}
 	if !strings.HasPrefix(meta.ContentType, "text/plain") {
 		t.Fatalf("content type = %q", meta.ContentType)
+	}
+	if meta.ETag != `"etag-v1"` || meta.LastModified == "" || meta.URL == "" {
+		t.Fatalf("snapshot metadata = %+v", meta)
 	}
 }
 
@@ -239,6 +245,45 @@ func TestOpenRangeReaderRejectsOverflow(t *testing.T) {
 	}
 	if got := err.Error(); got != "range end overflows int64 for offset 9223372036854775807 and length 2" {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestOpenRangeReaderSnapshotFencesAndValidatesResponse(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.Header.Get("If-Range"); got != `"etag-v1"` {
+			t.Errorf("If-Range = %q, want etag-v1", got)
+		}
+		w.Header().Set("Content-Range", "bytes 2-5/8")
+		w.Header().Set("Content-Length", "4")
+		w.WriteHeader(http.StatusPartialContent)
+		_, _ = io.WriteString(w, "cdef")
+	}))
+	defer server.Close()
+
+	store := New()
+	rc, err := store.OpenRangeReaderSnapshot(context.Background(), locator.Ref{Kind: locator.KindHTTP, Raw: server.URL, URL: server.URL}, 2, 4, archiveutil.Snapshot{Size: 8, ETag: `"etag-v1"`, URL: server.URL})
+	if err != nil {
+		t.Fatalf("OpenRangeReaderSnapshot() error = %v", err)
+	}
+	defer rc.Close() //nolint:errcheck
+	body, err := io.ReadAll(rc)
+	if err != nil || string(body) != "cdef" {
+		t.Fatalf("body = %q, err=%v", body, err)
+	}
+}
+
+func TestOpenRangeReaderSnapshotRejectsWrongContentRange(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Range", "bytes 0-3/8")
+		w.WriteHeader(http.StatusPartialContent)
+		_, _ = io.WriteString(w, "abcd")
+	}))
+	defer server.Close()
+
+	store := New()
+	_, err := store.OpenRangeReaderSnapshot(context.Background(), locator.Ref{Kind: locator.KindHTTP, Raw: server.URL, URL: server.URL}, 2, 4, archiveutil.Snapshot{Size: 8, LastModified: "Sun, 24 Aug 2026 00:00:00 GMT"})
+	if err == nil || !strings.Contains(err.Error(), "unexpected Content-Range") {
+		t.Fatalf("error = %v, want Content-Range mismatch", err)
 	}
 }
 

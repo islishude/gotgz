@@ -40,7 +40,7 @@ func TestStorageRouterOpenArchiveReaderHTTPUnknownSize(t *testing.T) {
 
 func TestStorageRouterOpenArchiveWriterRejectsHTTP(t *testing.T) {
 	router := &storageRouter{}
-	_, err := router.openArchiveWriter(context.Background(), locator.Ref{Kind: locator.KindHTTP, Raw: "https://example.test/archive.tar"})
+	_, err := router.beginArchiveWriter(context.Background(), locator.Ref{Kind: locator.KindHTTP, Raw: "https://example.test/archive.tar"})
 	if err == nil || !strings.Contains(err.Error(), "source-only") {
 		t.Fatalf("openArchiveWriter() err = %v, want source-only error", err)
 	}
@@ -124,7 +124,7 @@ func TestStorageRouterReturnsConfiguredBackendErrors(t *testing.T) {
 
 	t.Run("s3 missing", func(t *testing.T) {
 		router := &storageRouter{}
-		_, err := router.openArchiveWriter(ctx, locator.Ref{Kind: locator.KindS3, Raw: "s3://bucket/key", Bucket: "bucket", Key: "key"})
+		_, err := router.beginArchiveWriter(ctx, locator.Ref{Kind: locator.KindS3, Raw: "s3://bucket/key", Bucket: "bucket", Key: "key"})
 		if err == nil || !strings.Contains(err.Error(), "s3 archive store is not configured") {
 			t.Fatalf("openArchiveWriter() err = %v", err)
 		}
@@ -208,7 +208,7 @@ func TestStorageRouterDelegatesS3Operations(t *testing.T) {
 		t.Fatalf("archiveReaderInfo = %+v", info)
 	}
 
-	if _, err := router.openArchiveWriter(ctx, locator.Ref{Kind: locator.KindS3, Raw: ref.Raw, Bucket: ref.Bucket, Key: ref.Key, Metadata: map[string]string{"k": "v"}}); err != nil {
+	if _, err := router.beginArchiveWriter(ctx, locator.Ref{Kind: locator.KindS3, Raw: ref.Raw, Bucket: ref.Bucket, Key: ref.Key, Metadata: map[string]string{"k": "v"}}); err != nil {
 		t.Fatalf("openArchiveWriter() error = %v", err)
 	}
 	stat, err := router.statS3Object(ctx, ref)

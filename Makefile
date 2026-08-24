@@ -1,4 +1,6 @@
-all: build lint fmt test
+.PHONY: all build install lint fmt fmt-check fix test unit-test integration-test e2e-test s3mock
+
+all: fmt-check build lint test
 
 build:
 	go build -o gotgz ./cmd/gotgz
@@ -12,6 +14,12 @@ lint:
 
 fmt:
 	gofmt -w -s .
+
+fmt-check:
+	test -z "$$(gofmt -l -s .)"
+	go fix -diff ./...
+
+fix:
 	go fix ./...
 
 test: integration-test e2e-test

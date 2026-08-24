@@ -34,7 +34,7 @@ func (r *Runner) openArchiveReader(ctx context.Context, ref locator.Ref) (io.Rea
 	return r.storage.openArchiveReader(ctx, ref)
 }
 
-// openArchiveWriter opens a write target for archive creation.
-func (r *Runner) openArchiveWriter(ctx context.Context, ref locator.Ref) (io.WriteCloser, error) {
-	return r.storage.openArchiveWriter(ctx, ref)
+// beginArchiveWriter opens an explicitly committed archive destination.
+func (r *Runner) beginArchiveWriter(ctx context.Context, ref locator.Ref) (archiveWriteSession, error) {
+	return r.storage.beginArchiveWriter(ctx, ref)
 }

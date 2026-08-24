@@ -14,6 +14,13 @@ type countingWriteCloser struct {
 	count int64
 }
 
+// nonClosingWriteCloser lets a format/compression layer finish without
+// committing or closing the transactional destination below it.
+type nonClosingWriteCloser struct{ io.Writer }
+
+func (w nonClosingWriteCloser) Write(p []byte) (int, error) { return w.Writer.Write(p) }
+func (nonClosingWriteCloser) Close() error                  { return nil }
+
 // Write forwards data and records how many bytes reached the destination.
 func (w *countingWriteCloser) Write(p []byte) (int, error) {
 	n, err := w.WriteCloser.Write(p)

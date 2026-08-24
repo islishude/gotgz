@@ -10,8 +10,8 @@ import (
 )
 
 // runCreateTar writes create-mode output in tar format.
-func (r *Runner) runCreateTar(ctx context.Context, opts cli.Options, archiveRef locator.Ref, reporter *archiveprogress.Reporter) (warnings int, retErr error) {
-	metadataPolicy := opts.ResolveMetadataPolicy()
+func (r *Runner) runCreateTar(ctx context.Context, opts cli.Options, archiveRef locator.Ref, reporter *archiveprogress.Reporter) (int, error) {
+	metadataPolicy, warnings := r.effectiveMetadataPolicy(opts, reporter)
 
 	input, err := r.prepareCreateInput(ctx, opts, archiveRef, reporter)
 	if err != nil {
@@ -22,13 +22,7 @@ func (r *Runner) runCreateTar(ctx context.Context, opts cli.Options, archiveRef 
 	if err != nil {
 		return 0, err
 	}
-	defer func() {
-		if cerr := tw.Close(); cerr != nil && retErr == nil {
-			retErr = cerr
-		}
-	}()
-
-	return input.source.Visit(
+	createWarnings, err := input.source.Visit(
 		ctx,
 		func(ref locator.Ref) error {
 			return r.addS3TarMember(ctx, tw, ref, opts.Verbose, reporter)
@@ -39,4 +33,13 @@ func (r *Runner) runCreateTar(ctx context.Context, opts cli.Options, archiveRef 
 			})
 		},
 	)
+	warnings += input.warnings + createWarnings
+	if err != nil {
+		_ = tw.Abort(err)
+		return warnings, err
+	}
+	if err := tw.Close(); err != nil {
+		return warnings, err
+	}
+	return warnings, nil
 }

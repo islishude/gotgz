@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/islishude/gotgz/packages/archiveutil"
 	"github.com/islishude/gotgz/packages/locator"
 )
 
@@ -187,7 +188,7 @@ func TestWithZipReaderUsesRemoteRangesForKnownS3Zip(t *testing.T) {
 		context.Background(),
 		locator.Ref{Kind: locator.KindS3, Raw: "s3://bucket/bundle.zip", Bucket: "bucket", Key: "bundle.zip"},
 		stream,
-		archiveReaderInfo{Size: int64(len(payload)), SizeKnown: true},
+		archiveReaderInfo{Size: int64(len(payload)), SizeKnown: true, Snapshot: archiveutil.Snapshot{Size: int64(len(payload)), ETag: `"etag"`}},
 		nil,
 		func(zr *zip.Reader) (int, error) {
 			if len(zr.File) != 1 || zr.File[0].Name != "file.txt" {
@@ -213,18 +214,20 @@ func TestWithZipReaderUsesRemoteRangesForKnownS3Zip(t *testing.T) {
 	}
 }
 
-// TestWithZipReaderFallsBackToStagingWhenRemoteRangesFail verifies that range
-// initialization failures still fall back to the existing temp-file path.
-func TestWithZipReaderFallsBackToStagingWhenRemoteRangesFail(t *testing.T) {
+// TestWithZipReaderStagesWhenRemoteSnapshotHasNoValidator verifies that a
+// mutable HTTP source is consumed from one response instead of unfenced ranges.
+func TestWithZipReaderStagesWhenRemoteSnapshotHasNoValidator(t *testing.T) {
 	payload := zipArchiveBytes(t, map[string]string{
 		"file.txt": "payload",
 	})
 	stream := &trackingReadCloser{Reader: bytes.NewReader(payload)}
+	rangeCalls := 0
 	runner := newRunner(
 		nil,
 		nil,
 		fakeHTTPZipArchiveStore{
 			openRange: func(_ context.Context, ref locator.Ref, offset int64, length int64) (io.ReadCloser, error) {
+				rangeCalls++
 				return nil, errors.New("range unsupported")
 			},
 		},
@@ -253,5 +256,8 @@ func TestWithZipReaderFallsBackToStagingWhenRemoteRangesFail(t *testing.T) {
 	}
 	if stream.readCalls == 0 {
 		t.Fatal("expected staging fallback to read the original stream")
+	}
+	if rangeCalls != 0 {
+		t.Fatalf("range calls = %d, want 0 without a snapshot validator", rangeCalls)
 	}
 }

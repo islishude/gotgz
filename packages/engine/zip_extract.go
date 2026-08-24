@@ -12,7 +12,7 @@ import (
 )
 
 // runExtractZip extracts archive members from a zip input stream.
-func (r *Runner) runExtractZip(ctx context.Context, opts cli.Options, reporter *archiveprogress.Reporter, archiveRef locator.Ref, ar io.ReadCloser, info archiveReaderInfo) (int, error) {
+func (r *Runner) runExtractZip(ctx context.Context, opts cli.Options, reporter *archiveprogress.Reporter, archiveRef locator.Ref, ar io.ReadCloser, info archiveReaderInfo, excludeMatcher *archivepath.CompiledPathMatcher) (int, error) {
 	policy := opts.ResolvePermissionPolicy()
 	warnings := r.warnZipReadOptions(opts, reporter)
 	memberMatcher := archivepath.NewMemberMatcher(opts.Members, opts.Wildcards)
@@ -24,15 +24,15 @@ func (r *Runner) runExtractZip(ctx context.Context, opts cli.Options, reporter *
 	if opts.ToStdout {
 		if len(volumes) == 1 {
 			zipWarnings, err := r.withZipReader(ctx, archiveRef, ar, info, nil, func(zr *zip.Reader) (int, error) {
-				reporter.SetTotal(matchingZipStdoutPayloadBytes(zr, memberMatcher, opts), true)
-				return r.extractZipToStdout(ctx, zr, memberMatcher, opts, reporter)
+				reporter.SetTotal(matchingZipStdoutPayloadBytes(zr, memberMatcher, excludeMatcher, opts), true)
+				return r.extractZipToStdout(ctx, zr, memberMatcher, excludeMatcher, opts, reporter)
 			})
 			return warnings + zipWarnings, err
 		}
 
 		zipWarnings, err := r.forEachArchiveVolume(ctx, volumes, ar, info, func(ref locator.Ref, reader io.ReadCloser, readerInfo archiveReaderInfo) (int, error) {
 			return r.withZipReader(ctx, ref, reader, readerInfo, nil, func(zr *zip.Reader) (int, error) {
-				return r.extractZipToStdout(ctx, zr, memberMatcher, opts, reporter)
+				return r.extractZipToStdout(ctx, zr, memberMatcher, excludeMatcher, opts, reporter)
 			})
 		})
 		return warnings + zipWarnings, err
@@ -47,28 +47,30 @@ func (r *Runner) runExtractZip(ctx context.Context, opts cli.Options, reporter *
 		target = "."
 	}
 	var safetyCache *archivepath.PathSafetyCache
+	var metadataSession *localMetadataSession
 	if parsedTarget.Kind == locator.KindLocal || parsedTarget.Kind == locator.KindStdio {
 		safetyCache = archivepath.NewPathSafetyCache()
+		metadataSession = newLocalMetadataSession(r, reporter)
 	}
 
 	if len(volumes) == 1 {
 		zipWarnings, err := r.withZipReader(ctx, archiveRef, ar, info, nil, func(zr *zip.Reader) (int, error) {
-			reporter.SetTotal(matchingZipExtractPayloadBytes(zr, memberMatcher, opts.StripComponents), true)
-			return r.extractZipEntries(ctx, zr, opts, reporter, parsedTarget, target, policy, safetyCache, memberMatcher)
+			reporter.SetTotal(matchingZipExtractPayloadBytes(zr, memberMatcher, excludeMatcher, opts.StripComponents), true)
+			return r.extractZipEntries(ctx, zr, opts, reporter, parsedTarget, target, policy, safetyCache, metadataSession, memberMatcher, excludeMatcher)
 		})
-		return warnings + zipWarnings, err
+		return warnings + zipWarnings + metadataSession.finish(), err
 	}
 
 	zipWarnings, err := r.forEachArchiveVolume(ctx, volumes, ar, info, func(ref locator.Ref, reader io.ReadCloser, readerInfo archiveReaderInfo) (int, error) {
 		return r.withZipReader(ctx, ref, reader, readerInfo, nil, func(zr *zip.Reader) (int, error) {
-			return r.extractZipEntries(ctx, zr, opts, reporter, parsedTarget, target, policy, safetyCache, memberMatcher)
+			return r.extractZipEntries(ctx, zr, opts, reporter, parsedTarget, target, policy, safetyCache, metadataSession, memberMatcher, excludeMatcher)
 		})
 	})
-	return warnings + zipWarnings, err
+	return warnings + zipWarnings + metadataSession.finish(), err
 }
 
 // extractZipEntries extracts matching members from one zip reader into the configured target.
-func (r *Runner) extractZipEntries(ctx context.Context, zr *zip.Reader, opts cli.Options, reporter *archiveprogress.Reporter, parsedTarget locator.Ref, target string, policy PermissionPolicy, safetyCache *archivepath.PathSafetyCache, memberMatcher *archivepath.CompiledPathMatcher) (int, error) {
+func (r *Runner) extractZipEntries(ctx context.Context, zr *zip.Reader, opts cli.Options, reporter *archiveprogress.Reporter, parsedTarget locator.Ref, target string, policy PermissionPolicy, safetyCache *archivepath.PathSafetyCache, metadataSession *localMetadataSession, memberMatcher, excludeMatcher *archivepath.CompiledPathMatcher) (int, error) {
 	warnings := 0
 	for _, zf := range zr.File {
 		select {
@@ -76,7 +78,7 @@ func (r *Runner) extractZipEntries(ctx context.Context, zr *zip.Reader, opts cli
 			return warnings, ctx.Err()
 		default:
 		}
-		if archivepath.ShouldSkipMemberWithMatcher(memberMatcher, zf.Name) {
+		if shouldSkipReadMember(memberMatcher, excludeMatcher, zf.Name) {
 			continue
 		}
 		extractName, ok := archivepath.StripPathComponents(zf.Name, opts.StripComponents)
@@ -94,7 +96,7 @@ func (r *Runner) extractZipEntries(ctx context.Context, zr *zip.Reader, opts cli
 				return r.extractZipEntryToS3(ctx, target, zf, extractName, reporter)
 			},
 			func(base string) (int, error) {
-				return r.extractZipEntryToLocal(ctx, base, zf, extractName, policy, safetyCache, reporter)
+				return r.extractZipEntryToLocal(ctx, base, zf, extractName, policy, safetyCache, metadataSession, reporter)
 			},
 		)
 		warnings += w

@@ -18,6 +18,9 @@ func mergeArchiveReaderInfo(base archiveReaderInfo, runtime archiveReaderInfo) a
 	if runtime.ContentType != "" {
 		out.ContentType = runtime.ContentType
 	}
+	if runtime.Snapshot.ETag != "" || runtime.Snapshot.VersionID != "" || runtime.Snapshot.LastModified != "" || runtime.Snapshot.URL != "" {
+		out.Snapshot = runtime.Snapshot
+	}
 	return out
 }
 

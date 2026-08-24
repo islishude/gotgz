@@ -44,21 +44,27 @@ type archiveReaderInfo struct {
 	Size        int64
 	SizeKnown   bool
 	ContentType string
+	Snapshot    archiveutil.Snapshot
 }
 
 // New creates a Runner with all supported storage backends initialized.
 func New(ctx context.Context, stdout io.Writer, stderr io.Writer) (*Runner, error) {
-	s3s, err := s3store.New(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("init s3: %w", err)
-	}
-	return newRunner(
-		&localstore.ArchiveStore{},
-		s3s,
-		httpstore.New(),
-		stdout,
-		stderr,
-	), nil
+	_ = ctx
+	return &Runner{
+		storage: newStorageRouterWithS3Factory(
+			&localstore.ArchiveStore{},
+			func(initCtx context.Context) (s3ArchiveStore, error) {
+				store, err := s3store.New(initCtx)
+				if err != nil {
+					return nil, fmt.Errorf("init s3: %w", err)
+				}
+				return store, nil
+			},
+			httpstore.New(),
+		),
+		stdout: stdout,
+		stderr: stderr,
+	}, nil
 }
 
 // newRunner wires a Runner from injected storage backends.
@@ -124,7 +130,16 @@ func classifyResult(err error, warnings int) RunResult {
 
 // runCreate dispatches create mode to the archive-format specific implementation.
 func (r *Runner) runCreate(ctx context.Context, opts cli.Options, reporter *archiveprogress.Reporter) (warnings int, retErr error) {
-	archiveRef, err := locator.ParseArchive(opts.Archive)
+	resolvedOpts, err := cli.ResolveCreateArchiveOutput(opts)
+	if err != nil {
+		return 0, err
+	}
+	opts = resolvedOpts
+	archiveName := opts.ResolvedArchive
+	if archiveName == "" {
+		archiveName = opts.Archive
+	}
+	archiveRef, err := locator.ParseArchive(archiveName)
 	if err != nil {
 		return 0, err
 	}
@@ -137,12 +152,16 @@ func (r *Runner) runCreate(ctx context.Context, opts cli.Options, reporter *arch
 	case archiveutil.ArchiveFormatTar:
 		return r.runCreateTar(ctx, opts, archiveRef, reporter)
 	default:
-		return 0, fmt.Errorf("cannot determine archive format for %q; consider using -suffix", opts.Archive)
+		return 0, fmt.Errorf("cannot determine archive format for %q; consider using -suffix", archiveName)
 	}
 }
 
 // runList dispatches list mode to tar or zip readers based on archive format.
 func (r *Runner) runList(ctx context.Context, opts cli.Options, reporter *archiveprogress.Reporter) (int, error) {
+	excludeMatcher, err := loadReadExcludeMatcher(opts)
+	if err != nil {
+		return 0, err
+	}
 	ref, ar, info, magic, err := r.openArchiveForRead(ctx, opts.Archive)
 	if err != nil {
 		return 0, err
@@ -151,9 +170,9 @@ func (r *Runner) runList(ctx context.Context, opts cli.Options, reporter *archiv
 
 	switch archiveutil.DetectReadArchiveFormat(magic, archiveutil.NameHint(ref), info.ContentType) {
 	case archiveutil.ArchiveFormatZip:
-		return r.runListZip(ctx, opts, reporter, ref, ar, info)
+		return r.runListZip(ctx, opts, reporter, ref, ar, info, excludeMatcher)
 	case archiveutil.ArchiveFormatTar:
-		return r.runListTar(ctx, opts, reporter, ref, ar, info)
+		return r.runListTar(ctx, opts, reporter, ref, ar, info, excludeMatcher)
 	default:
 		return 0, fmt.Errorf("cannot determine archive format for %q; consider using -suffix", opts.Archive)
 	}
@@ -161,6 +180,10 @@ func (r *Runner) runList(ctx context.Context, opts cli.Options, reporter *archiv
 
 // runExtract dispatches extract mode to tar or zip readers based on archive format.
 func (r *Runner) runExtract(ctx context.Context, opts cli.Options, reporter *archiveprogress.Reporter) (int, error) {
+	excludeMatcher, err := loadReadExcludeMatcher(opts)
+	if err != nil {
+		return 0, err
+	}
 	ref, ar, info, magic, err := r.openArchiveForRead(ctx, opts.Archive)
 	if err != nil {
 		return 0, err
@@ -169,9 +192,9 @@ func (r *Runner) runExtract(ctx context.Context, opts cli.Options, reporter *arc
 
 	switch archiveutil.DetectReadArchiveFormat(magic, archiveutil.NameHint(ref), info.ContentType) {
 	case archiveutil.ArchiveFormatZip:
-		return r.runExtractZip(ctx, opts, reporter, ref, ar, info)
+		return r.runExtractZip(ctx, opts, reporter, ref, ar, info, excludeMatcher)
 	case archiveutil.ArchiveFormatTar:
-		return r.runExtractTar(ctx, opts, reporter, ref, ar, info)
+		return r.runExtractTar(ctx, opts, reporter, ref, ar, info, excludeMatcher)
 	default:
 		return 0, fmt.Errorf("cannot determine archive format for %q; consider using -suffix", opts.Archive)
 	}

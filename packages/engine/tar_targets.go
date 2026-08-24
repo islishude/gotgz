@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
-	"os"
 	"strings"
 
 	"github.com/islishude/gotgz/packages/archive"
@@ -57,13 +56,13 @@ func (r *Runner) extractToS3(ctx context.Context, target locator.Ref, hdr *tar.H
 }
 
 // extractToLocal writes one tar entry under base according to extraction policy.
-func (r *Runner) extractToLocal(ctx context.Context, base string, hdr *tar.Header, tr *tar.Reader, policy PermissionPolicy, metadataPolicy MetadataPolicy, safetyCache *archivepath.PathSafetyCache, reporter *archiveprogress.Reporter) (int, error) {
+func (r *Runner) extractToLocal(ctx context.Context, base string, hdr *tar.Header, tr *tar.Reader, policy PermissionPolicy, metadataPolicy MetadataPolicy, safetyCache *archivepath.PathSafetyCache, metadataSession *localMetadataSession, reporter *archiveprogress.Reporter) (int, error) {
 	target, err := archivepath.SafeJoin(base, hdr.Name)
 	if err != nil {
 		return 0, err
 	}
 	mode := fs.FileMode(hdr.Mode)
-	extractPerm := computeExtractPerm(mode, 0, policy.SamePerms)
+	extractPerm := computeExtractPerm(mode, 0, policy.SamePerms, policy.Umask)
 	warnings := 0
 
 	switch hdr.Typeflag {
@@ -90,17 +89,26 @@ func (r *Runner) extractToLocal(ctx context.Context, base string, hdr *tar.Heade
 		return warnings, nil
 	}
 
-	applyLocalExtractMetadata(target, mode, hdr.ModTime, policy.SamePerms, hdr.Typeflag == tar.TypeSymlink)
-	if policy.SameOwner {
-		_ = os.Lchown(target, hdr.Uid, hdr.Gid)
-	}
-
 	xattrs, acls, err := decodeMetadataForExtract(hdr, metadataPolicy)
 	if err != nil {
 		warnings += r.warnf(reporter, "extract: metadata for %s is malformed: %v", hdr.Name, err)
 	}
-	if err := archive.WritePathMetadata(target, xattrs, acls); err != nil {
-		warnings += r.warnf(reporter, "extract: metadata for %s could not be fully restored: %v", hdr.Name, err)
+	record := localMetadataRecord{
+		target:       target,
+		archiveName:  hdr.Name,
+		perm:         extractPerm,
+		modTime:      hdr.ModTime,
+		uid:          hdr.Uid,
+		gid:          hdr.Gid,
+		restoreOwner: policy.SameOwner,
+		isSymlink:    hdr.Typeflag == tar.TypeSymlink,
+		xattrs:       xattrs,
+		acls:         acls,
+	}
+	if hdr.Typeflag == tar.TypeDir {
+		metadataSession.queueDirectory(record)
+	} else {
+		warnings += metadataSession.apply(record)
 	}
 	return warnings, nil
 }

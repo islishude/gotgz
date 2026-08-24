@@ -15,6 +15,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/feature/s3/transfermanager"
 	awss3 "github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/islishude/gotgz/packages/archiveutil"
 	"github.com/islishude/gotgz/packages/locator"
 )
 
@@ -122,6 +123,9 @@ func TestOpenReaderUsesTransferManagerRanges(t *testing.T) {
 	}
 	if meta.ContentType != contentType {
 		t.Fatalf("metadata content type = %q, want %q", meta.ContentType, contentType)
+	}
+	if meta.ETag != "etag" {
+		t.Fatalf("metadata ETag = %q, want etag", meta.ETag)
 	}
 
 	wantRanges := expectedByteRanges(len(payload), 5)
@@ -306,6 +310,36 @@ func TestOpenRangeReaderRejectsOverflow(t *testing.T) {
 	}
 	if got := err.Error(); got != "range end overflows int64 for offset 9223372036854775807 and length 2" {
 		t.Fatalf("OpenRangeReader() error = %q, want overflow error", got)
+	}
+}
+
+func TestOpenRangeReaderSnapshotUsesVersionOrETagFence(t *testing.T) {
+	tests := []struct {
+		name        string
+		snapshot    archiveutil.Snapshot
+		wantVersion string
+		wantETag    string
+	}{
+		{name: "version wins", snapshot: archiveutil.Snapshot{VersionID: "version-1", ETag: `"etag"`}, wantVersion: "version-1"},
+		{name: "etag fallback", snapshot: archiveutil.Snapshot{ETag: `"etag"`}, wantETag: `"etag"`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			store := &Store{rangeClient: &fakeTransferS3Client{getObjectFn: func(_ context.Context, input *awss3.GetObjectInput, _ ...func(*awss3.Options)) (*awss3.GetObjectOutput, error) {
+				if got := aws.ToString(input.VersionId); got != tt.wantVersion {
+					t.Fatalf("VersionId = %q, want %q", got, tt.wantVersion)
+				}
+				if got := aws.ToString(input.IfMatch); got != tt.wantETag {
+					t.Fatalf("IfMatch = %q, want %q", got, tt.wantETag)
+				}
+				return &awss3.GetObjectOutput{Body: io.NopCloser(strings.NewReader("data"))}, nil
+			}}}
+			rc, err := store.OpenRangeReaderSnapshot(context.Background(), locator.Ref{Kind: locator.KindS3, Bucket: "bucket", Key: "key"}, 0, 4, tt.snapshot)
+			if err != nil {
+				t.Fatalf("OpenRangeReaderSnapshot() error = %v", err)
+			}
+			defer rc.Close() //nolint:errcheck
+		})
 	}
 }
 

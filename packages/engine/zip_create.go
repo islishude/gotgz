@@ -10,8 +10,8 @@ import (
 )
 
 // runCreateZip writes create-mode output in zip format.
-func (r *Runner) runCreateZip(ctx context.Context, opts cli.Options, archiveRef locator.Ref, reporter *archiveprogress.Reporter) (warnings int, retErr error) {
-	warnings += r.warnZipCreateOptions(opts, reporter)
+func (r *Runner) runCreateZip(ctx context.Context, opts cli.Options, archiveRef locator.Ref, reporter *archiveprogress.Reporter) (int, error) {
+	warnings := r.warnZipCreateOptions(opts, reporter)
 
 	input, err := r.prepareCreateInput(ctx, opts, archiveRef, reporter)
 	if err != nil {
@@ -22,12 +22,6 @@ func (r *Runner) runCreateZip(ctx context.Context, opts cli.Options, archiveRef 
 	if err != nil {
 		return warnings, err
 	}
-	defer func() {
-		if cerr := zw.Close(); cerr != nil && retErr == nil {
-			retErr = cerr
-		}
-	}()
-
 	createWarnings, err := input.source.Visit(
 		ctx,
 		func(ref locator.Ref) error {
@@ -39,5 +33,13 @@ func (r *Runner) runCreateZip(ctx context.Context, opts cli.Options, archiveRef 
 			})
 		},
 	)
-	return warnings + createWarnings, err
+	warnings += input.warnings + createWarnings
+	if err != nil {
+		_ = zw.Abort(err)
+		return warnings, err
+	}
+	if err := zw.Close(); err != nil {
+		return warnings, err
+	}
+	return warnings, nil
 }

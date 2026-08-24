@@ -14,16 +14,17 @@ import (
 type preparedCreateInput struct {
 	archiveRef locator.Ref
 	source     createInputSource
+	warnings   int
 }
 
 // prepareCreateInput resolves create-mode archive settings, loads excludes, and
 // prepares the input source before format-specific writing begins.
 func (r *Runner) prepareCreateInput(ctx context.Context, opts cli.Options, archiveRef locator.Ref, reporter *archiveprogress.Reporter) (preparedCreateInput, error) {
-	resolvedArchiveRef, err := archiveRef.WithArchiveSuffix(opts.Suffix)
-	if err != nil {
-		return preparedCreateInput{}, err
+	if opts.Wildcards {
+		if err := archivepath.ValidateGlobPatterns(opts.Members); err != nil {
+			return preparedCreateInput{}, err
+		}
 	}
-
 	excludes, err := archivepath.LoadExcludePatterns(opts.Exclude, opts.ExcludeFrom)
 	if err != nil {
 		return preparedCreateInput{}, err
@@ -35,9 +36,14 @@ func (r *Runner) prepareCreateInput(ctx context.Context, opts cli.Options, archi
 		return preparedCreateInput{}, err
 	}
 	reporter.SetTotal(source.Total())
+	warnings := 0
+	if planned, ok := source.(plannedCreateInputSource); ok && planned.plan.outputSkipped {
+		warnings += r.warnf(reporter, "create: archive output inside an input tree was skipped")
+	}
 
 	return preparedCreateInput{
-		archiveRef: resolvedArchiveRef,
+		archiveRef: archiveRef,
 		source:     source,
+		warnings:   warnings,
 	}, nil
 }

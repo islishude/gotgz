@@ -4,19 +4,20 @@ import (
 	"archive/tar"
 	"errors"
 	"fmt"
-	"strings"
 
 	"github.com/islishude/gotgz/packages/archive"
+	"github.com/islishude/gotgz/packages/archiveprogress"
+	"github.com/islishude/gotgz/packages/cli"
 )
 
-// filterACLLikeXattrs removes xattrs that appear to contain ACL payloads.
-func filterACLLikeXattrs(attrs map[string][]byte) map[string][]byte {
+// filterACLXattrs removes only the exact ACL xattrs recognized by gotgz.
+func filterACLXattrs(attrs map[string][]byte) map[string][]byte {
 	if len(attrs) == 0 {
 		return attrs
 	}
 	out := make(map[string][]byte, len(attrs))
 	for k, v := range attrs {
-		if strings.Contains(strings.ToLower(k), "acl") {
+		if archive.IsACLMetadataName(k) {
 			continue
 		}
 		out[k] = v
@@ -24,12 +25,26 @@ func filterACLLikeXattrs(attrs map[string][]byte) map[string][]byte {
 	return out
 }
 
+func (r *Runner) effectiveMetadataPolicy(opts cli.Options, reporter *archiveprogress.Reporter) (MetadataPolicy, int) {
+	policy := opts.ResolveMetadataPolicy()
+	warnings := 0
+	if policy.Xattrs && !archive.XattrsSupported() {
+		warnings += r.warnf(reporter, "--xattrs is not supported on this platform and will be ignored")
+		policy.Xattrs = false
+	}
+	if policy.ACL && !archive.ACLSupported() {
+		warnings += r.warnf(reporter, "--acl is only supported on Linux and will be ignored")
+		policy.ACL = false
+	}
+	return policy, warnings
+}
+
 // prepareMetadataForArchive filters metadata before storing it in archive headers.
 func prepareMetadataForArchive(xattrs map[string][]byte, acls map[string][]byte, policy MetadataPolicy) (map[string][]byte, map[string][]byte) {
 	if !policy.Xattrs {
 		xattrs = nil
 	} else if !policy.ACL {
-		xattrs = filterACLLikeXattrs(xattrs)
+		xattrs = filterACLXattrs(xattrs)
 	}
 	if !policy.ACL {
 		acls = nil
@@ -47,7 +62,7 @@ func decodeMetadataForExtract(hdr *tar.Header, policy MetadataPolicy) (map[strin
 		if err != nil {
 			errs = append(errs, fmt.Errorf("decode xattrs: %w", err))
 		} else if !policy.ACL {
-			xattrs = filterACLLikeXattrs(xattrs)
+			xattrs = filterACLXattrs(xattrs)
 		}
 	}
 

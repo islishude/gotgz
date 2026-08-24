@@ -48,6 +48,9 @@ func (r *Runner) writeLocalTarRecord(ctx context.Context, tw tarArchiveWriter, r
 		if err != nil {
 			return 0, err
 		}
+		if err := validateCreateSymlinkTarget(record.archiveName, resolvedLink); err != nil {
+			return 0, err
+		}
 		linkname = resolvedLink
 	}
 

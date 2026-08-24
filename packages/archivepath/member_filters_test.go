@@ -55,6 +55,48 @@ func TestMatchExcludeWithMatcher(t *testing.T) {
 	}
 }
 
+func TestExactMemberMatchesDirectorySubtree(t *testing.T) {
+	matcher := NewMemberMatcher([]string{"./src/"}, false)
+	for _, name := range []string{"src", "src/file.txt", "src/nested/file.txt"} {
+		if ShouldSkipMemberWithMatcher(matcher, name) {
+			t.Fatalf("member %q should match src subtree", name)
+		}
+	}
+	if !ShouldSkipMemberWithMatcher(matcher, "other/file.txt") {
+		t.Fatal("unrelated subtree should be skipped")
+	}
+}
+
+func TestArchiveGlobBasenameAndRecursiveSemantics(t *testing.T) {
+	basename := NewCompiledPathMatcher([]string{"*.log"})
+	if !basename.Matches("src/nested/app.log") {
+		t.Fatal("basename glob should match at any depth")
+	}
+	if basename.Matches("src/nested/app.txt") {
+		t.Fatal("basename glob should not match another extension")
+	}
+	exactBasename := NewCompiledPathMatcher([]string{"node_modules"})
+	if !exactBasename.Matches("src/node_modules/pkg/index.js") {
+		t.Fatal("exact pattern without slash should match a basename subtree at any depth")
+	}
+
+	recursive := NewCompiledPathMatcher([]string{"src/**/test?.go"})
+	for _, name := range []string{"src/test1.go", "src/a/test2.go", "src/a/b/test3.go"} {
+		if !recursive.Matches(name) {
+			t.Fatalf("recursive glob should match %q", name)
+		}
+	}
+	if recursive.Matches("other/test1.go") {
+		t.Fatal("recursive glob should stay anchored to src")
+	}
+}
+
+func TestValidateGlobPatternsRejectsInvalidMemberPattern(t *testing.T) {
+	if err := ValidateGlobPatterns([]string{"src/["}); err == nil {
+		t.Fatal("ValidateGlobPatterns() error = nil, want invalid pattern")
+	}
+}
+
 func TestLoadExcludePatterns(t *testing.T) {
 	tmpDir := t.TempDir()
 	patternsFile := filepath.Join(tmpDir, "exclude.txt")

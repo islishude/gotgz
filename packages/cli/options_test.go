@@ -5,6 +5,9 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/islishude/gotgz/packages/locator"
 )
 
 func TestParseShortBundle(t *testing.T) {
@@ -158,7 +161,7 @@ func TestParseShortCompressionFlags(t *testing.T) {
 
 func TestParseLongOptions(t *testing.T) {
 	opts, err := Parse([]string{
-		"-x", "-f", "in.tar", "--exclude=*.tmp", "--exclude-from", "ex.txt", "--wildcards", "--numeric-owner", "--no-same-owner", "--same-permissions", "--lz4", "--strip-components=1", "--compression-level=9", "--suffix=custom", "--s3-cache-control=max-age=3600,public", "--s3-tag=team=archive", "--acl", "--xattrs", "--progress",
+		"-x", "-f", "in.tar", "--exclude=*.tmp", "--exclude-from", "ex.txt", "--wildcards", "--numeric-owner", "--no-same-owner", "--same-permissions", "--lz4", "--strip-components=1", "--compression-level=9", "--s3-cache-control=max-age=3600,public", "--s3-tag=team=archive", "--acl", "--xattrs", "--progress",
 	})
 	if err != nil {
 		t.Fatalf("Parse() error = %v", err)
@@ -183,9 +186,6 @@ func TestParseLongOptions(t *testing.T) {
 	}
 	if opts.CompressionLevel == nil || *opts.CompressionLevel != 9 {
 		t.Fatalf("compression-level = %v, want 9", opts.CompressionLevel)
-	}
-	if opts.Suffix != "custom" {
-		t.Fatalf("suffix = %q, want %q", opts.Suffix, "custom")
 	}
 	if opts.S3CacheControl != "max-age=3600,public" {
 		t.Fatalf("s3-cache-control = %q, want %q", opts.S3CacheControl, "max-age=3600,public")
@@ -598,6 +598,51 @@ func TestParseSuffixAllowsNonReservedSplitText(t *testing.T) {
 	}
 }
 
+func TestParseSuffixDeterminesFinalArchiveFormat(t *testing.T) {
+	tests := []struct {
+		name        string
+		suffix      string
+		wantArchive string
+		want        CompressionHint
+	}{
+		{name: "gzip suffix", suffix: "backup.gz", wantArchive: "out-backup.gz", want: CompressionGzip},
+		{name: "zip suffix", suffix: "backup.zip", wantArchive: "out-backup.zip", want: CompressionAuto},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			opts, err := Parse([]string{"-c", "-f", "out", "--suffix", tt.suffix, "input"})
+			if err != nil {
+				t.Fatalf("Parse() error = %v", err)
+			}
+			if opts.ResolvedArchive != tt.wantArchive || opts.Compression != tt.want {
+				t.Fatalf("resolved archive=%q compression=%q, want %q and %q", opts.ResolvedArchive, opts.Compression, tt.wantArchive, tt.want)
+			}
+		})
+	}
+}
+
+func TestResolveCreateArchiveOutputAtResolvesDateOnce(t *testing.T) {
+	ref, err := locator.ParseArchive("out.tar.gz")
+	if err != nil {
+		t.Fatalf("ParseArchive() error = %v", err)
+	}
+	opts, _, err := resolveCreateArchiveOutputAt(Options{Mode: ModeCreate, Archive: "out.tar.gz", Suffix: "date", Compression: CompressionAuto}, ref, time.Date(2026, 8, 24, 23, 59, 59, 0, time.UTC))
+	if err != nil {
+		t.Fatalf("resolveCreateArchiveOutputAt() error = %v", err)
+	}
+	if opts.ResolvedArchive != "out-20260824.tar.gz" {
+		t.Fatalf("ResolvedArchive = %q, want out-20260824.tar.gz", opts.ResolvedArchive)
+	}
+}
+
+func TestParseRejectsUnsafeSuffix(t *testing.T) {
+	for _, suffix := range []string{"../escape", `dir\\name`, "bad\x00name"} {
+		if _, err := Parse([]string{"-c", "-f", "out.tar", "--suffix", suffix, "input"}); err == nil {
+			t.Fatalf("Parse() suffix %q error = nil", suffix)
+		}
+	}
+}
+
 func TestParseHelpShort(t *testing.T) {
 	opts, err := Parse([]string{"-h"})
 	if err != nil {
@@ -753,7 +798,7 @@ func TestParseCompressionLevelInvalid(t *testing.T) {
 }
 
 func TestParseSuffixSingleDash(t *testing.T) {
-	opts, err := Parse([]string{"-x", "-f", "in.tar", "-suffix=date"})
+	opts, err := Parse([]string{"-c", "-f", "out.tar", "-suffix=date", "input"})
 	if err != nil {
 		t.Fatalf("Parse() error = %v", err)
 	}

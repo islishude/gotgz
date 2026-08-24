@@ -61,6 +61,17 @@ func (r *Runner) writeLocalZipRecord(ctx context.Context, zw zipArchiveWriter, r
 	hdr.Modified = st.ModTime()
 	hdr.SetMode(mode)
 
+	linkTarget := ""
+	if isSymlink {
+		linkTarget, err = os.Readlink(record.current)
+		if err != nil {
+			return 0, err
+		}
+		if err := validateCreateSymlinkTarget(record.archiveName, linkTarget); err != nil {
+			return 0, err
+		}
+	}
+
 	w, err := zw.CreateHeader(hdr)
 	if err != nil {
 		return 0, err
@@ -68,10 +79,6 @@ func (r *Runner) writeLocalZipRecord(ctx context.Context, zw zipArchiveWriter, r
 	switch {
 	case isDir:
 	case isSymlink:
-		linkTarget, err := os.Readlink(record.current)
-		if err != nil {
-			return 0, err
-		}
 		if _, err := io.WriteString(w, linkTarget); err != nil {
 			return 0, err
 		}

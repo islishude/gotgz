@@ -99,9 +99,12 @@ func (r *Runner) tryRemoteZipReader(ctx context.Context, archiveRef locator.Ref,
 	if archiveRef.Kind != locator.KindS3 && archiveRef.Kind != locator.KindHTTP {
 		return nil, nil
 	}
+	if !info.Snapshot.SupportsRangeFencing(archiveRef.Kind == locator.KindS3) {
+		return nil, nil
+	}
 
 	readerAt := newRemoteZipReaderAt(ctx, info.Size, defaultRemoteZipReadBlockSize, func(ctx context.Context, offset int64, length int64) (io.ReadCloser, error) {
-		rc, err := r.storage.openZipRangeReader(ctx, archiveRef, offset, length)
+		rc, err := r.storage.openZipRangeReader(ctx, archiveRef, offset, length, info.Snapshot)
 		if err != nil {
 			return nil, err
 		}

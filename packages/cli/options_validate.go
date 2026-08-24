@@ -3,6 +3,8 @@ package cli
 import (
 	"fmt"
 	"regexp"
+	"strings"
+	"time"
 
 	"github.com/islishude/gotgz/packages/archivepath"
 	"github.com/islishude/gotgz/packages/archiveutil"
@@ -35,8 +37,18 @@ func finalizeOptions(opts Options) (Options, error) {
 
 // validateOptions performs cross-field validation after flag parsing.
 func validateOptions(opts Options) (Options, error) {
-	if opts.Suffix != "" && reservedSplitSuffixPattern.MatchString(opts.Suffix) {
-		return opts, fmt.Errorf("option --suffix cannot use reserved split name %q", opts.Suffix)
+	if opts.Wildcards {
+		if err := archivepath.ValidateGlobPatterns(opts.Members); err != nil {
+			return opts, err
+		}
+	}
+	if opts.Suffix != "" {
+		if opts.Mode != ModeCreate {
+			return opts, fmt.Errorf("option --suffix is only supported in create mode")
+		}
+		if err := validateSuffix(opts.Suffix); err != nil {
+			return opts, err
+		}
 	}
 	if opts.Mode == ModeNone || opts.Archive == "" {
 		return opts, nil
@@ -47,28 +59,98 @@ func validateOptions(opts Options) (Options, error) {
 		return opts, err
 	}
 	if opts.Mode == ModeCreate {
-		opts, err = normalizeCreateArchiveOutput(opts, ref)
+		opts, ref, err = resolveCreateArchiveOutputAt(opts, ref, time.Now())
 		if err != nil {
 			return opts, err
 		}
 	}
-	if opts.SplitSizeBytes <= 0 {
+	return opts, validateResolvedSplit(opts, ref)
+}
+
+// ResolveCreateArchiveOutput resolves a programmatically constructed create
+// option set before engine opens its destination.
+func ResolveCreateArchiveOutput(opts Options) (Options, error) {
+	if opts.Mode != ModeCreate {
 		return opts, nil
 	}
+	if opts.Compression == "" {
+		opts.Compression = CompressionAuto
+	}
+	if opts.ResolvedArchive != "" {
+		ref, err := locator.ParseArchive(opts.ResolvedArchive)
+		if err != nil {
+			return opts, err
+		}
+		opts, err = normalizeCreateArchiveOutput(opts, ref)
+		if err != nil {
+			return opts, err
+		}
+		return opts, validateResolvedSplit(opts, ref)
+	}
+	ref, err := locator.ParseArchive(opts.Archive)
+	if err != nil {
+		return opts, err
+	}
+	resolved, resolvedRef, err := resolveCreateArchiveOutputAt(opts, ref, time.Now())
+	if err != nil {
+		return resolved, err
+	}
+	return resolved, validateResolvedSplit(resolved, resolvedRef)
+}
+
+func validateResolvedSplit(opts Options, ref locator.Ref) error {
+	if opts.SplitSizeBytes <= 0 {
+		return nil
+	}
 	if opts.Mode != ModeCreate {
-		return opts, fmt.Errorf("option --split-size is only supported in create mode")
+		return fmt.Errorf("option --split-size is only supported in create mode")
 	}
 	if ref.Kind == locator.KindStdio {
-		return opts, fmt.Errorf("option --split-size does not support -f -")
+		return fmt.Errorf("option --split-size does not support -f -")
 	}
-	switch opts.Compression {
-	case CompressionXz:
-		return opts, fmt.Errorf("option --split-size does not support %s compression", opts.Compression)
+	if opts.Compression == CompressionXz {
+		return fmt.Errorf("option --split-size does not support %s compression", opts.Compression)
 	}
 	if _, ok := archivepath.ParseSplit(archiveutil.NameHint(ref)); ok {
-		return opts, fmt.Errorf("option --split-size cannot use an archive name that already contains .partNNNN")
+		return fmt.Errorf("option --split-size cannot use an archive name that already contains .partNNNN")
 	}
-	return opts, nil
+	return nil
+}
+
+// resolveCreateArchiveOutputAt applies suffix exactly once and normalizes the
+// output format using the final destination name.
+func resolveCreateArchiveOutputAt(opts Options, ref locator.Ref, now time.Time) (Options, locator.Ref, error) {
+	if ref.Kind == locator.KindHTTP {
+		return opts, ref, fmt.Errorf("unsupported archive target %q: http(s) archives are source-only", ref.Raw)
+	}
+	if opts.Compression == "" {
+		opts.Compression = CompressionAuto
+	}
+	if opts.Suffix != "" {
+		if err := validateSuffix(opts.Suffix); err != nil {
+			return opts, ref, err
+		}
+		resolvedName := archivepath.AddSuffixAt(archiveutil.NameHint(ref), opts.Suffix, now)
+		var err error
+		ref, err = ref.WithArchiveName(resolvedName)
+		if err != nil {
+			return opts, ref, err
+		}
+	}
+	opts.ResolvedArchive = ref.Raw
+	var err error
+	opts, err = normalizeCreateArchiveOutput(opts, ref)
+	return opts, ref, err
+}
+
+func validateSuffix(suffix string) error {
+	if suffix == "." || suffix == ".." || strings.ContainsAny(suffix, "/\\\x00") {
+		return fmt.Errorf("option --suffix must be a filename suffix without path separators")
+	}
+	if reservedSplitSuffixPattern.MatchString(suffix) {
+		return fmt.Errorf("option --suffix cannot use reserved split name %q", suffix)
+	}
+	return nil
 }
 
 // normalizeCreateArchiveOutput resolves create-mode archive selection from the archive name.

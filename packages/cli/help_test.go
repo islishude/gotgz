@@ -54,3 +54,12 @@ func TestHelpTextMentionsZipAutoDetectAndWarnings(t *testing.T) {
 		}
 	}
 }
+
+func TestHelpTextDocumentsSplitOverwriteLimitation(t *testing.T) {
+	help := HelpText("gotgz", "test")
+	for _, want := range []string{"does not remove stale higher-numbered parts", "remove the complete old split group"} {
+		if !strings.Contains(help, want) {
+			t.Fatalf("HelpText() missing %q", want)
+		}
+	}
+}

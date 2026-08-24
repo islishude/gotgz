@@ -1,6 +1,11 @@
 package cli
 
-import "os"
+import (
+	"io/fs"
+	"os"
+
+	"github.com/islishude/gotgz/packages/archive"
+)
 
 type Mode string
 
@@ -32,8 +37,13 @@ const (
 )
 
 type Options struct {
-	Mode             Mode
-	Archive          string
+	Mode    Mode
+	Archive string
+	// ResolvedArchive is the final create target after applying Suffix. It is
+	// populated by Parse so date suffixes are resolved exactly once. Callers
+	// that construct Options directly may leave it empty; engine resolves it
+	// before opening the destination.
+	ResolvedArchive  string
 	Suffix           string
 	SplitSizeBytes   int64
 	ACL              bool
@@ -63,6 +73,7 @@ type PermissionPolicy struct {
 	SameOwner    bool
 	SamePerms    bool
 	NumericOwner bool
+	Umask        fs.FileMode
 }
 
 // MetadataPolicy controls whether extended attributes and ACL metadata are preserved.
@@ -74,7 +85,7 @@ type MetadataPolicy struct {
 // ResolvePermissionPolicy converts parsed options into an effective permission policy.
 func (opts Options) ResolvePermissionPolicy() PermissionPolicy {
 	isRoot := os.Geteuid() == 0
-	policy := PermissionPolicy{SameOwner: isRoot, SamePerms: isRoot, NumericOwner: opts.NumericOwner}
+	policy := PermissionPolicy{SameOwner: isRoot, SamePerms: isRoot, NumericOwner: opts.NumericOwner, Umask: archive.CurrentUmask()}
 	if opts.SameOwner != nil {
 		policy.SameOwner = *opts.SameOwner
 	}

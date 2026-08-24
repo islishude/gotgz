@@ -54,16 +54,25 @@ func TestStoreApplyEncryption(t *testing.T) {
 			wantSSE: "",
 		},
 		{
-			name:    "unknown falls back to aes256",
+			name:    "unknown is rejected",
 			store:   Store{settings: Settings{SSE: "unexpected"}},
-			wantSSE: tmtypes.ServerSideEncryptionAes256,
+			wantSSE: "",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			in := &transfermanager.UploadObjectInput{}
-			tt.store.applyEncryption(in)
+			err := tt.store.applyEncryption(in)
+			if tt.name == "unknown is rejected" {
+				if err == nil {
+					t.Fatal("applyEncryption() error = nil, want unsupported SSE error")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("applyEncryption() error = %v", err)
+			}
 
 			if in.ServerSideEncryption != tt.wantSSE {
 				t.Fatalf("applyEncryption() SSE = %q, want %q", in.ServerSideEncryption, tt.wantSSE)
@@ -169,6 +178,28 @@ func TestUploadGoroutinePropagatesErrorThroughPipe(t *testing.T) {
 		}
 	}
 	t.Fatal("expected a write error, but all writes succeeded")
+}
+
+func TestUploadWriterAbortPropagatesCauseWithoutCommit(t *testing.T) {
+	pr, pw := io.Pipe()
+	errCh := make(chan error, 1)
+	wantErr := errors.New("source failed")
+	go func() {
+		_, err := io.ReadAll(pr)
+		errCh <- err
+		close(errCh)
+	}()
+
+	writer := &uploadWriter{pw: pw, errCh: errCh}
+	if _, err := writer.Write([]byte("partial")); err != nil {
+		t.Fatalf("Write() error = %v", err)
+	}
+	if err := writer.Abort(wantErr); err != nil {
+		t.Fatalf("Abort() error = %v", err)
+	}
+	if err := writer.Commit(); err != nil {
+		t.Fatalf("Commit() after Abort error = %v", err)
+	}
 }
 
 // TestDefaultStringAndMergeMetadata verifies that empty strings fall back to

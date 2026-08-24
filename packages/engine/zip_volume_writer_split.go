@@ -41,10 +41,10 @@ type splitZipArchiveWriter struct {
 
 // splitZipVolumeState holds the writer stack for one active output volume.
 type splitZipVolumeState struct {
-	ref locator.Ref
-	zw  *zip.Writer
-	raw io.WriteCloser
-	dst *countingWriteCloser
+	ref     locator.Ref
+	zw      *zip.Writer
+	session archiveWriteSession
+	dst     *countingWriteCloser
 }
 
 // CreateHeader opens or rotates volumes as needed and writes the next zip header.
@@ -94,6 +94,18 @@ func (w *splitZipArchiveWriter) Close() error {
 	return w.closeCurrentVolume()
 }
 
+// Abort cancels the active volume without publishing partial contents.
+func (w *splitZipArchiveWriter) Abort(cause error) error {
+	if w.current == nil {
+		return nil
+	}
+	abortErr := w.current.session.Abort(cause)
+	_ = w.current.zw.Close()
+	w.current = nil
+	w.rotateOnEntry = false
+	return abortErr
+}
+
 // ensureVolume opens the first output volume or rotates to the next one when requested.
 func (w *splitZipArchiveWriter) ensureVolume() error {
 	if w.current == nil {
@@ -111,19 +123,19 @@ func (w *splitZipArchiveWriter) ensureVolume() error {
 // openNextVolume creates the next split volume writer stack and makes it current.
 func (w *splitZipArchiveWriter) openNextVolume() error {
 	ref := archiveSplitRef(w.baseRef, w.nextPart, w.partWidth)
-	raw, err := w.runner.openArchiveWriter(w.ctx, ref)
+	session, err := w.runner.beginArchiveWriter(w.ctx, ref)
 	if err != nil {
 		return err
 	}
-	dst := &countingWriteCloser{WriteCloser: raw}
+	dst := &countingWriteCloser{WriteCloser: nonClosingWriteCloser{Writer: session}}
 	zw := zip.NewWriter(dst)
 	registerZipCompressor(zw, w.level)
 
 	w.current = &splitZipVolumeState{
-		ref: ref,
-		zw:  zw,
-		raw: raw,
-		dst: dst,
+		ref:     ref,
+		zw:      zw,
+		session: session,
+		dst:     dst,
 	}
 	w.nextPart++
 	w.rotateOnEntry = false
@@ -140,8 +152,12 @@ func (w *splitZipArchiveWriter) closeCurrentVolume() error {
 	if err := w.current.zw.Close(); err != nil {
 		first = fmt.Errorf("closing zip writer for %s: %w", w.current.ref.Raw, err)
 	}
-	if err := w.current.raw.Close(); err != nil && first == nil {
-		first = fmt.Errorf("closing archive for %s: %w", w.current.ref.Raw, err)
+	if first == nil {
+		if err := w.current.session.Commit(); err != nil {
+			first = fmt.Errorf("committing archive for %s: %w", w.current.ref.Raw, err)
+		}
+	} else {
+		_ = w.current.session.Abort(first)
 	}
 	w.current = nil
 	w.rotateOnEntry = false

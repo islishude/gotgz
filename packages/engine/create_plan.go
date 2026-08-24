@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	"fmt"
+	"math"
 	"sync"
 
 	"github.com/islishude/gotgz/packages/archivepath"
@@ -15,9 +16,10 @@ const maxBuildCreatePlanConcurrency = 8
 // createPlan captures one pre-scanned create workload so local filesystem
 // walks can be reused by the later tar/zip write phase.
 type createPlan struct {
-	totalBytes int64
-	totalKnown bool
-	members    []createPlanMember
+	totalBytes    int64
+	totalKnown    bool
+	members       []createPlanMember
+	outputSkipped bool
 }
 
 // createPlanMember stores one parsed create input and any pre-scanned local
@@ -29,26 +31,33 @@ type createPlanMember struct {
 
 // createPlanTask stores one parsed create member ready for concurrent work.
 type createPlanTask struct {
+	index  int
 	member string
 	ref    locator.Ref
 }
 
 // createPlanTaskResult stores one completed concurrent create-plan task.
 type createPlanTaskResult struct {
+	index      int
 	member     createPlanMember
 	totalBytes int64
+	include    bool
 }
 
 // buildCreatePlan parses create members once, caches local walk results, and
 // computes progress totals when possible.
 func (r *Runner) buildCreatePlan(ctx context.Context, opts cli.Options, excludeMatcher *archivepath.CompiledPathMatcher) (*createPlan, error) {
+	outputPolicy, err := newCreateOutputPolicy(opts)
+	if err != nil {
+		return nil, err
+	}
 	plan := &createPlan{
 		totalKnown: true,
 		members:    make([]createPlanMember, 0, len(opts.Members)),
 	}
 	tasks := make([]createPlanTask, 0, len(opts.Members))
 
-	for _, member := range opts.Members {
+	for index, member := range opts.Members {
 		select {
 		case <-ctx.Done():
 			return nil, ctx.Err()
@@ -57,6 +66,9 @@ func (r *Runner) buildCreatePlan(ctx context.Context, opts cli.Options, excludeM
 
 		ref, err := locator.ParseMember(member)
 		if err != nil {
+			return nil, err
+		}
+		if err := outputPolicy.rejectExplicitMember(ref, member, opts.Chdir); err != nil {
 			return nil, err
 		}
 
@@ -71,6 +83,7 @@ func (r *Runner) buildCreatePlan(ctx context.Context, opts cli.Options, excludeM
 		}
 
 		tasks = append(tasks, createPlanTask{
+			index:  index,
 			member: member,
 			ref:    ref,
 		})
@@ -86,6 +99,7 @@ func (r *Runner) buildCreatePlan(ctx context.Context, opts cli.Options, excludeM
 
 	tasksCh := make(chan createPlanTask)
 	resultsCh := make(chan createPlanTaskResult, workerCount)
+	orderedResults := make([]createPlanTaskResult, len(opts.Members))
 
 	var workers sync.WaitGroup
 	for range workerCount {
@@ -99,14 +113,13 @@ func (r *Runner) buildCreatePlan(ctx context.Context, opts cli.Options, excludeM
 						return
 					}
 
-					result, include, err := r.runCreatePlanTask(workCtx, task, opts.Chdir, excludeMatcher)
+					result, include, err := r.runCreatePlanTask(workCtx, task, opts.Chdir, excludeMatcher, outputPolicy)
 					if err != nil {
 						cancel(err)
 						return
 					}
-					if !include {
-						continue
-					}
+					result.index = task.index
+					result.include = include
 
 					select {
 					case resultsCh <- result:
@@ -135,15 +148,34 @@ func (r *Runner) buildCreatePlan(ctx context.Context, opts cli.Options, excludeM
 	}()
 
 	for result := range resultsCh {
-		plan.members = append(plan.members, result.member)
-		plan.totalBytes += result.totalBytes
+		orderedResults[result.index] = result
 	}
 
 	if err := context.Cause(workCtx); err != nil {
 		return nil, err
 	}
 
+	for _, result := range orderedResults {
+		if !result.include {
+			continue
+		}
+		plan.members = append(plan.members, result.member)
+		plan.totalBytes = addCreatePlanSize(plan.totalBytes, result.totalBytes)
+	}
+	plan.outputSkipped = outputPolicy.outputWasSkipped()
+
 	return plan, nil
+}
+
+// addCreatePlanSize accumulates progress totals without wrapping int64.
+func addCreatePlanSize(total, size int64) int64 {
+	if size <= 0 || total == math.MaxInt64 {
+		return total
+	}
+	if math.MaxInt64-total < size {
+		return math.MaxInt64
+	}
+	return total + size
 }
 
 // buildCreatePlanWorkerCount bounds the number of concurrent create-plan tasks.
@@ -158,7 +190,7 @@ func buildCreatePlanWorkerCount(taskCount int) int {
 }
 
 // runCreatePlanTask executes one pre-scanned create member workload.
-func (r *Runner) runCreatePlanTask(ctx context.Context, task createPlanTask, chdir string, excludeMatcher *archivepath.CompiledPathMatcher) (createPlanTaskResult, bool, error) {
+func (r *Runner) runCreatePlanTask(ctx context.Context, task createPlanTask, chdir string, excludeMatcher *archivepath.CompiledPathMatcher, outputPolicy *createOutputPolicy) (createPlanTaskResult, bool, error) {
 	switch task.ref.Kind {
 	case locator.KindS3:
 		meta, err := r.storage.statS3Object(ctx, task.ref)
@@ -166,11 +198,12 @@ func (r *Runner) runCreatePlanTask(ctx context.Context, task createPlanTask, chd
 			return createPlanTaskResult{}, false, err
 		}
 		return createPlanTaskResult{
+			index:      task.index,
 			member:     createPlanMember{ref: task.ref},
 			totalBytes: meta.Size,
 		}, true, nil
 	case locator.KindLocal:
-		records, size, err := collectLocalCreateRecords(ctx, task.member, chdir, excludeMatcher)
+		records, size, err := collectLocalCreateRecords(ctx, task.member, chdir, excludeMatcher, outputPolicy)
 		if err != nil {
 			return createPlanTaskResult{}, false, err
 		}
@@ -178,6 +211,7 @@ func (r *Runner) runCreatePlanTask(ctx context.Context, task createPlanTask, chd
 			return createPlanTaskResult{}, false, nil
 		}
 		return createPlanTaskResult{
+			index: task.index,
 			member: createPlanMember{
 				ref:          task.ref,
 				localRecords: records,

@@ -1,6 +1,7 @@
 package local
 
 import (
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
@@ -137,6 +138,75 @@ func TestArchiveStoreOpenWriterLocal(t *testing.T) {
 	}
 	if string(got) != "writer payload" {
 		t.Fatalf("OpenWriter() payload = %q, want %q", got, "writer payload")
+	}
+}
+
+func TestArchiveStoreBeginWriterAbortPreservesExistingTarget(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "archive.tar")
+	original := []byte("original")
+	if err := os.WriteFile(path, original, 0o640); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	session, err := (&ArchiveStore{}).BeginWriter(locator.Ref{Kind: locator.KindLocal, Raw: path, Path: path})
+	if err != nil {
+		t.Fatalf("BeginWriter() error = %v", err)
+	}
+	if _, err := session.Write([]byte("replacement")); err != nil {
+		t.Fatalf("Write() error = %v", err)
+	}
+	if err := session.Abort(errors.New("source failed")); err != nil {
+		t.Fatalf("Abort() error = %v", err)
+	}
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile() error = %v", err)
+	}
+	if string(got) != string(original) {
+		t.Fatalf("target = %q, want %q", got, original)
+	}
+}
+
+func TestArchiveStoreBeginWriterCommitReplacesAndPreservesMode(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "archive.tar")
+	if err := os.WriteFile(path, []byte("original"), 0o640); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	session, err := (&ArchiveStore{}).BeginWriter(locator.Ref{Kind: locator.KindLocal, Raw: path, Path: path})
+	if err != nil {
+		t.Fatalf("BeginWriter() error = %v", err)
+	}
+	if _, err := session.Write([]byte("replacement")); err != nil {
+		t.Fatalf("Write() error = %v", err)
+	}
+	if err := session.Commit(); err != nil {
+		t.Fatalf("Commit() error = %v", err)
+	}
+	got, err := os.ReadFile(path)
+	if err != nil || string(got) != "replacement" {
+		t.Fatalf("target = %q, err=%v", got, err)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("Stat() error = %v", err)
+	}
+	if got := info.Mode().Perm(); got != 0o640 {
+		t.Fatalf("mode = %o, want 640", got)
+	}
+}
+
+func TestArchiveStoreBeginWriterRejectsSymlinkTarget(t *testing.T) {
+	root := t.TempDir()
+	target := filepath.Join(root, "target")
+	link := filepath.Join(root, "archive.tar")
+	if err := os.WriteFile(target, []byte("payload"), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	if err := os.Symlink(target, link); err != nil {
+		t.Fatalf("Symlink() error = %v", err)
+	}
+	if _, err := (&ArchiveStore{}).BeginWriter(locator.Ref{Kind: locator.KindLocal, Raw: link, Path: link}); err == nil {
+		t.Fatal("BeginWriter() error = nil, want symlink rejection")
 	}
 }
 

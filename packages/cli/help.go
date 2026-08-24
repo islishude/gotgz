@@ -26,9 +26,10 @@ Modes:
 Main Options:
   -f <archive>      Archive path: local file, -, s3://bucket/key, S3 ARN, or http(s):// URL (source-only for -x/-t)
   -suffix <value>, --suffix <value>
-                    Add suffix to archive filename in create mode (built-in date format uses 20060102 layout)
+                    Add a filename-only suffix before create format inference (date uses 20060102)
   --split-size <size>
                     Split archive output into partNNNN volumes (.zip and tar-family, create mode only)
+                    WARNING: overwriting does not remove stale higher-numbered parts; use a new base name or remove the complete old split group first
   -C <dir|s3://...>, --cd <dir|s3://...>, --directory <dir|s3://...>
                     Change directory before create/extract
   --s3-cache-control <value>
@@ -66,11 +67,13 @@ Ownership & Permissions:
   --no-same-permissions
   --numeric-owner
   --xattrs           Archive or extract extended attributes (default: disabled)
-  --acl              Archive or extract POSIX.1e/NFSv4 ACLs (default: disabled)
+  --acl              Archive or extract Linux POSIX/NFSv4 ACL xattrs (other platforms warn)
 
 Exclude:
   --exclude <pattern>
   --exclude-from <file>
-  --wildcards
+  --wildcards        Exact directory members include descendants; * matches one segment and ** crosses directories
+  (patterns without / match basenames at any depth; excludes apply to create/list/extract)
+  (create rejects absolute or archive-root-escaping symlink targets)
 `, program, version, program, program, program, program, program)
 }

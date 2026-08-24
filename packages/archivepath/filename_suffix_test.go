@@ -54,7 +54,7 @@ func TestAddFileSuffix(t *testing.T) {
 		{
 			name: "Add date suffix to hidden file",
 			args: args{fileName: ".example", suffix: "date"},
-			want: ".example",
+			want: fmt.Sprintf(".example-%s", time.Now().Format("20060102")),
 		},
 		{
 			name: "Add date suffix to hidden file with extension",
@@ -104,7 +104,7 @@ func TestAddFileSuffix(t *testing.T) {
 		{
 			name: "Add custom suffix to hidden file",
 			args: args{fileName: ".example", suffix: "custom"},
-			want: ".example",
+			want: ".example-custom",
 		},
 		{
 			name: "Add custom suffix to hidden file with extension",

@@ -17,6 +17,7 @@ type tarArchiveWriter interface {
 	Write(p []byte) (int, error)
 	FinishEntry() error
 	Close() error
+	Abort(error) error
 }
 
 // newTarArchiveWriter returns either the legacy single-file writer or a split-volume writer.
@@ -29,29 +30,31 @@ func (r *Runner) newTarArchiveWriter(ctx context.Context, opts cli.Options, arch
 
 // newSingleTarArchiveWriter creates the existing single-stream tar output pipeline.
 func (r *Runner) newSingleTarArchiveWriter(ctx context.Context, opts cli.Options, archiveRef locator.Ref) (tarArchiveWriter, error) {
-	aw, err := r.openArchiveWriter(ctx, archiveRef)
+	session, err := r.beginArchiveWriter(ctx, archiveRef)
 	if err != nil {
 		return nil, err
 	}
 
-	cw, err := compress.NewWriter(aw, compress.FromString(string(opts.Compression)), compress.WriterOptions{Level: opts.CompressionLevel})
+	cw, err := compress.NewWriter(nonClosingWriteCloser{Writer: session}, compress.FromString(string(opts.Compression)), compress.WriterOptions{Level: opts.CompressionLevel})
 	if err != nil {
-		if closeErr := aw.Close(); closeErr != nil {
-			return nil, fmt.Errorf("create archive writer: %w (close: %w)", err, closeErr)
+		if abortErr := session.Abort(err); abortErr != nil {
+			return nil, fmt.Errorf("create archive writer: %w (abort: %w)", err, abortErr)
 		}
 		return nil, err
 	}
 
 	return &singleTarArchiveWriter{
-		tw: tar.NewWriter(cw),
-		cw: cw,
+		tw:      tar.NewWriter(cw),
+		cw:      cw,
+		session: session,
 	}, nil
 }
 
 // singleTarArchiveWriter adapts the legacy tar writer to the tarArchiveWriter interface.
 type singleTarArchiveWriter struct {
-	tw *tar.Writer
-	cw io.WriteCloser
+	tw      *tar.Writer
+	cw      io.WriteCloser
+	session archiveWriteSession
 }
 
 // WriteHeader writes one tar header to the underlying stream.
@@ -71,12 +74,24 @@ func (w *singleTarArchiveWriter) FinishEntry() error {
 
 // Close finishes the tar stream and then closes the compression/output writer stack.
 func (w *singleTarArchiveWriter) Close() error {
-	var first error
 	if err := w.tw.Close(); err != nil {
-		first = fmt.Errorf("closing tar writer: %w", err)
+		_ = w.session.Abort(err)
+		return fmt.Errorf("closing tar writer: %w", err)
 	}
-	if err := w.cw.Close(); err != nil && first == nil {
-		first = fmt.Errorf("closing archive: %w", err)
+	if err := w.cw.Close(); err != nil {
+		_ = w.session.Abort(err)
+		return fmt.Errorf("closing compression writer: %w", err)
 	}
-	return first
+	if err := w.session.Commit(); err != nil {
+		_ = w.session.Abort(err)
+		return fmt.Errorf("committing archive: %w", err)
+	}
+	return nil
+}
+
+func (w *singleTarArchiveWriter) Abort(cause error) error {
+	abortErr := w.session.Abort(cause)
+	_ = w.tw.Close()
+	_ = w.cw.Close()
+	return abortErr
 }

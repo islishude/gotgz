@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	"io/fs"
+	"os"
 	"path"
 	"path/filepath"
 	"strings"
@@ -69,11 +70,27 @@ func walkLocalCreateMember(ctx context.Context, member string, chdir string, exc
 
 // collectLocalCreateRecords walks one local member once, returning normalized
 // archive records together with the total regular-file size seen during the scan.
-func collectLocalCreateRecords(ctx context.Context, member string, chdir string, excludeMatcher *archivepath.CompiledPathMatcher) ([]localCreateRecord, int64, error) {
+func collectLocalCreateRecords(ctx context.Context, member string, chdir string, excludeMatcher *archivepath.CompiledPathMatcher, outputPolicies ...*createOutputPolicy) ([]localCreateRecord, int64, error) {
 	records := make([]localCreateRecord, 0)
 	var total int64
+	var outputPolicy *createOutputPolicy
+	if len(outputPolicies) > 0 {
+		outputPolicy = outputPolicies[0]
+	}
 	err := walkLocalCreateMemberEntries(ctx, member, chdir, excludeMatcher, func(record localCreateRecord, entry fs.DirEntry) error {
+		if outputPolicy.shouldSkipLocal(record.current) {
+			return nil
+		}
 		records = append(records, record)
+		if entry.Type()&os.ModeSymlink != 0 {
+			linkTarget, err := os.Readlink(record.current)
+			if err != nil {
+				return err
+			}
+			if err := validateCreateSymlinkTarget(record.archiveName, linkTarget); err != nil {
+				return err
+			}
+		}
 		if !entry.Type().IsRegular() {
 			return nil
 		}

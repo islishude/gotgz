@@ -44,8 +44,8 @@ func TestWritePathMetadataAndReadPathMetadataRoundTrip(t *testing.T) {
 	if !bytes.Equal(gotXattrs["user.gotgz.acl"], xattrs["user.gotgz.acl"]) {
 		t.Fatalf("ReadPathMetadata() xattr acl value = %q, want %q", gotXattrs["user.gotgz.acl"], xattrs["user.gotgz.acl"])
 	}
-	if !bytes.Equal(gotACLs["user.gotgz.acl"], xattrs["user.gotgz.acl"]) {
-		t.Fatalf("ReadPathMetadata() acl value = %q, want %q", gotACLs["user.gotgz.acl"], xattrs["user.gotgz.acl"])
+	if _, ok := gotACLs["user.gotgz.acl"]; ok {
+		t.Fatal("ordinary xattr containing acl should not be classified as an ACL")
 	}
 }
 
@@ -72,5 +72,50 @@ func TestWritePathMetadataMissingPath(t *testing.T) {
 	}
 	if !errors.Is(err, unix.ENOENT) {
 		t.Fatalf("WritePathMetadata() error = %v, want ENOENT", err)
+	}
+}
+
+func TestSymlinkMetadataDoesNotFollowTarget(t *testing.T) {
+	root := t.TempDir()
+	target := filepath.Join(root, "target")
+	link := filepath.Join(root, "link")
+	if err := os.WriteFile(target, []byte("payload"), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	if err := os.Symlink("target", link); err != nil {
+		t.Fatalf("Symlink() error = %v", err)
+	}
+	key := "user.gotgz.symlink-test"
+	if err := unix.Setxattr(target, key, []byte("target-value"), 0); err != nil {
+		if errors.Is(err, unix.ENOTSUP) || errors.Is(err, unix.EPERM) {
+			t.Skipf("filesystem does not allow xattrs: %v", err)
+		}
+		t.Fatalf("Setxattr(target) error = %v", err)
+	}
+
+	linkAttrs, _, err := ReadPathMetadata(link)
+	if err != nil && !errors.Is(err, unix.ENOTSUP) && !errors.Is(err, unix.EPERM) {
+		t.Fatalf("ReadPathMetadata(link) error = %v", err)
+	}
+	if got := linkAttrs[key]; bytes.Equal(got, []byte("target-value")) {
+		t.Fatalf("symlink metadata unexpectedly followed target: %q", got)
+	}
+
+	if err := WritePathMetadata(link, map[string][]byte{key: []byte("link-value")}, nil); err != nil {
+		if errors.Is(err, unix.ENOTSUP) || errors.Is(err, unix.EPERM) {
+			t.Skipf("filesystem does not allow symlink xattrs: %v", err)
+		}
+		t.Fatalf("WritePathMetadata(link) error = %v", err)
+	}
+	sz, err := unix.Getxattr(target, key, nil)
+	if err != nil {
+		t.Fatalf("Getxattr(target size) error = %v", err)
+	}
+	value := make([]byte, sz)
+	if _, err := unix.Getxattr(target, key, value); err != nil {
+		t.Fatalf("Getxattr(target) error = %v", err)
+	}
+	if string(value) != "target-value" {
+		t.Fatalf("target xattr = %q, want target-value", value)
 	}
 }

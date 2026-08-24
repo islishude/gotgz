@@ -16,6 +16,7 @@ type zipArchiveWriter interface {
 	CreateHeader(hdr *zip.FileHeader) (io.Writer, error)
 	FinishEntry() error
 	Close() error
+	Abort(error) error
 }
 
 // newZipArchiveWriter returns either the legacy single-file writer or a split-volume writer.
@@ -28,14 +29,14 @@ func (r *Runner) newZipArchiveWriter(ctx context.Context, opts cli.Options, arch
 
 // newSingleZipArchiveWriter creates the existing single-stream zip output pipeline.
 func (r *Runner) newSingleZipArchiveWriter(ctx context.Context, opts cli.Options, archiveRef locator.Ref) (zipArchiveWriter, error) {
-	aw, err := r.openArchiveWriter(ctx, archiveRef)
+	session, err := r.beginArchiveWriter(ctx, archiveRef)
 	if err != nil {
 		return nil, err
 	}
 
-	zw := zip.NewWriter(aw)
+	zw := zip.NewWriter(nonClosingWriteCloser{Writer: session})
 	registerZipCompressor(zw, opts.CompressionLevel)
-	return &singleZipArchiveWriter{zw: zw, raw: aw}, nil
+	return &singleZipArchiveWriter{zw: zw, session: session}, nil
 }
 
 // registerZipCompressor applies the configured Deflate level to one zip writer.
@@ -51,8 +52,8 @@ func registerZipCompressor(zw *zip.Writer, level *int) {
 
 // singleZipArchiveWriter adapts the legacy zip writer to the zipArchiveWriter interface.
 type singleZipArchiveWriter struct {
-	zw  *zip.Writer
-	raw io.WriteCloser
+	zw      *zip.Writer
+	session archiveWriteSession
 }
 
 // CreateHeader writes one zip header to the underlying stream.
@@ -67,12 +68,19 @@ func (w *singleZipArchiveWriter) FinishEntry() error {
 
 // Close finalizes the zip stream and then closes the output writer.
 func (w *singleZipArchiveWriter) Close() error {
-	var first error
 	if err := w.zw.Close(); err != nil {
-		first = fmt.Errorf("closing zip writer: %w", err)
+		_ = w.session.Abort(err)
+		return fmt.Errorf("closing zip writer: %w", err)
 	}
-	if err := w.raw.Close(); err != nil && first == nil {
-		first = fmt.Errorf("closing archive: %w", err)
+	if err := w.session.Commit(); err != nil {
+		_ = w.session.Abort(err)
+		return fmt.Errorf("committing archive: %w", err)
 	}
-	return first
+	return nil
+}
+
+func (w *singleZipArchiveWriter) Abort(cause error) error {
+	abortErr := w.session.Abort(cause)
+	_ = w.zw.Close()
+	return abortErr
 }

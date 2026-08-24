@@ -13,6 +13,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/feature/s3/transfermanager"
 	tmtypes "github.com/aws/aws-sdk-go-v2/feature/s3/transfermanager/types"
 	awss3 "github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/islishude/gotgz/packages/archiveutil"
 	"github.com/islishude/gotgz/packages/locator"
 )
 
@@ -34,14 +35,23 @@ func (s *Store) OpenReader(ctx context.Context, ref locator.Ref) (io.ReadCloser,
 		return nil, Metadata{}, err
 	}
 	meta := Metadata{
-		Size:        aws.ToInt64(out.ContentLength),
-		ContentType: aws.ToString(out.ContentType),
+		Size:         aws.ToInt64(out.ContentLength),
+		ContentType:  aws.ToString(out.ContentType),
+		ETag:         aws.ToString(out.ETag),
+		VersionID:    aws.ToString(out.VersionID),
+		LastModified: aws.ToTime(out.LastModified),
 	}
 	return newDownloadReadCloser(out.Body, cancel), meta, nil
 }
 
 // OpenRangeReader opens one explicit byte range from an S3 object.
 func (s *Store) OpenRangeReader(ctx context.Context, ref locator.Ref, offset int64, length int64) (io.ReadCloser, error) {
+	return s.OpenRangeReaderSnapshot(ctx, ref, offset, length, archiveutil.Snapshot{})
+}
+
+// OpenRangeReaderSnapshot opens an exact byte range fenced to one S3 object
+// version or ETag.
+func (s *Store) OpenRangeReaderSnapshot(ctx context.Context, ref locator.Ref, offset int64, length int64, snapshot archiveutil.Snapshot) (io.ReadCloser, error) {
 	if ref.Kind != locator.KindS3 {
 		return nil, fmt.Errorf("ref %q is not s3", ref.Raw)
 	}
@@ -60,11 +70,24 @@ func (s *Store) OpenRangeReader(ctx context.Context, ref locator.Ref, offset int
 
 	end := offset + length - 1
 	rangeHeader := fmt.Sprintf("bytes=%d-%d", offset, end)
-	out, err := s.client.GetObject(ctx, &awss3.GetObjectInput{
+	input := &awss3.GetObjectInput{
 		Bucket: new(ref.Bucket),
 		Key:    new(ref.Key),
 		Range:  &rangeHeader,
-	})
+	}
+	if snapshot.VersionID != "" {
+		input.VersionId = new(snapshot.VersionID)
+	} else if snapshot.ETag != "" {
+		input.IfMatch = new(snapshot.ETag)
+	}
+	client := s.rangeClient
+	if client == nil {
+		client = s.client
+	}
+	if client == nil {
+		return nil, fmt.Errorf("s3 range client is not configured")
+	}
+	out, err := client.GetObject(ctx, input)
 	if err != nil {
 		return nil, err
 	}
@@ -81,8 +104,11 @@ func (s *Store) Stat(ctx context.Context, ref locator.Ref) (Metadata, error) {
 		return Metadata{}, err
 	}
 	return Metadata{
-		Size:        aws.ToInt64(out.ContentLength),
-		ContentType: aws.ToString(out.ContentType),
+		Size:         aws.ToInt64(out.ContentLength),
+		ContentType:  aws.ToString(out.ContentType),
+		ETag:         aws.ToString(out.ETag),
+		VersionID:    aws.ToString(out.VersionId),
+		LastModified: aws.ToTime(out.LastModified),
 	}, nil
 }
 

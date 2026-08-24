@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"bytes"
 	"context"
 	"io/fs"
 	"os"
@@ -11,6 +12,8 @@ import (
 
 	"github.com/islishude/gotgz/packages/archive"
 	"github.com/islishude/gotgz/packages/archivepath"
+	"github.com/islishude/gotgz/packages/archiveprogress"
+	"github.com/islishude/gotgz/packages/cli"
 )
 
 func TestComputeExtractPerm(t *testing.T) {
@@ -98,23 +101,21 @@ func TestReplaceLocalSymlinkTargetInvalidatesCachedPrefixes(t *testing.T) {
 	}
 }
 
-func TestApplyLocalExtractMetadata(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "file.txt")
-	if err := os.WriteFile(path, []byte("ok"), 0o600); err != nil {
-		t.Fatalf("WriteFile() error = %v", err)
+func TestLocalMetadataSessionReportsWarningsAndContinues(t *testing.T) {
+	var stderr bytes.Buffer
+	runner := &Runner{stderr: &stderr}
+	reporter := archiveprogress.NewReporter(&stderr, cli.ProgressNever, 0, false, time.Now(), false)
+	session := newLocalMetadataSession(runner, reporter)
+	warnings := session.apply(localMetadataRecord{
+		target:      filepath.Join(t.TempDir(), "missing", "file"),
+		archiveName: "missing/file",
+		perm:        0o600,
+		modTime:     time.Unix(1_700_000_000, 0),
+	})
+	if warnings < 2 {
+		t.Fatalf("warnings = %d, want permission and timestamp warnings", warnings)
 	}
-	modTime := time.Unix(1_700_000_000, 0)
-
-	applyLocalExtractMetadata(path, 0o640, modTime, true, false)
-
-	info, err := os.Stat(path)
-	if err != nil {
-		t.Fatalf("Stat() error = %v", err)
-	}
-	if info.Mode().Perm() != 0o640 {
-		t.Fatalf("perm = %#o, want %#o", info.Mode().Perm(), fs.FileMode(0o640))
-	}
-	if !info.ModTime().Equal(modTime) {
-		t.Fatalf("modtime = %v, want %v", info.ModTime(), modTime)
+	if !strings.Contains(stderr.String(), "permissions") || !strings.Contains(stderr.String(), "timestamp") {
+		t.Fatalf("stderr = %q", stderr.String())
 	}
 }

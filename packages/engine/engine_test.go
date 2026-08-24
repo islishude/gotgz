@@ -355,14 +355,14 @@ func TestStripPathComponentsDrop(t *testing.T) {
 	}
 }
 
-func TestFilterACLLikeXattrs(t *testing.T) {
+func TestFilterACLXattrs(t *testing.T) {
 	in := map[string][]byte{
 		"user.mime_type":             []byte("text/plain"),
 		"system.posix_acl_access":    []byte("acl-a"),
 		"system.posix_acl_default":   []byte("acl-b"),
 		"trusted.gotgz.custom-field": []byte("v"),
 	}
-	got := filterACLLikeXattrs(in)
+	got := filterACLXattrs(in)
 	if _, ok := got["system.posix_acl_access"]; ok {
 		t.Fatalf("acl access xattr should be filtered")
 	}

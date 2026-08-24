@@ -13,7 +13,7 @@ import (
 )
 
 // extractZipToStdout writes matching regular zip members to stdout.
-func (r *Runner) extractZipToStdout(ctx context.Context, zr *zip.Reader, memberMatcher *archivepath.CompiledPathMatcher, opts cli.Options, reporter *archiveprogress.Reporter) (int, error) {
+func (r *Runner) extractZipToStdout(ctx context.Context, zr *zip.Reader, memberMatcher, excludeMatcher *archivepath.CompiledPathMatcher, opts cli.Options, reporter *archiveprogress.Reporter) (int, error) {
 	warnings := 0
 	for _, zf := range zr.File {
 		select {
@@ -21,7 +21,7 @@ func (r *Runner) extractZipToStdout(ctx context.Context, zr *zip.Reader, memberM
 			return warnings, ctx.Err()
 		default:
 		}
-		if archivepath.ShouldSkipMemberWithMatcher(memberMatcher, zf.Name) {
+		if shouldSkipReadMember(memberMatcher, excludeMatcher, zf.Name) {
 			continue
 		}
 		name, ok := archivepath.StripPathComponents(zf.Name, opts.StripComponents)

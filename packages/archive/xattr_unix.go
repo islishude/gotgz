@@ -6,7 +6,6 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
-	"strings"
 
 	"golang.org/x/sys/unix"
 )
@@ -25,10 +24,11 @@ func ReadPathMetadata(path string) (map[string][]byte, map[string][]byte, error)
 			readErrs = append(readErrs, fmt.Errorf("read xattr %q on %q: %w", name, path, err))
 			continue
 		}
-		xattrs[name] = v
-		if strings.Contains(name, "acl") {
+		if IsACLMetadataName(name) {
 			acls[name] = v
+			continue
 		}
+		xattrs[name] = v
 	}
 	return xattrs, acls, errors.Join(readErrs...)
 }
@@ -39,12 +39,12 @@ func ReadPathMetadata(path string) (map[string][]byte, map[string][]byte, error)
 func WritePathMetadata(path string, xattrs map[string][]byte, acls map[string][]byte) error {
 	var writeErrs []error
 	for k, v := range xattrs {
-		if err := unix.Setxattr(path, k, v, 0); err != nil {
+		if err := unix.Lsetxattr(path, k, v, 0); err != nil {
 			writeErrs = append(writeErrs, fmt.Errorf("set xattr %q on %q: %w", k, path, err))
 		}
 	}
 	for k, v := range acls {
-		if err := unix.Setxattr(path, k, v, 0); err != nil {
+		if err := unix.Lsetxattr(path, k, v, 0); err != nil {
 			writeErrs = append(writeErrs, fmt.Errorf("set acl %q on %q: %w", k, path, err))
 		}
 	}
@@ -52,12 +52,12 @@ func WritePathMetadata(path string, xattrs map[string][]byte, acls map[string][]
 }
 
 func listXattr(path string) ([]string, error) {
-	sz, err := unix.Listxattr(path, nil)
+	sz, err := unix.Llistxattr(path, nil)
 	if err != nil || sz <= 0 {
 		return nil, err
 	}
 	buf := make([]byte, sz)
-	n, err := unix.Listxattr(path, buf)
+	n, err := unix.Llistxattr(path, buf)
 	if err != nil {
 		return nil, err
 	}
@@ -73,14 +73,17 @@ func listXattr(path string) ([]string, error) {
 }
 
 func getXattr(path string, key string) ([]byte, error) {
-	sz, err := unix.Getxattr(path, key, nil)
+	sz, err := unix.Lgetxattr(path, key, nil)
 	if err != nil || sz <= 0 {
 		return nil, err
 	}
 	buf := make([]byte, sz)
-	_, err = unix.Getxattr(path, key, buf)
+	_, err = unix.Lgetxattr(path, key, buf)
 	if err != nil {
 		return nil, err
 	}
 	return buf, nil
 }
+
+// XattrsSupported reports whether this build can preserve extended attributes.
+func XattrsSupported() bool { return true }

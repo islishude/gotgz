@@ -164,16 +164,11 @@ func (s plannedCreateInputSource) Visit(ctx context.Context, handleS3 func(ref l
 	return warnings, nil
 }
 
-// newCreateInputSource chooses a live or pre-scanned create source depending on
-// whether the caller needs an upfront total for progress reporting.
-func (r *Runner) newCreateInputSource(ctx context.Context, opts cli.Options, excludeMatcher *archivepath.CompiledPathMatcher, precomputeTotal bool) (createInputSource, error) {
-	if !precomputeTotal {
-		return liveCreateInputSource{
-			opts:           opts,
-			excludeMatcher: excludeMatcher,
-		}, nil
-	}
-
+// newCreateInputSource always validates and orders the complete create
+// workload before any destination is opened. precomputeTotal is retained in
+// the signature for compatibility with focused tests; create correctness no
+// longer depends on whether progress output is enabled.
+func (r *Runner) newCreateInputSource(ctx context.Context, opts cli.Options, excludeMatcher *archivepath.CompiledPathMatcher, _ bool) (createInputSource, error) {
 	plan, err := r.buildCreatePlan(ctx, opts, excludeMatcher)
 	if err != nil {
 		return nil, err

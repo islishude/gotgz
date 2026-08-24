@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 
+	"github.com/islishude/gotgz/packages/archiveutil"
 	"github.com/islishude/gotgz/packages/locator"
 	httpstore "github.com/islishude/gotgz/packages/storage/http"
 	localstore "github.com/islishude/gotgz/packages/storage/local"
@@ -16,6 +17,21 @@ type localArchiveStore interface {
 	OpenWriter(ref locator.Ref) (io.WriteCloser, error)
 }
 
+// archiveWriteSession separates stream finalization from destination commit.
+type archiveWriteSession interface {
+	io.Writer
+	Commit() error
+	Abort(error) error
+}
+
+type transactionalLocalArchiveStore interface {
+	BeginWriter(ref locator.Ref) (localstore.WriteSession, error)
+}
+
+type transactionalS3ArchiveStore interface {
+	BeginWriter(ctx context.Context, ref locator.Ref, metadata map[string]string) (s3store.WriteSession, error)
+}
+
 // zipArchiveRangeStore opens exact byte ranges from remote archives so ZIP
 // reads can satisfy io.ReaderAt without staging the full archive stream.
 //
@@ -25,6 +41,10 @@ type localArchiveStore interface {
 // directly without range requests.
 type zipArchiveRangeStore interface {
 	OpenRangeReader(ctx context.Context, ref locator.Ref, offset int64, length int64) (io.ReadCloser, error)
+}
+
+type snapshotZipArchiveRangeStore interface {
+	OpenRangeReaderSnapshot(ctx context.Context, ref locator.Ref, offset int64, length int64, snapshot archiveutil.Snapshot) (io.ReadCloser, error)
 }
 
 // s3ArchiveStore reads, writes, and enumerates archive objects in S3.

@@ -2,6 +2,7 @@ package locator
 
 import (
 	"fmt"
+	"net/url"
 
 	"maps"
 	"strings"
@@ -57,12 +58,49 @@ func (r Ref) WithArchiveSuffix(suffix string) (Ref, error) {
 
 	switch r.Kind {
 	case KindLocal:
-		r.Path = archivepath.AddSuffix(r.Path, suffix)
-		r.Raw = r.Path
+		return r.WithArchiveName(archivepath.AddSuffix(r.Path, suffix))
 	case KindS3:
-		r.Key = archivepath.AddSuffix(r.Key, suffix)
+		return r.WithArchiveName(archivepath.AddSuffix(r.Key, suffix))
 	case KindStdio:
 		return Ref{}, fmt.Errorf("cannot use -suffix with -f -")
 	}
 	return r, nil
+}
+
+// WithArchiveName replaces the local path or S3 key while preserving the
+// locator's backend-specific metadata and spelling.
+func (r Ref) WithArchiveName(name string) (Ref, error) {
+	switch r.Kind {
+	case KindLocal:
+		r.Path = name
+		r.Raw = name
+	case KindS3:
+		oldKey := r.Key
+		r.Key = name
+		r.Raw = rewriteS3RawKey(r.Raw, oldKey, r.Key, r.Bucket)
+	case KindStdio:
+		if name != "-" {
+			return Ref{}, fmt.Errorf("cannot rename stdio archive target")
+		}
+	default:
+		return Ref{}, fmt.Errorf("cannot rename archive ref kind %s", r.Kind)
+	}
+	return r, nil
+}
+
+// rewriteS3RawKey preserves the original S3 locator spelling and query while
+// replacing only its object key.
+func rewriteS3RawKey(raw, oldKey, newKey, bucket string) string {
+	if strings.HasPrefix(raw, "s3://") {
+		u, err := url.Parse(raw)
+		if err == nil {
+			u.Path = "/" + newKey
+			u.RawPath = ""
+			return u.String()
+		}
+	}
+	if strings.HasPrefix(raw, "arn:") && oldKey != "" && strings.HasSuffix(raw, oldKey) {
+		return strings.TrimSuffix(raw, oldKey) + newKey
+	}
+	return fmt.Sprintf("s3://%s/%s", bucket, newKey)
 }

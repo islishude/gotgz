@@ -46,6 +46,8 @@ func (w *recordingTarWriter) Close() error {
 	return nil
 }
 
+func (w *recordingTarWriter) Abort(error) error { return nil }
+
 // recordingZipWriter captures zip headers and payloads written during tests.
 type recordingZipWriter struct {
 	headers []*zip.FileHeader
@@ -76,6 +78,8 @@ func (w *recordingZipWriter) FinishEntry() error {
 func (w *recordingZipWriter) Close() error {
 	return nil
 }
+
+func (w *recordingZipWriter) Abort(error) error { return nil }
 
 func TestAddLocalRecordsUsesCurrentTarMetadata(t *testing.T) {
 	root := t.TempDir()
@@ -162,5 +166,32 @@ func TestAddLocalRecordsZipUsesCurrentMetadata(t *testing.T) {
 	}
 	if got, want := string(writer.bodies[0]), "payload"; got != want {
 		t.Fatalf("payload = %q, want %q", got, want)
+	}
+}
+
+func TestWriteLocalTarRecordRevalidatesSymlinkTarget(t *testing.T) {
+	root := t.TempDir()
+	linkPath := filepath.Join(root, "link")
+	if err := os.Symlink("target", linkPath); err != nil {
+		t.Fatalf("Symlink() error = %v", err)
+	}
+	info, err := os.Lstat(linkPath)
+	if err != nil {
+		t.Fatalf("Lstat() error = %v", err)
+	}
+	if err := os.Remove(linkPath); err != nil {
+		t.Fatalf("Remove() error = %v", err)
+	}
+	if err := os.Symlink("/etc/hosts", linkPath); err != nil {
+		t.Fatalf("Symlink(replacement) error = %v", err)
+	}
+
+	writer := &recordingTarWriter{}
+	_, err = (&Runner{}).writeLocalTarRecord(context.Background(), writer, localCreateRecord{current: linkPath, archiveName: "link"}, info, false, MetadataPolicy{}, nil)
+	if err == nil {
+		t.Fatal("writeLocalTarRecord() error = nil, want unsafe replacement rejection")
+	}
+	if len(writer.headers) != 0 {
+		t.Fatalf("headers written = %d, want 0", len(writer.headers))
 	}
 }
