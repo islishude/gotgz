@@ -118,6 +118,7 @@ func (r *Runner) buildCreatePlan(ctx context.Context, opts cli.Options, excludeM
 
 	workCtx, cancel := context.WithCancelCause(ctx)
 	defer cancel(nil)
+	metadataLimiter := newCreatePlanMetadataLimiter(defaultCreatePlanMetadataConcurrency())
 
 	tasksCh := make(chan createPlanTask)
 	resultsCh := make(chan createPlanTaskResult, workerCount)
@@ -135,7 +136,7 @@ func (r *Runner) buildCreatePlan(ctx context.Context, opts cli.Options, excludeM
 						return
 					}
 
-					result, include, err := r.runCreatePlanTask(workCtx, task, opts.Chdir, plan.spoolDir, excludeMatcher, outputPolicy)
+					result, include, err := r.runCreatePlanTask(workCtx, task, opts.Chdir, plan.spoolDir, excludeMatcher, outputPolicy, metadataLimiter)
 					if err != nil {
 						cancel(err)
 						return
@@ -229,7 +230,7 @@ func buildCreatePlanWorkerCount(taskCount int) int {
 }
 
 // runCreatePlanTask executes one pre-scanned create member workload.
-func (r *Runner) runCreatePlanTask(ctx context.Context, task createPlanTask, chdir, spoolDir string, excludeMatcher *archivepath.CompiledPathMatcher, outputPolicy *createOutputPolicy) (createPlanTaskResult, bool, error) {
+func (r *Runner) runCreatePlanTask(ctx context.Context, task createPlanTask, chdir, spoolDir string, excludeMatcher *archivepath.CompiledPathMatcher, outputPolicy *createOutputPolicy, metadataLimiter *createPlanMetadataLimiter) (createPlanTaskResult, bool, error) {
 	switch task.ref.Kind {
 	case locator.KindS3:
 		meta, err := r.storage.statS3Object(ctx, task.ref)
@@ -242,7 +243,7 @@ func (r *Runner) runCreatePlanTask(ctx context.Context, task createPlanTask, chd
 			totalBytes: meta.Size,
 		}, true, nil
 	case locator.KindLocal:
-		planPath, size, count, err := spoolLocalCreateRecords(ctx, spoolDir, task.member, chdir, excludeMatcher, outputPolicy)
+		planPath, size, count, err := spoolLocalCreateRecordsWithLimiter(ctx, spoolDir, task.member, chdir, excludeMatcher, outputPolicy, metadataLimiter)
 		if err != nil {
 			return createPlanTaskResult{}, false, err
 		}

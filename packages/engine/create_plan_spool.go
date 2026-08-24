@@ -8,19 +8,28 @@ import (
 	"io"
 	"io/fs"
 	"os"
-	"path/filepath"
 
 	"github.com/islishude/gotgz/packages/archivepath"
 )
 
-type localCreateRecordWire struct {
-	Current     string
-	ArchiveName string
+type createPlanSpoolSink struct {
+	encoder *gob.Encoder
+}
+
+func (s createPlanSpoolSink) Append(record createPlanRecord) error {
+	if err := s.encoder.Encode(record); err != nil {
+		return fmt.Errorf("encode local plan record: %w", err)
+	}
+	return nil
 }
 
 // spoolLocalCreateRecords validates and writes one local member plan without
 // retaining a record slice proportional to the number of filesystem entries.
 func spoolLocalCreateRecords(ctx context.Context, spoolDir, member, chdir string, excludeMatcher *archivepath.CompiledPathMatcher, outputPolicy *createOutputPolicy) (path string, total int64, count int64, retErr error) {
+	return spoolLocalCreateRecordsWithLimiter(ctx, spoolDir, member, chdir, excludeMatcher, outputPolicy, nil)
+}
+
+func spoolLocalCreateRecordsWithLimiter(ctx context.Context, spoolDir, member, chdir string, excludeMatcher *archivepath.CompiledPathMatcher, outputPolicy *createOutputPolicy, limiter *createPlanMetadataLimiter) (path string, total int64, count int64, retErr error) {
 	file, err := os.CreateTemp(spoolDir, "member-*.gob")
 	if err != nil {
 		return "", 0, 0, fmt.Errorf("create local plan spool: %w", err)
@@ -46,44 +55,17 @@ func spoolLocalCreateRecords(ctx context.Context, spoolDir, member, chdir string
 		}
 	}()
 
-	encoder := gob.NewEncoder(file)
-	retErr = walkLocalCreateMemberEntries(ctx, member, chdir, excludeMatcher, func(record localCreateRecord, entry fs.DirEntry) error {
-		if entry.IsDir() {
-			info, err := entry.Info()
-			if err != nil {
-				return err
-			}
-			if os.SameFile(spoolInfo, info) {
-				return filepath.SkipDir
-			}
-		}
-		if outputPolicy.shouldSkipLocal(record.current) {
-			return nil
-		}
-		if entry.Type()&os.ModeSymlink != 0 {
-			linkTarget, err := os.Readlink(record.current)
-			if err != nil {
-				return err
-			}
-			if err := validateCreateSymlinkTarget(record.archiveName, linkTarget); err != nil {
-				return err
-			}
-		}
-		if entry.Type().IsRegular() {
-			info, err := entry.Info()
-			if err != nil {
-				return err
-			}
-			if info.Mode().IsRegular() {
-				total = addCreatePlanSize(total, info.Size())
-			}
-		}
-		if err := encoder.Encode(localCreateRecordWire{Current: record.current, ArchiveName: record.archiveName}); err != nil {
-			return fmt.Errorf("encode local plan record: %w", err)
-		}
-		count++
-		return nil
-	})
+	sink := createPlanSpoolSink{encoder: gob.NewEncoder(file)}
+	total, count, retErr = scanLocalCreateRecords(
+		ctx,
+		member,
+		chdir,
+		excludeMatcher,
+		outputPolicy,
+		spoolInfo,
+		sink,
+		newCreatePlanScannerConfig(limiter),
+	)
 	if retErr != nil || count == 0 {
 		return path, total, count, retErr
 	}
@@ -119,7 +101,7 @@ func replayLocalCreateRecords(ctx context.Context, path string, visit func(recor
 			return ctx.Err()
 		default:
 		}
-		var wire localCreateRecordWire
+		var wire createPlanRecord
 		if err := decoder.Decode(&wire); err != nil {
 			if errors.Is(err, io.EOF) {
 				return nil

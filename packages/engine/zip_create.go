@@ -23,6 +23,7 @@ func (r *Runner) runCreateZip(ctx context.Context, opts cli.Options, archiveRef 
 	if err != nil {
 		return warnings, errors.Join(err, input.source.Close())
 	}
+	reporter.BeginPayload()
 	createWarnings, err := input.source.Visit(
 		ctx,
 		func(ref locator.Ref) error {

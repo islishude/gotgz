@@ -89,6 +89,7 @@ func TestProgressReporterFinishIdempotent(t *testing.T) {
 func TestProgressReporterNilSafe(t *testing.T) {
 	var p *Reporter
 	// These should not panic on a nil receiver.
+	p.BeginPayload()
 	p.SetTotal(100, true)
 	p.AddDone(50)
 	p.BeforeExternalLineOutput()
@@ -101,6 +102,63 @@ func TestProgressReporterNilSafe(t *testing.T) {
 	}
 	if got := p.Elapsed(); got != 0 {
 		t.Fatalf("Elapsed() = %v, want 0 for nil reporter", got)
+	}
+}
+
+func TestProgressReporterBeginPayloadSeparatesRateAndOverallClocks(t *testing.T) {
+	var buf bytes.Buffer
+	p := NewReporter(&buf, cli.ProgressAlways, 100, true, time.Now().Add(-30*time.Second), false)
+	p.BeginPayload()
+	p.rateStart = time.Now().Add(-time.Second)
+	p.AddDone(50)
+	p.Finish()
+
+	out := buf.String()
+	if !strings.Contains(out, "50B/s") {
+		t.Fatalf("speed included preflight time: %q", out)
+	}
+	if !strings.Contains(out, "ETA 00:01") {
+		t.Fatalf("ETA did not use payload clock: %q", out)
+	}
+	if !strings.Contains(out, "elapsed 00:30") {
+		t.Fatalf("overall elapsed omitted preflight: %q", out)
+	}
+}
+
+func TestProgressReporterBeginPayloadIsIdempotent(t *testing.T) {
+	p := NewReporter(io.Discard, cli.ProgressAlways, 100, true, time.Now().Add(-time.Second), false)
+	p.BeginPayload()
+	first := p.rateStart
+	time.Sleep(time.Millisecond)
+	p.BeginPayload()
+	if !p.rateStart.Equal(first) {
+		t.Fatalf("second BeginPayload() reset rate start: first=%v second=%v", first, p.rateStart)
+	}
+}
+
+func TestProgressReporterSetTotalPreservesPayloadClockAndDone(t *testing.T) {
+	p := NewReporter(io.Discard, cli.ProgressAlways, 0, false, time.Now().Add(-time.Second), false)
+	p.BeginPayload()
+	p.AddDone(25)
+	rateStart := p.rateStart
+	p.SetTotal(100, true)
+
+	if got := p.done.Load(); got != 25 {
+		t.Fatalf("done = %d, want 25", got)
+	}
+	if !p.rateStart.Equal(rateStart) {
+		t.Fatalf("SetTotal() reset rate start: before=%v after=%v", rateStart, p.rateStart)
+	}
+	if p.total != 100 || !p.totalKnown {
+		t.Fatalf("total state = (%d, %v), want (100, true)", p.total, p.totalKnown)
+	}
+}
+
+func TestProgressReporterBeginPayloadDisabledIsSafe(t *testing.T) {
+	p := NewReporter(io.Discard, cli.ProgressNever, 100, true, time.Now(), false)
+	p.BeginPayload()
+	if p.rateStarted {
+		t.Fatal("disabled reporter unexpectedly started rate clock")
 	}
 }
 
@@ -235,7 +293,7 @@ func newTopPinnedReporter(buf *bytes.Buffer, total int64, totalKnown bool, start
 		topPinned:    true,
 		total:        total,
 		totalKnown:   totalKnown,
-		startTime:    start,
+		overallStart: start,
 		scrollRegion: false,
 	}
 }

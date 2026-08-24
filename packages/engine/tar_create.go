@@ -23,6 +23,7 @@ func (r *Runner) runCreateTar(ctx context.Context, opts cli.Options, archiveRef 
 	if err != nil {
 		return 0, errors.Join(err, input.source.Close())
 	}
+	reporter.BeginPayload()
 	createWarnings, err := input.source.Visit(
 		ctx,
 		func(ref locator.Ref) error {
