@@ -132,7 +132,7 @@ func (w *splitTarArchiveWriter) openNextVolume() error {
 	cw, err := compress.NewWriter(dst, w.compression, compress.WriterOptions{Level: w.level})
 	if err != nil {
 		if closeErr := raw.Close(); closeErr != nil {
-			return fmt.Errorf("create archive writer: %w (close: %v)", err, closeErr)
+			return fmt.Errorf("create archive writer: %w (close: %w)", err, closeErr)
 		}
 		return err
 	}

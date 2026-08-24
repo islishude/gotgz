@@ -73,7 +73,7 @@ func DecodeACLFromPAX(hdr *tar.Header) (map[string][]byte, error) {
 func HeaderToS3Metadata(hdr *tar.Header) (map[string]string, bool) {
 	meta := map[string]string{
 		"gotgz-type":  strconv.Itoa(int(hdr.Typeflag)),
-		"gotgz-mode":  strconv.FormatInt(int64(hdr.Mode), 8),
+		"gotgz-mode":  strconv.FormatInt(hdr.Mode, 8),
 		"gotgz-uid":   strconv.Itoa(hdr.Uid),
 		"gotgz-gid":   strconv.Itoa(hdr.Gid),
 		"gotgz-mtime": strconv.FormatInt(hdr.ModTime.Unix(), 10),

@@ -218,7 +218,7 @@ func TestIntegrationSplitTarHardlinkFallsBackToSerial(t *testing.T) {
 		t.Fatalf("Stat(alias) error = %v", err)
 	}
 	if !os.SameFile(targetInfo, aliasInfo) {
-		t.Fatal("target.txt and alias.txt should be hardlinked")
+		t.Fatal("target.txt and alias.txt should be hardline")
 	}
 }
 

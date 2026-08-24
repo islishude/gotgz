@@ -37,7 +37,7 @@ func (r *Runner) newSingleTarArchiveWriter(ctx context.Context, opts cli.Options
 	cw, err := compress.NewWriter(aw, compress.FromString(string(opts.Compression)), compress.WriterOptions{Level: opts.CompressionLevel})
 	if err != nil {
 		if closeErr := aw.Close(); closeErr != nil {
-			return nil, fmt.Errorf("create archive writer: %w (close: %v)", err, closeErr)
+			return nil, fmt.Errorf("create archive writer: %w (close: %w)", err, closeErr)
 		}
 		return nil, err
 	}

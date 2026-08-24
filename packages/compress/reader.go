@@ -2,10 +2,11 @@ package compress
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"io"
 
-	"github.com/islishude/gotgz/internal/compress/bzip2"
+	"github.com/dsnet/compress/bzip2"
 	"github.com/klauspost/compress/zstd"
 	gzip "github.com/klauspost/pgzip"
 	xzreader "github.com/mikelolasagasti/xz"
@@ -17,7 +18,7 @@ import (
 func NewReader(src io.ReadCloser, explicit Type, hint string, contentType string) (io.ReadCloser, Type, error) {
 	br := bufio.NewReader(src)
 	magic, err := br.Peek(8)
-	if err != nil && err != io.EOF {
+	if err != nil && !errors.Is(err, io.EOF) {
 		return nil, Auto, err
 	}
 	detected := detectByMagic(magic)

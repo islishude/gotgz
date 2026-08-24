@@ -58,7 +58,7 @@ func TestNewReaderReturnsProbeError(t *testing.T) {
 	if detected != Auto {
 		t.Fatalf("detected = %q, want auto", detected)
 	}
-	if err != probeErr {
+	if !errors.Is(err, probeErr) {
 		t.Fatalf("error = %v, want %v", err, probeErr)
 	}
 }

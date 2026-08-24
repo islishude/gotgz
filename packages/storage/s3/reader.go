@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"slices"
 	"sync"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -129,7 +130,7 @@ func (r *downloadReadCloser) Read(p []byte) (int, error) {
 		return 0, r.readErr
 	}
 
-	n, err := r.reader.Read(p[:len(p):len(p)])
+	n, err := r.reader.Read(slices.Clip(p))
 	if err != nil {
 		r.readErr = err
 	}
