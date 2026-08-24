@@ -98,14 +98,54 @@ func TestCollectLocalCreateRecordsTotalsRegularFilesOnly(t *testing.T) {
 		t.Fatalf("Symlink() error = %v", err)
 	}
 
-	records, total, err := collectLocalCreateRecords(context.Background(), ".", root, nil)
+	planPath, total, count, err := spoolLocalCreateRecords(context.Background(), t.TempDir(), ".", root, nil, nil)
 	if err != nil {
-		t.Fatalf("collectLocalCreateRecords() error = %v", err)
+		t.Fatalf("spoolLocalCreateRecords() error = %v", err)
+	}
+	if planPath == "" {
+		t.Fatal("spoolLocalCreateRecords() path is empty")
 	}
 	if got, want := total, int64(len("payload")+len("nested")); got != want {
 		t.Fatalf("total = %d, want %d", got, want)
 	}
-	if len(records) != 5 {
-		t.Fatalf("record count = %d, want 5", len(records))
+	if count != 5 {
+		t.Fatalf("record count = %d, want 5", count)
+	}
+}
+
+func TestWalkLocalCreateMemberGlobDirectoryDoesNotPruneDescendants(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "src", "cache"), 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "src", "direct.txt"), []byte("direct"), 0o644); err != nil {
+		t.Fatalf("WriteFile(direct) error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "src", "cache", "nested.txt"), []byte("nested"), 0o644); err != nil {
+		t.Fatalf("WriteFile(nested) error = %v", err)
+	}
+
+	var seen []string
+	err := walkLocalCreateMember(context.Background(), "src", root, archivepath.NewCompiledPathMatcher([]string{"src/*"}), func(record localCreateRecord, _ fs.FileInfo) error {
+		seen = append(seen, record.archiveName)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("walkLocalCreateMember() error = %v", err)
+	}
+	if got, want := strings.Join(seen, ","), "src,src/cache/nested.txt"; got != want {
+		t.Fatalf("seen = %q, want %q", got, want)
+	}
+
+	seen = nil
+	err = walkLocalCreateMember(context.Background(), "src", root, archivepath.NewCompiledPathMatcher([]string{"src/**"}), func(record localCreateRecord, _ fs.FileInfo) error {
+		seen = append(seen, record.archiveName)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("walkLocalCreateMember(recursive) error = %v", err)
+	}
+	if len(seen) != 0 {
+		t.Fatalf("recursive exclude retained records: %v", seen)
 	}
 }

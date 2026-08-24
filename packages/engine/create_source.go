@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"io/fs"
-	"os"
 
 	"github.com/islishude/gotgz/packages/archivepath"
 	"github.com/islishude/gotgz/packages/cli"
@@ -37,28 +36,13 @@ func (s liveLocalCreateSource) Visit(ctx context.Context, visit func(record loca
 // plannedLocalCreateSource replays one pre-scanned local record list using
 // fresh filesystem metadata at write time.
 type plannedLocalCreateSource struct {
-	records []localCreateRecord
+	planPath string
 }
 
 // Visit replays one planned local member list while refreshing metadata for
 // each record just before it is written.
 func (s plannedLocalCreateSource) Visit(ctx context.Context, visit func(record localCreateRecord, info fs.FileInfo) error) error {
-	for _, record := range s.records {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		default:
-		}
-
-		info, err := os.Lstat(record.current)
-		if err != nil {
-			return err
-		}
-		if err := visit(record, info); err != nil {
-			return err
-		}
-	}
-	return nil
+	return replayLocalCreateRecords(ctx, s.planPath, visit)
 }
 
 // createInputSource dispatches create-mode members and exposes any known total
@@ -75,6 +59,8 @@ type createInputSource interface {
 	Total() (int64, bool)
 	// Visit walks the source and dispatches each item to the appropriate handler.
 	Visit(ctx context.Context, handleS3 func(ref locator.Ref) error, handleLocal func(source localCreateSource) (int, error)) (int, error)
+	// Close releases private preflight resources before destination publication.
+	Close() error
 }
 
 // liveCreateInputSource parses create members on demand without precomputing a plan.
@@ -128,6 +114,8 @@ func (s liveCreateInputSource) Visit(ctx context.Context, handleS3 func(ref loca
 	return warnings, nil
 }
 
+func (liveCreateInputSource) Close() error { return nil }
+
 // plannedCreateInputSource replays one pre-scanned create plan.
 type plannedCreateInputSource struct {
 	plan *createPlan
@@ -154,7 +142,7 @@ func (s plannedCreateInputSource) Visit(ctx context.Context, handleS3 func(ref l
 				return warnings, err
 			}
 		case locator.KindLocal:
-			w, err := handleLocal(plannedLocalCreateSource{records: member.localRecords})
+			w, err := handleLocal(plannedLocalCreateSource{planPath: member.localPlanPath})
 			warnings += w
 			if err != nil {
 				return warnings, err
@@ -162,6 +150,10 @@ func (s plannedCreateInputSource) Visit(ctx context.Context, handleS3 func(ref l
 		}
 	}
 	return warnings, nil
+}
+
+func (s plannedCreateInputSource) Close() error {
+	return s.plan.Close()
 }
 
 // newCreateInputSource always validates and orders the complete create

@@ -254,6 +254,18 @@ func TestTransferUploadJoinsAbortFailure(t *testing.T) {
 	}
 }
 
+func TestSuppressExpectedAbortErrorPreservesCleanupAfterContextCancellation(t *testing.T) {
+	cleanupErr := errors.New("abort failed")
+	uploadErr := newMultipartCleanupError(context.Canceled, cleanupErr)
+	got := suppressExpectedAbortError(uploadErr, errors.New("caller stopped"))
+	if !errors.Is(got, cleanupErr) {
+		t.Fatalf("suppressExpectedAbortError() = %v, want cleanup error", got)
+	}
+	if errors.Is(got, context.Canceled) {
+		t.Fatalf("suppressExpectedAbortError() retained expected cancellation: %v", got)
+	}
+}
+
 func TestTransferUploadReadFailureAbortsWithoutCompleting(t *testing.T) {
 	wantErr := errors.New("source failed")
 	completed := false

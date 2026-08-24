@@ -218,6 +218,36 @@ func TestTransferReaderCloseInterruptsActiveBody(t *testing.T) {
 	}
 }
 
+func TestTransferReaderCloseDiscardsBufferedPart(t *testing.T) {
+	payload := "abcdef"
+	client := &fakeTransferS3Client{
+		headObjectFn: func(context.Context, *awss3.HeadObjectInput, ...func(*awss3.Options)) (*awss3.HeadObjectOutput, error) {
+			return &awss3.HeadObjectOutput{ContentLength: new(int64(len(payload))), ETag: new(`"etag"`)}, nil
+		},
+		getObjectFn: func(_ context.Context, input *awss3.GetObjectInput, _ ...func(*awss3.Options)) (*awss3.GetObjectOutput, error) {
+			start, end, err := parseRequestRange(aws.ToString(input.Range))
+			if err != nil {
+				return nil, err
+			}
+			return testRangeOutput(payload, start, end), nil
+		},
+	}
+	reader, _, err := newTransferManager(client, transferOptions{partSize: 6, concurrency: 1}).openReader(context.Background(), "bucket", "key")
+	if err != nil {
+		t.Fatalf("openReader() error = %v", err)
+	}
+	buffer := make([]byte, 2)
+	if n, err := reader.Read(buffer); err != nil || n != len(buffer) {
+		t.Fatalf("Read() = (%d, %v), want (2, nil)", n, err)
+	}
+	if err := reader.Close(); err != nil {
+		t.Fatalf("Close() error = %v", err)
+	}
+	if n, err := reader.Read(buffer); n != 0 || !errors.Is(err, errTransferReaderClosed) {
+		t.Fatalf("Read() after Close = (%d, %v), want closed error", n, err)
+	}
+}
+
 func TestTransferReaderRejectsMissingSnapshotFence(t *testing.T) {
 	client := &fakeTransferS3Client{
 		headObjectFn: func(context.Context, *awss3.HeadObjectInput, ...func(*awss3.Options)) (*awss3.HeadObjectOutput, error) {

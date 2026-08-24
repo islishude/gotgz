@@ -4,6 +4,7 @@ import (
 	"archive/zip"
 	"compress/flate"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 
@@ -69,12 +70,12 @@ func (w *singleZipArchiveWriter) FinishEntry() error {
 // Close finalizes the zip stream and then closes the output writer.
 func (w *singleZipArchiveWriter) Close() error {
 	if err := w.zw.Close(); err != nil {
-		_ = w.session.Abort(err)
-		return fmt.Errorf("closing zip writer: %w", err)
+		rootErr := fmt.Errorf("closing zip writer: %w", err)
+		return errors.Join(rootErr, w.session.Abort(rootErr))
 	}
 	if err := w.session.Commit(); err != nil {
-		_ = w.session.Abort(err)
-		return fmt.Errorf("committing archive: %w", err)
+		rootErr := fmt.Errorf("committing archive: %w", err)
+		return errors.Join(rootErr, w.session.Abort(rootErr))
 	}
 	return nil
 }

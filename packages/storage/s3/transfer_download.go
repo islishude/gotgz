@@ -365,6 +365,16 @@ func (r *transferReader) Close() error {
 		if r.stopBodyCloser != nil {
 			_ = r.stopBodyCloser()
 		}
+		r.readMu.Lock()
+		r.terminal = errTransferReaderClosed
+		r.current = nil
+		r.currentOffset = 0
+		r.hadCurrent = false
+		clear(r.pending)
+		for len(r.results) > 0 {
+			<-r.results
+		}
+		r.readMu.Unlock()
 	})
 	return nil
 }

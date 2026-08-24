@@ -96,13 +96,14 @@ func TestAddLocalRecordsUsesCurrentTarMetadata(t *testing.T) {
 	if err != nil {
 		t.Fatalf("buildCreatePlan() error = %v", err)
 	}
+	cleanupCreatePlan(t, plan)
 
 	if err := os.Chmod(path, 0o755); err != nil {
 		t.Fatalf("Chmod() error = %v", err)
 	}
 
 	writer := &recordingTarWriter{}
-	warnings, err := visitLocalCreateSource(context.Background(), plannedLocalCreateSource{records: plan.members[0].localRecords}, func(record localCreateRecord, info fs.FileInfo) (int, error) {
+	warnings, err := visitLocalCreateSource(context.Background(), plannedLocalCreateSource{planPath: plan.members[0].localPlanPath}, func(record localCreateRecord, info fs.FileInfo) (int, error) {
 		return runner.writeLocalTarRecord(context.Background(), writer, record, info, false, MetadataPolicy{}, nil)
 	})
 	if err != nil {
@@ -140,13 +141,14 @@ func TestAddLocalRecordsZipUsesCurrentMetadata(t *testing.T) {
 	if err != nil {
 		t.Fatalf("buildCreatePlan() error = %v", err)
 	}
+	cleanupCreatePlan(t, plan)
 
 	if err := os.Chmod(path, 0o755); err != nil {
 		t.Fatalf("Chmod() error = %v", err)
 	}
 
 	writer := &recordingZipWriter{}
-	warnings, err := visitLocalCreateSource(context.Background(), plannedLocalCreateSource{records: plan.members[0].localRecords}, func(record localCreateRecord, info fs.FileInfo) (int, error) {
+	warnings, err := visitLocalCreateSource(context.Background(), plannedLocalCreateSource{planPath: plan.members[0].localPlanPath}, func(record localCreateRecord, info fs.FileInfo) (int, error) {
 		return runner.writeLocalZipRecord(context.Background(), writer, record, info, false, nil)
 	})
 	if err != nil {

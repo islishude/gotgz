@@ -3,6 +3,7 @@ package engine
 import (
 	"archive/tar"
 	"context"
+	"errors"
 	"io"
 
 	"github.com/islishude/gotgz/packages/archivepath"
@@ -46,8 +47,9 @@ func (r *Runner) runExtractTar(ctx context.Context, opts cli.Options, reporter *
 	} else {
 		warnings, err = r.scanTarArchiveFromVolumes(ctx, opts, reporter, volumes, ar, scan)
 	}
-	warnings += state.baseWarnings + state.metadataSession.finish()
-	return warnings, err
+	metadataWarnings, metadataErr := state.metadataSession.finish()
+	warnings += state.baseWarnings + metadataWarnings
+	return warnings, errors.Join(err, metadataErr)
 }
 
 func (r *Runner) prepareTarExtractState(opts cli.Options, reporter *archiveprogress.Reporter, excludeMatcher *archivepath.CompiledPathMatcher) (*tarExtractState, error) {

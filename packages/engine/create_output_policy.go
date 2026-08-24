@@ -5,7 +5,6 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"strings"
 	"sync/atomic"
 
 	"github.com/islishude/gotgz/packages/archivepath"
@@ -121,17 +120,7 @@ func (p *createOutputPolicy) matchesLocalPath(path string) bool {
 		return false
 	}
 	path = filepath.Clean(path)
-	if p.matchesFinalLocalPath(path) {
-		return true
-	}
-	base := filepath.Base(path)
-	if strings.HasPrefix(base, ".") {
-		if marker := strings.LastIndex(base, ".gotgz-"); marker > 1 {
-			stagedTarget := filepath.Join(filepath.Dir(path), base[1:marker])
-			return p.matchesFinalLocalPath(stagedTarget)
-		}
-	}
-	return false
+	return p.matchesFinalLocalPath(path)
 }
 
 func (p *createOutputPolicy) matchesFinalLocalPath(path string) bool {

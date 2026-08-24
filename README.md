@@ -152,7 +152,9 @@ Supported suffixes are `.tar.gz/.tgz/.gz`, `.tar.bz2/.tbz2/.tbz/.bz2`, `.tar.xz/
 If you do pass an explicit tar-family compression flag in create mode, it must match the archive suffix. The only exception is `-f -`, because stdout has no filename.
 `--suffix` is applied before this inference. For example, `-f backup --suffix daily.gz` creates the gzip-compressed file `backup-daily.gz`; suffix values must be filename-only and cannot contain path separators.
 
-Single-file local and S3 archive outputs are committed only after input preflight and successful archive finalization. A failed create leaves an existing single-file destination unchanged. gotgz rejects an archive target explicitly listed as an input member and skips an existing output file found inside a recursively selected input tree.
+Single-file local and S3 archive outputs are committed only after input preflight and successful archive finalization. A failed create leaves an existing single-file destination unchanged. Local preflight records are streamed into private `0700` temporary plan storage with `0600` member files and removed before destination publication, so memory use does not grow with the number of files. gotgz rejects an archive target explicitly listed as an input member and skips an existing output file found inside a recursively selected input tree.
+
+When atomically replacing an existing local archive, gotgz preserves its permission bits, owner/group, extended attributes, and ACLs. Metadata preservation is fail-closed: an unreadable or unwriteable attribute leaves the old archive untouched. Targets with multiple hard links are rejected because replacing one directory entry cannot atomically update every link to the inode. Platforms without complete atomic-overwrite metadata support likewise reject overwriting an existing target; creating a new target remains supported.
 
 Use `--split-size=<size>` in create mode to emit `.zip` or tar-family output as `partNNNN` volumes such as `archive.part0001.zip` or `archive.part0001.tar.gz`.  
 Split archives are discovered automatically from `part0001` during list/extract for local files and S3 objects.
@@ -239,7 +241,7 @@ If your workflow is read-only or write-only, remove the actions you do not need.
 
 Current limitation: HTTP URLs are source-only in this release. Create mode (`-c`) does not support HTTP targets, and HTTP requests use anonymous GET without custom headers/auth.
 
-Explicit member names select both that member and its descendants, so `gotgz -xf archive.tar dir` extracts the complete `dir/` subtree. With `--wildcards`, `*` matches one path segment and `**` crosses directories. A pattern without `/`, such as `*.log`, matches basenames at any depth. `--exclude` and `--exclude-from` apply consistently to create, list, and extract after member selection.
+Explicit member names select both that member and its descendants, so `gotgz -xf archive.tar dir` extracts the complete `dir/` subtree. With `--wildcards`, `*` matches one path segment and `**` crosses directories. A glob that matches a directory entry does not implicitly match its descendants; use `/**` when the complete subtree must match. A pattern without `/`, such as `*.log`, matches basenames at any depth. `--exclude` and `--exclude-from` apply consistently to create, list, and extract after member selection.
 
 Creation rejects symlinks whose targets are absolute or lexically escape the archive root. During extraction, directory permissions and timestamps are restored after descendants; metadata restoration failures produce warnings and exit status 1 while content or path-safety failures remain fatal. ACL preservation is supported only on Linux CGO-free builds; other platforms warn and ignore `--acl`. Non-Unix builds likewise warn for `--xattrs`.
 

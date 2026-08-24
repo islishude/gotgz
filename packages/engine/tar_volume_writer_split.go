@@ -3,6 +3,7 @@ package engine
 import (
 	"archive/tar"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 
@@ -180,8 +181,9 @@ func (w *splitTarArchiveWriter) closeCurrentVolume() error {
 		if err := w.current.session.Commit(); err != nil {
 			first = fmt.Errorf("committing archive for %s: %w", archiveutil.NameHint(w.current.ref), err)
 		}
-	} else {
-		_ = w.current.session.Abort(first)
+	}
+	if first != nil {
+		first = errors.Join(first, w.current.session.Abort(first))
 	}
 	w.current = nil
 	w.rotateOnEntry = false

@@ -1,8 +1,11 @@
 package engine
 
 import (
+	"errors"
+	"fmt"
 	"io/fs"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -47,6 +50,13 @@ func (s *localMetadataSession) queueDirectory(record localMetadataRecord) {
 	s.dirs[record.target] = record
 }
 
+func (s *localMetadataSession) discardDirectory(target string) {
+	if s == nil {
+		return
+	}
+	delete(s.dirs, filepath.Clean(target))
+}
+
 func (s *localMetadataSession) apply(record localMetadataRecord) int {
 	if s == nil {
 		return 0
@@ -73,20 +83,31 @@ func (s *localMetadataSession) apply(record localMetadataRecord) int {
 	return warnings
 }
 
-func (s *localMetadataSession) finish() int {
+func (s *localMetadataSession) finish() (int, error) {
 	if s == nil || len(s.dirs) == 0 {
-		return 0
+		return 0, nil
 	}
 	records := make([]localMetadataRecord, 0, len(s.dirs))
 	for _, record := range s.dirs {
 		records = append(records, record)
 	}
+	clear(s.dirs)
 	sort.SliceStable(records, func(i, j int) bool {
 		return strings.Count(records[i].target, string(os.PathSeparator)) > strings.Count(records[j].target, string(os.PathSeparator))
 	})
 	warnings := 0
+	var metadataErrs []error
 	for _, record := range records {
+		info, err := os.Lstat(record.target)
+		if err != nil {
+			metadataErrs = append(metadataErrs, fmt.Errorf("revalidate extracted directory %q: %w", record.archiveName, err))
+			continue
+		}
+		if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+			metadataErrs = append(metadataErrs, fmt.Errorf("refusing to apply directory metadata for %q: target type changed to %s", record.archiveName, info.Mode().Type()))
+			continue
+		}
 		warnings += s.apply(record)
 	}
-	return warnings
+	return warnings, errors.Join(metadataErrs...)
 }

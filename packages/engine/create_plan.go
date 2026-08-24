@@ -2,8 +2,10 @@ package engine
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math"
+	"os"
 	"sync"
 
 	"github.com/islishude/gotgz/packages/archivepath"
@@ -20,13 +22,17 @@ type createPlan struct {
 	totalKnown    bool
 	members       []createPlanMember
 	outputSkipped bool
+	spoolDir      string
+	closeOnce     sync.Once
+	closeErr      error
 }
 
 // createPlanMember stores one parsed create input and any pre-scanned local
 // records associated with it.
 type createPlanMember struct {
-	ref          locator.Ref
-	localRecords []localCreateRecord
+	ref              locator.Ref
+	localPlanPath    string
+	localRecordCount int64
 }
 
 // createPlanTask stores one parsed create member ready for concurrent work.
@@ -46,7 +52,7 @@ type createPlanTaskResult struct {
 
 // buildCreatePlan parses create members once, caches local walk results, and
 // computes progress totals when possible.
-func (r *Runner) buildCreatePlan(ctx context.Context, opts cli.Options, excludeMatcher *archivepath.CompiledPathMatcher) (*createPlan, error) {
+func (r *Runner) buildCreatePlan(ctx context.Context, opts cli.Options, excludeMatcher *archivepath.CompiledPathMatcher) (_ *createPlan, retErr error) {
 	outputPolicy, err := newCreateOutputPolicy(opts)
 	if err != nil {
 		return nil, err
@@ -55,7 +61,13 @@ func (r *Runner) buildCreatePlan(ctx context.Context, opts cli.Options, excludeM
 		totalKnown: true,
 		members:    make([]createPlanMember, 0, len(opts.Members)),
 	}
+	defer func() {
+		if retErr != nil {
+			retErr = errors.Join(retErr, plan.Close())
+		}
+	}()
 	tasks := make([]createPlanTask, 0, len(opts.Members))
+	localTaskCount := 0
 
 	for index, member := range opts.Members {
 		select {
@@ -78,6 +90,7 @@ func (r *Runner) buildCreatePlan(ctx context.Context, opts cli.Options, excludeM
 				continue
 			}
 		case locator.KindLocal:
+			localTaskCount++
 		default:
 			return nil, fmt.Errorf("unsupported member reference %q", member)
 		}
@@ -92,6 +105,15 @@ func (r *Runner) buildCreatePlan(ctx context.Context, opts cli.Options, excludeM
 	workerCount := buildCreatePlanWorkerCount(len(tasks))
 	if workerCount == 0 {
 		return plan, nil
+	}
+	if localTaskCount > 0 {
+		plan.spoolDir, err = os.MkdirTemp("", "gotgz-create-plan-*")
+		if err != nil {
+			return nil, fmt.Errorf("create plan spool directory: %w", err)
+		}
+		if err := os.Chmod(plan.spoolDir, 0o700); err != nil {
+			return nil, fmt.Errorf("secure plan spool directory: %w", err)
+		}
 	}
 
 	workCtx, cancel := context.WithCancelCause(ctx)
@@ -113,7 +135,7 @@ func (r *Runner) buildCreatePlan(ctx context.Context, opts cli.Options, excludeM
 						return
 					}
 
-					result, include, err := r.runCreatePlanTask(workCtx, task, opts.Chdir, excludeMatcher, outputPolicy)
+					result, include, err := r.runCreatePlanTask(workCtx, task, opts.Chdir, plan.spoolDir, excludeMatcher, outputPolicy)
 					if err != nil {
 						cancel(err)
 						return
@@ -167,6 +189,23 @@ func (r *Runner) buildCreatePlan(ctx context.Context, opts cli.Options, excludeM
 	return plan, nil
 }
 
+// Close removes all private local plan files. It is idempotent so callers can
+// use explicit pre-commit cleanup together with deferred failure cleanup.
+func (p *createPlan) Close() error {
+	if p == nil {
+		return nil
+	}
+	p.closeOnce.Do(func() {
+		if p.spoolDir == "" {
+			return
+		}
+		if err := os.RemoveAll(p.spoolDir); err != nil {
+			p.closeErr = fmt.Errorf("remove create plan spool directory %q: %w", p.spoolDir, err)
+		}
+	})
+	return p.closeErr
+}
+
 // addCreatePlanSize accumulates progress totals without wrapping int64.
 func addCreatePlanSize(total, size int64) int64 {
 	if size <= 0 || total == math.MaxInt64 {
@@ -190,7 +229,7 @@ func buildCreatePlanWorkerCount(taskCount int) int {
 }
 
 // runCreatePlanTask executes one pre-scanned create member workload.
-func (r *Runner) runCreatePlanTask(ctx context.Context, task createPlanTask, chdir string, excludeMatcher *archivepath.CompiledPathMatcher, outputPolicy *createOutputPolicy) (createPlanTaskResult, bool, error) {
+func (r *Runner) runCreatePlanTask(ctx context.Context, task createPlanTask, chdir, spoolDir string, excludeMatcher *archivepath.CompiledPathMatcher, outputPolicy *createOutputPolicy) (createPlanTaskResult, bool, error) {
 	switch task.ref.Kind {
 	case locator.KindS3:
 		meta, err := r.storage.statS3Object(ctx, task.ref)
@@ -203,18 +242,19 @@ func (r *Runner) runCreatePlanTask(ctx context.Context, task createPlanTask, chd
 			totalBytes: meta.Size,
 		}, true, nil
 	case locator.KindLocal:
-		records, size, err := collectLocalCreateRecords(ctx, task.member, chdir, excludeMatcher, outputPolicy)
+		planPath, size, count, err := spoolLocalCreateRecords(ctx, spoolDir, task.member, chdir, excludeMatcher, outputPolicy)
 		if err != nil {
 			return createPlanTaskResult{}, false, err
 		}
-		if len(records) == 0 {
+		if count == 0 {
 			return createPlanTaskResult{}, false, nil
 		}
 		return createPlanTaskResult{
 			index: task.index,
 			member: createPlanMember{
-				ref:          task.ref,
-				localRecords: records,
+				ref:              task.ref,
+				localPlanPath:    planPath,
+				localRecordCount: count,
 			},
 			totalBytes: size,
 		}, true, nil

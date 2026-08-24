@@ -3,6 +3,7 @@ package engine
 import (
 	"archive/zip"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 
@@ -156,8 +157,9 @@ func (w *splitZipArchiveWriter) closeCurrentVolume() error {
 		if err := w.current.session.Commit(); err != nil {
 			first = fmt.Errorf("committing archive for %s: %w", w.current.ref.Raw, err)
 		}
-	} else {
-		_ = w.current.session.Abort(first)
+	}
+	if first != nil {
+		first = errors.Join(first, w.current.session.Abort(first))
 	}
 	w.current = nil
 	w.rotateOnEntry = false

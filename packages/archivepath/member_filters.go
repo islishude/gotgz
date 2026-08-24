@@ -60,6 +60,28 @@ func (m *CompiledPathMatcher) Matches(name string) bool {
 		return false
 	}
 	name = normalizeMatchPath(name)
+	if m.matchesStoredSubtree(name) {
+		return true
+	}
+	for _, pattern := range m.globs {
+		if matchArchiveGlob(pattern, name) {
+			return true
+		}
+	}
+	return false
+}
+
+// CoversSubtree reports whether an exact rule matching name also defines all
+// descendants of name as matches. Glob rules are intentionally excluded: a
+// single-segment * match on a directory does not imply a recursive ** match.
+func (m *CompiledPathMatcher) CoversSubtree(name string) bool {
+	if m == nil {
+		return false
+	}
+	return m.matchesStoredSubtree(normalizeMatchPath(name))
+}
+
+func (m *CompiledPathMatcher) matchesStoredSubtree(name string) bool {
 	for _, exact := range m.exactSubtrees {
 		if exact == "" || name == exact || strings.HasPrefix(name, exact+"/") {
 			return true
@@ -70,11 +92,6 @@ func (m *CompiledPathMatcher) Matches(name string) bool {
 			if segment == basename {
 				return true
 			}
-		}
-	}
-	for _, pattern := range m.globs {
-		if matchArchiveGlob(pattern, name) {
-			return true
 		}
 	}
 	return false

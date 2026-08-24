@@ -3,7 +3,6 @@ package engine
 import (
 	"context"
 	"io/fs"
-	"os"
 	"path"
 	"path/filepath"
 	"strings"
@@ -44,7 +43,7 @@ func walkLocalCreateMemberEntries(ctx context.Context, member string, chdir stri
 			return err
 		}
 		if archivepath.MatchExcludeWithMatcher(excludeMatcher, archiveName) {
-			if d.IsDir() {
+			if d.IsDir() && excludeMatcher.CoversSubtree(archiveName) {
 				return filepath.SkipDir
 			}
 			return nil
@@ -66,45 +65,6 @@ func walkLocalCreateMember(ctx context.Context, member string, chdir string, exc
 		}
 		return visit(record, info)
 	})
-}
-
-// collectLocalCreateRecords walks one local member once, returning normalized
-// archive records together with the total regular-file size seen during the scan.
-func collectLocalCreateRecords(ctx context.Context, member string, chdir string, excludeMatcher *archivepath.CompiledPathMatcher, outputPolicies ...*createOutputPolicy) ([]localCreateRecord, int64, error) {
-	records := make([]localCreateRecord, 0)
-	var total int64
-	var outputPolicy *createOutputPolicy
-	if len(outputPolicies) > 0 {
-		outputPolicy = outputPolicies[0]
-	}
-	err := walkLocalCreateMemberEntries(ctx, member, chdir, excludeMatcher, func(record localCreateRecord, entry fs.DirEntry) error {
-		if outputPolicy.shouldSkipLocal(record.current) {
-			return nil
-		}
-		records = append(records, record)
-		if entry.Type()&os.ModeSymlink != 0 {
-			linkTarget, err := os.Readlink(record.current)
-			if err != nil {
-				return err
-			}
-			if err := validateCreateSymlinkTarget(record.archiveName, linkTarget); err != nil {
-				return err
-			}
-		}
-		if !entry.Type().IsRegular() {
-			return nil
-		}
-
-		info, err := entry.Info()
-		if err != nil {
-			return err
-		}
-		if info.Mode().IsRegular() {
-			total += info.Size()
-		}
-		return nil
-	})
-	return records, total, err
 }
 
 // localCreateBasePrefix returns the fast-path prefix used to derive archive

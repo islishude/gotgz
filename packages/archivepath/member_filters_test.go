@@ -91,6 +91,22 @@ func TestArchiveGlobBasenameAndRecursiveSemantics(t *testing.T) {
 	}
 }
 
+func TestCompiledPathMatcherCoversOnlyExactSubtrees(t *testing.T) {
+	exact := NewCompiledPathMatcher([]string{"src/cache", "node_modules"})
+	for _, name := range []string{"src/cache", "src/cache/file", "pkg/node_modules"} {
+		if !exact.CoversSubtree(name) {
+			t.Fatalf("CoversSubtree(%q) = false for exact subtree", name)
+		}
+	}
+	glob := NewCompiledPathMatcher([]string{"src/*", "src/**"})
+	if !glob.Matches("src/cache") {
+		t.Fatal("glob matcher should match src/cache")
+	}
+	if glob.CoversSubtree("src/cache") {
+		t.Fatal("glob match must not imply exact subtree coverage")
+	}
+}
+
 func TestValidateGlobPatternsRejectsInvalidMemberPattern(t *testing.T) {
 	if err := ValidateGlobPatterns([]string{"src/["}); err == nil {
 		t.Fatal("ValidateGlobPatterns() error = nil, want invalid pattern")

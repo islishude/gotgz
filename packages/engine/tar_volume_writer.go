@@ -3,6 +3,7 @@ package engine
 import (
 	"archive/tar"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 
@@ -75,16 +76,16 @@ func (w *singleTarArchiveWriter) FinishEntry() error {
 // Close finishes the tar stream and then closes the compression/output writer stack.
 func (w *singleTarArchiveWriter) Close() error {
 	if err := w.tw.Close(); err != nil {
-		_ = w.session.Abort(err)
-		return fmt.Errorf("closing tar writer: %w", err)
+		rootErr := fmt.Errorf("closing tar writer: %w", err)
+		return errors.Join(rootErr, w.session.Abort(rootErr))
 	}
 	if err := w.cw.Close(); err != nil {
-		_ = w.session.Abort(err)
-		return fmt.Errorf("closing compression writer: %w", err)
+		rootErr := fmt.Errorf("closing compression writer: %w", err)
+		return errors.Join(rootErr, w.session.Abort(rootErr))
 	}
 	if err := w.session.Commit(); err != nil {
-		_ = w.session.Abort(err)
-		return fmt.Errorf("committing archive: %w", err)
+		rootErr := fmt.Errorf("committing archive: %w", err)
+		return errors.Join(rootErr, w.session.Abort(rootErr))
 	}
 	return nil
 }

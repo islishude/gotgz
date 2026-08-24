@@ -47,6 +47,7 @@ func (r *Runner) extractZipEntryToLocal(ctx context.Context, base string, zf *zi
 		if err := replaceLocalSymlinkTarget(base, target, linkTarget, safetyCache); err != nil {
 			return warnings, err
 		}
+		metadataSession.discardDirectory(target)
 	case isZipRegular(zf):
 		rc, w, err := r.openZipEntry(zf, reporter)
 		warnings += w

@@ -73,6 +73,7 @@ Exclude:
   --exclude <pattern>
   --exclude-from <file>
   --wildcards        Exact directory members include descendants; * matches one segment and ** crosses directories
+  (glob-matched directories do not imply descendants; use ** for recursive matches)
   (patterns without / match basenames at any depth; excludes apply to create/list/extract)
   (create rejects absolute or archive-root-escaping symlink targets)
 `, program, version, program, program, program, program, program)

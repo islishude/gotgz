@@ -3,6 +3,7 @@ package engine
 import (
 	"archive/zip"
 	"context"
+	"errors"
 	"io"
 
 	"github.com/islishude/gotgz/packages/archivepath"
@@ -58,7 +59,8 @@ func (r *Runner) runExtractZip(ctx context.Context, opts cli.Options, reporter *
 			reporter.SetTotal(matchingZipExtractPayloadBytes(zr, memberMatcher, excludeMatcher, opts.StripComponents), true)
 			return r.extractZipEntries(ctx, zr, opts, reporter, parsedTarget, target, policy, safetyCache, metadataSession, memberMatcher, excludeMatcher)
 		})
-		return warnings + zipWarnings + metadataSession.finish(), err
+		metadataWarnings, metadataErr := metadataSession.finish()
+		return warnings + zipWarnings + metadataWarnings, errors.Join(err, metadataErr)
 	}
 
 	zipWarnings, err := r.forEachArchiveVolume(ctx, volumes, ar, info, func(ref locator.Ref, reader io.ReadCloser, readerInfo archiveReaderInfo) (int, error) {
@@ -66,7 +68,8 @@ func (r *Runner) runExtractZip(ctx context.Context, opts cli.Options, reporter *
 			return r.extractZipEntries(ctx, zr, opts, reporter, parsedTarget, target, policy, safetyCache, metadataSession, memberMatcher, excludeMatcher)
 		})
 	})
-	return warnings + zipWarnings + metadataSession.finish(), err
+	metadataWarnings, metadataErr := metadataSession.finish()
+	return warnings + zipWarnings + metadataWarnings, errors.Join(err, metadataErr)
 }
 
 // extractZipEntries extracts matching members from one zip reader into the configured target.

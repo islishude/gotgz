@@ -67,23 +67,29 @@ func (s *ArchiveStore) BeginWriter(ref locator.Ref) (WriteSession, error) {
 }
 
 type localFileWriteSession struct {
-	mu        sync.Mutex
-	file      *os.File
-	tempPath  string
-	target    string
-	finished  bool
-	committed bool
-	err       error
+	mu             sync.Mutex
+	file           *os.File
+	tempPath       string
+	target         string
+	targetMetadata *existingTargetMetadata
+	finished       bool
+	committed      bool
+	err            error
 }
 
 func beginLocalFileWrite(target string) (*localFileWriteSession, error) {
 	target = filepath.Clean(target)
 	mode := os.FileMode(0o666) &^ archive.CurrentUmask()
+	var targetMetadata *existingTargetMetadata
 	if info, err := os.Lstat(target); err == nil {
 		if !info.Mode().IsRegular() {
 			return nil, fmt.Errorf("archive target %q must be a regular file", target)
 		}
-		mode = info.Mode().Perm()
+		targetMetadata, err = captureExistingTargetMetadata(target, info)
+		if err != nil {
+			return nil, err
+		}
+		mode = targetMetadata.mode.Perm()
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return nil, err
 	}
@@ -98,7 +104,12 @@ func beginLocalFileWrite(target string) (*localFileWriteSession, error) {
 		_ = os.Remove(temp.Name())
 		return nil, err
 	}
-	return &localFileWriteSession{file: temp, tempPath: temp.Name(), target: target}, nil
+	return &localFileWriteSession{
+		file:           temp,
+		tempPath:       temp.Name(),
+		target:         target,
+		targetMetadata: targetMetadata,
+	}, nil
 }
 
 func (w *localFileWriteSession) Write(p []byte) (int, error) {
@@ -117,11 +128,20 @@ func (w *localFileWriteSession) Commit() error {
 		return w.err
 	}
 	w.finished = true
-	if err := w.file.Sync(); err != nil {
+	if err := w.targetMetadata.revalidate(w.target); err != nil {
 		w.err = err
 	}
-	if err := w.file.Close(); err != nil && w.err == nil {
-		w.err = err
+	if w.err == nil {
+		w.err = w.targetMetadata.apply(w.file, w.tempPath)
+	}
+	if w.err == nil {
+		w.err = w.file.Sync()
+	}
+	if err := w.file.Close(); err != nil {
+		w.err = errors.Join(w.err, err)
+	}
+	if w.err == nil {
+		w.err = w.targetMetadata.revalidate(w.target)
 	}
 	if w.err == nil {
 		w.err = os.Rename(w.tempPath, w.target)

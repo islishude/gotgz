@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"errors"
 	"io/fs"
 
 	"github.com/islishude/gotgz/packages/archiveprogress"
@@ -20,7 +21,7 @@ func (r *Runner) runCreateZip(ctx context.Context, opts cli.Options, archiveRef 
 
 	zw, err := r.newZipArchiveWriter(ctx, opts, input.archiveRef)
 	if err != nil {
-		return warnings, err
+		return warnings, errors.Join(err, input.source.Close())
 	}
 	createWarnings, err := input.source.Visit(
 		ctx,
@@ -34,9 +35,10 @@ func (r *Runner) runCreateZip(ctx context.Context, opts cli.Options, archiveRef 
 		},
 	)
 	warnings += input.warnings + createWarnings
-	if err != nil {
-		_ = zw.Abort(err)
-		return warnings, err
+	cleanupErr := input.source.Close()
+	if err != nil || cleanupErr != nil {
+		rootErr := errors.Join(err, cleanupErr)
+		return warnings, errors.Join(rootErr, zw.Abort(rootErr))
 	}
 	if err := zw.Close(); err != nil {
 		return warnings, err

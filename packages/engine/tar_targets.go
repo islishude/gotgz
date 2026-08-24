@@ -78,10 +78,12 @@ func (r *Runner) extractToLocal(ctx context.Context, base string, hdr *tar.Heade
 		if err := replaceLocalSymlinkTarget(base, target, hdr.Linkname, safetyCache); err != nil {
 			return warnings, err
 		}
+		metadataSession.discardDirectory(target)
 	case tar.TypeLink:
 		if err := replaceLocalHardlinkTarget(base, target, hdr.Linkname, safetyCache); err != nil {
 			return warnings, err
 		}
+		metadataSession.discardDirectory(target)
 	default:
 		if _, err := archiveutil.CopyWithContext(ctx, io.Discard, io.LimitReader(tr, hdr.Size)); err != nil {
 			return warnings, err

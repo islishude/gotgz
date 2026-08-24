@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"errors"
 	"io/fs"
 
 	"github.com/islishude/gotgz/packages/archiveprogress"
@@ -20,7 +21,7 @@ func (r *Runner) runCreateTar(ctx context.Context, opts cli.Options, archiveRef 
 
 	tw, err := r.newTarArchiveWriter(ctx, opts, input.archiveRef)
 	if err != nil {
-		return 0, err
+		return 0, errors.Join(err, input.source.Close())
 	}
 	createWarnings, err := input.source.Visit(
 		ctx,
@@ -34,9 +35,10 @@ func (r *Runner) runCreateTar(ctx context.Context, opts cli.Options, archiveRef 
 		},
 	)
 	warnings += input.warnings + createWarnings
-	if err != nil {
-		_ = tw.Abort(err)
-		return warnings, err
+	cleanupErr := input.source.Close()
+	if err != nil || cleanupErr != nil {
+		rootErr := errors.Join(err, cleanupErr)
+		return warnings, errors.Join(rootErr, tw.Abort(rootErr))
 	}
 	if err := tw.Close(); err != nil {
 		return warnings, err

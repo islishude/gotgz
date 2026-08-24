@@ -186,16 +186,14 @@ func suppressExpectedAbortError(uploadErr, cause error) error {
 	if uploadErr == nil {
 		return nil
 	}
-	if errors.Is(uploadErr, cause) {
+	expected := errors.Is(uploadErr, cause) || errors.Is(uploadErr, context.Canceled)
+	if expected {
 		if cleanup, ok := errors.AsType[interface {
 			error
 			CleanupError() error
 		}](uploadErr); ok {
 			return cleanup.CleanupError()
 		}
-		return nil
-	}
-	if errors.Is(uploadErr, context.Canceled) {
 		return nil
 	}
 	return uploadErr

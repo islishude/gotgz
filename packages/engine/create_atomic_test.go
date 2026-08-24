@@ -3,6 +3,7 @@ package engine
 import (
 	"bytes"
 	"context"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
@@ -17,6 +18,28 @@ import (
 type removeSourceOnBeginStore struct {
 	*localstore.ArchiveStore
 	source string
+}
+
+type abortFailureWriteSession struct {
+	abortErr error
+}
+
+func (*abortFailureWriteSession) Write(p []byte) (int, error) { return len(p), nil }
+func (*abortFailureWriteSession) Close() error                { return nil }
+func (*abortFailureWriteSession) Commit() error               { return nil }
+func (s *abortFailureWriteSession) Abort(error) error         { return s.abortErr }
+
+type removeSourceAndFailAbortStore struct {
+	*localstore.ArchiveStore
+	source   string
+	abortErr error
+}
+
+func (s *removeSourceAndFailAbortStore) BeginWriter(locator.Ref) (localstore.WriteSession, error) {
+	if err := os.Remove(s.source); err != nil {
+		return nil, err
+	}
+	return &abortFailureWriteSession{abortErr: s.abortErr}, nil
 }
 
 func (s *removeSourceOnBeginStore) BeginWriter(ref locator.Ref) (localstore.WriteSession, error) {
@@ -126,6 +149,48 @@ func TestCreateSkipsExistingOutputInsideInputTree(t *testing.T) {
 	}
 	if strings.Contains(listed.String(), "bundle.tar") || !strings.Contains(listed.String(), "payload.txt") {
 		t.Fatalf("archive members = %q, want payload without output archive", listed.String())
+	}
+}
+
+func TestCreateIncludesLegitimateTempLikeInputName(t *testing.T) {
+	root := t.TempDir()
+	hiddenName := ".bundle.tar.gotgz-backup"
+	if err := os.WriteFile(filepath.Join(root, hiddenName), []byte("payload"), 0o600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	archivePath := filepath.Join(root, "bundle.tar")
+	runner := newRunner(&localstore.ArchiveStore{}, nil, nil, io.Discard, io.Discard)
+	if result := runner.Run(context.Background(), cli.Options{Mode: cli.ModeCreate, Archive: archivePath, Chdir: root, Members: []string{"."}}); result.ExitCode != ExitSuccess {
+		t.Fatalf("create Run() = %+v", result)
+	}
+	var listed bytes.Buffer
+	listRunner := newRunner(&localstore.ArchiveStore{}, nil, nil, &listed, io.Discard)
+	if result := listRunner.Run(context.Background(), cli.Options{Mode: cli.ModeList, Archive: archivePath}); result.ExitCode != ExitSuccess {
+		t.Fatalf("list Run() = %+v", result)
+	}
+	if !strings.Contains(listed.String(), hiddenName) {
+		t.Fatalf("archive members = %q, want %s", listed.String(), hiddenName)
+	}
+}
+
+func TestCreateJoinsAbortCleanupFailure(t *testing.T) {
+	for _, archiveName := range []string{"archive.tar", "archive.zip"} {
+		t.Run(archiveName, func(t *testing.T) {
+			root := t.TempDir()
+			source := filepath.Join(root, "source.txt")
+			if err := os.WriteFile(source, []byte("payload"), 0o644); err != nil {
+				t.Fatalf("WriteFile() error = %v", err)
+			}
+			abortErr := errors.New("cleanup failed")
+			store := &removeSourceAndFailAbortStore{ArchiveStore: &localstore.ArchiveStore{}, source: source, abortErr: abortErr}
+			runner := newRunner(store, nil, nil, io.Discard, io.Discard)
+			result := runner.Run(context.Background(), cli.Options{
+				Mode: cli.ModeCreate, Archive: filepath.Join(root, archiveName), Chdir: root, Members: []string{"source.txt"},
+			})
+			if result.ExitCode != ExitFatal || !errors.Is(result.Err, abortErr) {
+				t.Fatalf("Run() = %+v, want joined abort error", result)
+			}
+		})
 	}
 }
 
