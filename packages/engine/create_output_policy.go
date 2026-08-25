@@ -5,6 +5,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"sync"
 	"sync/atomic"
 
 	"github.com/islishude/gotgz/packages/archivepath"
@@ -22,6 +23,10 @@ type createOutputPolicy struct {
 	s3Bucket string
 	s3Key    string
 	s3Split  *archivepath.SplitInfo
+
+	ephemeralMu    sync.RWMutex
+	ephemeralPaths map[string]fs.FileInfo
+	ephemeralInfos []fs.FileInfo
 
 	skipped atomic.Bool
 }
@@ -104,15 +109,84 @@ func (p *createOutputPolicy) rejectExplicitMember(ref locator.Ref, member, chdir
 }
 
 func (p *createOutputPolicy) shouldSkipLocal(path string) bool {
-	if p == nil || p.localPath == "" {
+	if p == nil {
 		return false
 	}
 	absolute, err := filepath.Abs(filepath.Clean(path))
-	if err != nil || !p.matchesLocalPath(absolute) {
+	if err != nil {
+		return false
+	}
+	p.ephemeralMu.RLock()
+	_, ephemeral := p.ephemeralPaths[absolute]
+	p.ephemeralMu.RUnlock()
+	if ephemeral {
+		return true
+	}
+	if p.localPath == "" || !p.matchesLocalPath(absolute) {
 		return false
 	}
 	p.skipped.Store(true)
 	return true
+}
+
+func (p *createOutputPolicy) shouldSkipEphemeralIdentity(info fs.FileInfo) bool {
+	if p == nil || info == nil {
+		return false
+	}
+	p.ephemeralMu.RLock()
+	defer p.ephemeralMu.RUnlock()
+	for _, artifact := range p.ephemeralInfos {
+		if os.SameFile(artifact, info) {
+			return true
+		}
+	}
+	return false
+}
+
+// registerEphemeralLocalPaths records exact writer artifacts before recursive
+// scanning starts. Registration fails closed if any artifact cannot be
+// identified reliably.
+func (p *createOutputPolicy) registerEphemeralLocalPaths(paths []string) error {
+	if p == nil {
+		return fmt.Errorf("create output policy is unavailable")
+	}
+	if len(paths) == 0 {
+		return fmt.Errorf("transactional archive writer exposed no temporary output paths")
+	}
+
+	type artifact struct {
+		path string
+		info fs.FileInfo
+	}
+	artifacts := make([]artifact, 0, len(paths))
+	for _, path := range paths {
+		absolute, err := filepath.Abs(filepath.Clean(path))
+		if err != nil {
+			return fmt.Errorf("resolve temporary archive output %q: %w", path, err)
+		}
+		info, err := os.Lstat(absolute)
+		if err != nil {
+			return fmt.Errorf("identify temporary archive output %q: %w", absolute, err)
+		}
+		if !info.Mode().IsRegular() {
+			return fmt.Errorf("temporary archive output %q must be a regular file", absolute)
+		}
+		artifacts = append(artifacts, artifact{path: absolute, info: info})
+	}
+
+	p.ephemeralMu.Lock()
+	defer p.ephemeralMu.Unlock()
+	if p.ephemeralPaths == nil {
+		p.ephemeralPaths = make(map[string]fs.FileInfo, len(artifacts))
+	}
+	for _, artifact := range artifacts {
+		if _, exists := p.ephemeralPaths[artifact.path]; exists {
+			continue
+		}
+		p.ephemeralPaths[artifact.path] = artifact.info
+		p.ephemeralInfos = append(p.ephemeralInfos, artifact.info)
+	}
+	return nil
 }
 
 func (p *createOutputPolicy) matchesLocalPath(path string) bool {

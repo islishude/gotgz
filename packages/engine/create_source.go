@@ -15,10 +15,9 @@ import (
 // Implementations may either refresh metadata immediately before calling the
 // visitor or reuse metadata obtained during planning or traversal.
 type localCreateSource interface {
-	// Visit invokes visit for each record and its associated filesystem
-	// metadata. Callers must not assume the metadata is freshly re-statted
-	// unless the concrete implementation documents that guarantee.
-	Visit(ctx context.Context, visit func(record localCreateRecord, info fs.FileInfo) error) error
+	// Visit invokes visit for each entry with refreshed metadata and owns
+	// closing any regular-file handle after the callback returns.
+	Visit(ctx context.Context, visit func(entry *localEntryHandle) error) error
 }
 
 // liveLocalCreateSource walks one local member directly from the filesystem.
@@ -29,8 +28,14 @@ type liveLocalCreateSource struct {
 }
 
 // Visit streams one live local member walk to the supplied visitor.
-func (s liveLocalCreateSource) Visit(ctx context.Context, visit func(record localCreateRecord, info fs.FileInfo) error) error {
-	return walkLocalCreateMember(ctx, s.member, s.chdir, s.excludeMatcher, visit)
+func (s liveLocalCreateSource) Visit(ctx context.Context, visit func(entry *localEntryHandle) error) error {
+	return walkLocalCreateMember(ctx, s.member, s.chdir, s.excludeMatcher, func(record localCreateRecord, info fs.FileInfo) error {
+		entry, err := openLocalEntry(record, info.Mode().Type())
+		if err != nil {
+			return err
+		}
+		return visitLocalEntry(entry, visit)
+	})
 }
 
 // plannedLocalCreateSource replays one pre-scanned local record list using
@@ -41,7 +46,7 @@ type plannedLocalCreateSource struct {
 
 // Visit replays one planned local member list while refreshing metadata for
 // each record just before it is written.
-func (s plannedLocalCreateSource) Visit(ctx context.Context, visit func(record localCreateRecord, info fs.FileInfo) error) error {
+func (s plannedLocalCreateSource) Visit(ctx context.Context, visit func(entry *localEntryHandle) error) error {
 	return replayLocalCreateRecords(ctx, s.planPath, visit)
 }
 
@@ -156,24 +161,12 @@ func (s plannedCreateInputSource) Close() error {
 	return s.plan.Close()
 }
 
-// newCreateInputSource always validates and orders the complete create
-// workload before any destination is opened. precomputeTotal is retained in
-// the signature for compatibility with focused tests; create correctness no
-// longer depends on whether progress output is enabled.
-func (r *Runner) newCreateInputSource(ctx context.Context, opts cli.Options, excludeMatcher *archivepath.CompiledPathMatcher, _ bool) (createInputSource, error) {
-	plan, err := r.buildCreatePlan(ctx, opts, excludeMatcher)
-	if err != nil {
-		return nil, err
-	}
-	return plannedCreateInputSource{plan: plan}, nil
-}
-
 // visitLocalCreateSource consumes one local create source and accumulates any
 // warnings reported by the caller-supplied entry handler.
-func visitLocalCreateSource(ctx context.Context, source localCreateSource, handle func(record localCreateRecord, info fs.FileInfo) (int, error)) (int, error) {
+func visitLocalCreateSource(ctx context.Context, source localCreateSource, handle func(entry *localEntryHandle) (int, error)) (int, error) {
 	warnings := 0
-	err := source.Visit(ctx, func(record localCreateRecord, info fs.FileInfo) error {
-		w, err := handle(record, info)
+	err := source.Visit(ctx, func(entry *localEntryHandle) error {
+		w, err := handle(entry)
 		warnings += w
 		return err
 	})

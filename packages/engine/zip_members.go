@@ -4,7 +4,6 @@ import (
 	"archive/zip"
 	"context"
 	"io"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -37,7 +36,9 @@ func (r *Runner) addS3ZipMember(ctx context.Context, zw zipArchiveWriter, ref lo
 }
 
 // writeLocalZipRecord writes one local filesystem record into the zip archive.
-func (r *Runner) writeLocalZipRecord(ctx context.Context, zw zipArchiveWriter, record localCreateRecord, st fs.FileInfo, verbose bool, reporter *archiveprogress.Reporter) (int, error) {
+func (r *Runner) writeLocalZipRecord(ctx context.Context, zw zipArchiveWriter, entry *localEntryHandle, verbose bool, reporter *archiveprogress.Reporter) (int, error) {
+	record := entry.record
+	st := entry.info
 	mode := st.Mode()
 	isDir := st.IsDir()
 	isSymlink := mode&os.ModeSymlink != 0
@@ -61,17 +62,6 @@ func (r *Runner) writeLocalZipRecord(ctx context.Context, zw zipArchiveWriter, r
 	hdr.Modified = st.ModTime()
 	hdr.SetMode(mode)
 
-	linkTarget := ""
-	if isSymlink {
-		linkTarget, err = os.Readlink(record.current)
-		if err != nil {
-			return 0, err
-		}
-		if err := validateCreateSymlinkTarget(record.archiveName, linkTarget); err != nil {
-			return 0, err
-		}
-	}
-
 	w, err := zw.CreateHeader(hdr)
 	if err != nil {
 		return 0, err
@@ -79,21 +69,12 @@ func (r *Runner) writeLocalZipRecord(ctx context.Context, zw zipArchiveWriter, r
 	switch {
 	case isDir:
 	case isSymlink:
-		if _, err := io.WriteString(w, linkTarget); err != nil {
+		if _, err := io.WriteString(w, entry.linkTarget); err != nil {
 			return 0, err
 		}
 	case mode.IsRegular():
-		f, err := os.Open(record.current)
-		if err != nil {
+		if err := copyLocalEntryPayload(ctx, w, entry, reporter); err != nil {
 			return 0, err
-		}
-		_, err = archiveutil.CopyWithContext(ctx, w, archiveprogress.NewCountingReader(f, reporter))
-		cerr := f.Close()
-		if err != nil {
-			return 0, err
-		}
-		if cerr != nil {
-			return 0, cerr
 		}
 	default:
 		if err := zw.FinishEntry(); err != nil {

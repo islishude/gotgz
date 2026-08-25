@@ -4,8 +4,6 @@ import (
 	"archive/tar"
 	"context"
 	"io"
-	"io/fs"
-	"os"
 	"path/filepath"
 	"time"
 
@@ -37,24 +35,13 @@ func (r *Runner) addS3TarMember(ctx context.Context, tw tarArchiveWriter, ref lo
 }
 
 // writeLocalTarRecord writes one local filesystem record into the tar stream.
-func (r *Runner) writeLocalTarRecord(ctx context.Context, tw tarArchiveWriter, record localCreateRecord, st fs.FileInfo, verbose bool, metadataPolicy MetadataPolicy, reporter *archiveprogress.Reporter) (int, error) {
+func (r *Runner) writeLocalTarRecord(ctx context.Context, tw tarArchiveWriter, entry *localEntryHandle, verbose bool, metadataPolicy MetadataPolicy, reporter *archiveprogress.Reporter) (int, error) {
+	record := entry.record
+	st := entry.info
 	mode := st.Mode()
-	isSymlink := mode&os.ModeSymlink != 0
 	archiveName := filepath.ToSlash(record.archiveName)
 
-	linkname := ""
-	if isSymlink {
-		resolvedLink, err := os.Readlink(record.current)
-		if err != nil {
-			return 0, err
-		}
-		if err := validateCreateSymlinkTarget(record.archiveName, resolvedLink); err != nil {
-			return 0, err
-		}
-		linkname = resolvedLink
-	}
-
-	hdr, err := tar.FileInfoHeader(st, linkname)
+	hdr, err := tar.FileInfoHeader(st, entry.linkTarget)
 	if err != nil {
 		return 0, err
 	}
@@ -64,6 +51,8 @@ func (r *Runner) writeLocalTarRecord(ctx context.Context, tw tarArchiveWriter, r
 	warnings := 0
 	needsMetadata := metadataPolicy.Xattrs || metadataPolicy.ACL
 	if needsMetadata {
+		// Extended metadata remains path-based even when Linux payload reads use
+		// an opened fd, so a concurrent path replacement can still race here.
 		xattrs, acls, err := archive.ReadPathMetadata(record.current)
 		if err != nil {
 			warnings += r.warnf(reporter, "create: metadata for %s is incomplete: %v", record.current, err)
@@ -77,17 +66,8 @@ func (r *Runner) writeLocalTarRecord(ctx context.Context, tw tarArchiveWriter, r
 		return warnings, err
 	}
 	if mode.IsRegular() {
-		f, err := os.Open(record.current)
-		if err != nil {
+		if err := copyLocalEntryPayload(ctx, tw, entry, reporter); err != nil {
 			return warnings, err
-		}
-		_, err = archiveutil.CopyWithContext(ctx, tw, archiveprogress.NewCountingReader(f, reporter))
-		cerr := f.Close()
-		if err != nil {
-			return warnings, err
-		}
-		if cerr != nil {
-			return warnings, cerr
 		}
 	}
 	if err := tw.FinishEntry(); err != nil {

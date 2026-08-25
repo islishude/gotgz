@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"io"
-	"io/fs"
 	"math"
 	"os"
 	"path/filepath"
@@ -37,7 +36,7 @@ func TestBuildCreatePlanPreservesInputOrderAcrossConcurrentCompletion(t *testing
 		return s3.Metadata{Size: 1}, nil
 	}}, nil, io.Discard, io.Discard)
 
-	plan, err := runner.buildCreatePlan(context.Background(), cli.Options{Members: []string{"s3://bucket/slow", "s3://bucket/fast"}}, nil)
+	plan, err := runner.buildCreatePlan(context.Background(), cli.Options{Members: []string{"s3://bucket/slow", "s3://bucket/fast"}})
 	if err != nil {
 		t.Fatalf("buildCreatePlan() error = %v", err)
 	}
@@ -56,7 +55,7 @@ func TestBuildCreatePlanUsesPrivateDiskSpoolAndCleansIt(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "file.txt"), []byte("payload"), 0o644); err != nil {
 		t.Fatalf("WriteFile() error = %v", err)
 	}
-	plan, err := (&Runner{}).buildCreatePlan(context.Background(), cli.Options{Members: []string{"."}, Chdir: root}, nil)
+	plan, err := (&Runner{}).buildCreatePlan(context.Background(), cli.Options{Members: []string{"."}, Chdir: root})
 	if err != nil {
 		t.Fatalf("buildCreatePlan() error = %v", err)
 	}
@@ -83,8 +82,8 @@ func TestBuildCreatePlanUsesPrivateDiskSpoolAndCleansIt(t *testing.T) {
 		t.Fatalf("plan file mode = %o, want 600", got)
 	}
 	var seen []string
-	err = plannedLocalCreateSource{planPath: planPath}.Visit(context.Background(), func(record localCreateRecord, _ fs.FileInfo) error {
-		seen = append(seen, record.archiveName)
+	err = plannedLocalCreateSource{planPath: planPath}.Visit(context.Background(), func(entry *localEntryHandle) error {
+		seen = append(seen, entry.record.archiveName)
 		return nil
 	})
 	if err != nil {
@@ -95,7 +94,7 @@ func TestBuildCreatePlanUsesPrivateDiskSpoolAndCleansIt(t *testing.T) {
 	}
 	canceled, cancel := context.WithCancel(context.Background())
 	cancel()
-	if err := (plannedLocalCreateSource{planPath: planPath}).Visit(canceled, func(localCreateRecord, fs.FileInfo) error { return nil }); !errors.Is(err, context.Canceled) {
+	if err := (plannedLocalCreateSource{planPath: planPath}).Visit(canceled, func(*localEntryHandle) error { return nil }); !errors.Is(err, context.Canceled) {
 		t.Fatalf("planned source canceled Visit() error = %v, want context.Canceled", err)
 	}
 	spoolDir := plan.spoolDir
@@ -116,7 +115,7 @@ func TestBuildCreatePlanFailsBeforeDestinationWhenTempStorageUnavailable(t *test
 	t.Setenv("TMPDIR", missingTempRoot)
 	t.Setenv("TMP", missingTempRoot)
 	t.Setenv("TEMP", missingTempRoot)
-	if _, err := (&Runner{}).buildCreatePlan(context.Background(), cli.Options{Members: []string{"file.txt"}, Chdir: root}, nil); err == nil || !strings.Contains(err.Error(), "create plan spool directory") {
+	if _, err := (&Runner{}).buildCreatePlan(context.Background(), cli.Options{Members: []string{"file.txt"}, Chdir: root}); err == nil || !strings.Contains(err.Error(), "create plan spool directory") {
 		t.Fatalf("buildCreatePlan() error = %v, want temp storage failure", err)
 	}
 }
@@ -126,7 +125,7 @@ func TestReplayLocalCreateRecordsRejectsCorruptSpool(t *testing.T) {
 	if err := os.WriteFile(path, []byte("not a gob stream"), 0o600); err != nil {
 		t.Fatalf("WriteFile() error = %v", err)
 	}
-	if err := replayLocalCreateRecords(context.Background(), path, func(localCreateRecord, fs.FileInfo) error { return nil }); err == nil || !strings.Contains(err.Error(), "decode local plan spool") {
+	if err := replayLocalCreateRecords(context.Background(), path, func(*localEntryHandle) error { return nil }); err == nil || !strings.Contains(err.Error(), "decode local plan spool") {
 		t.Fatalf("replayLocalCreateRecords() error = %v, want decode failure", err)
 	}
 }
@@ -150,7 +149,7 @@ func TestBuildCreatePlanReusesLocalEntriesAfterMutation(t *testing.T) {
 	plan, err := (&Runner{}).buildCreatePlan(context.Background(), cli.Options{
 		Members: []string{"src"},
 		Chdir:   root,
-	}, nil)
+	})
 	if err != nil {
 		t.Fatalf("buildCreatePlan() error = %v", err)
 	}
@@ -174,8 +173,8 @@ func TestBuildCreatePlanReusesLocalEntriesAfterMutation(t *testing.T) {
 			return nil
 		},
 		func(source localCreateSource) (int, error) {
-			err := source.Visit(context.Background(), func(record localCreateRecord, _ fs.FileInfo) error {
-				seen = append(seen, record.archiveName)
+			err := source.Visit(context.Background(), func(entry *localEntryHandle) error {
+				seen = append(seen, entry.record.archiveName)
 				return nil
 			})
 			return 0, err
@@ -213,7 +212,7 @@ func TestBuildCreatePlanMixedMemberSizes(t *testing.T) {
 	plan, err := runner.buildCreatePlan(context.Background(), cli.Options{
 		Members: []string{"file.txt", "s3://bucket/object.txt"},
 		Chdir:   root,
-	}, nil)
+	})
 	if err != nil {
 		t.Fatalf("buildCreatePlan() error = %v", err)
 	}
@@ -266,7 +265,7 @@ func TestBuildCreatePlanReturnsS3StatFailure(t *testing.T) {
 
 	_, err := runner.buildCreatePlan(context.Background(), cli.Options{
 		Members: []string{"s3://bucket/object.txt"},
-	}, nil)
+	})
 	if err == nil || !strings.Contains(err.Error(), "head failed") {
 		t.Fatalf("err = %v, want head failed", err)
 	}
@@ -302,7 +301,7 @@ func TestBuildCreatePlanCancelsConcurrentTasksAfterFailure(t *testing.T) {
 
 	_, err := runner.buildCreatePlan(context.Background(), cli.Options{
 		Members: []string{"s3://bucket/slow", "s3://bucket/fail"},
-	}, nil)
+	})
 	if err == nil || !strings.Contains(err.Error(), "stat failed") {
 		t.Fatalf("err = %v, want stat failed", err)
 	}

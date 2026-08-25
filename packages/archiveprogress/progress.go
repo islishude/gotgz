@@ -27,7 +27,9 @@ type Reporter struct {
 	total        int64
 	totalKnown   bool
 	done         atomic.Int64
-	startTime    time.Time
+	overallStart time.Time
+	rateStart    time.Time
+	rateStarted  bool
 	lastDraw     time.Time
 	lastDrawUnix atomic.Int64
 	rendered     bool
@@ -48,13 +50,30 @@ func NewReporter(writer io.Writer, mode cli.ProgressMode, totalBytes int64, tota
 	interactive := isInteractiveTTY(writer)
 	enabled := shouldEnableProgress(mode, writer, interactive)
 	return &Reporter{
-		writer:     writer,
-		enabled:    enabled,
-		topPinned:  enabled && interactive && pinTop,
-		total:      totalBytes,
-		totalKnown: totalKnown,
-		startTime:  startTime,
+		writer:       writer,
+		enabled:      enabled,
+		topPinned:    enabled && interactive && pinTop,
+		total:        totalBytes,
+		totalKnown:   totalKnown,
+		overallStart: startTime,
 	}
+}
+
+// BeginPayload starts the rate and ETA clock without changing overall elapsed
+// time. Repeated calls are ignored so nested create paths cannot reset speed.
+func (p *Reporter) BeginPayload() {
+	if p == nil || !p.enabled {
+		return
+	}
+
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	if p.rateStarted || p.finished {
+		return
+	}
+	p.rateStart = time.Now()
+	p.rateStarted = true
 }
 
 // SetTotal updates the total byte estimate used by progress rendering.
@@ -109,7 +128,7 @@ func (p *Reporter) Finish() {
 		return
 	}
 	now := time.Now()
-	p.elapsed = max(now.Sub(p.startTime), time.Millisecond)
+	p.elapsed = max(now.Sub(p.overallStart), time.Millisecond)
 	if p.enabled {
 		p.renderLocked(now, true)
 		if p.topPinned {
@@ -221,7 +240,8 @@ func (p *Reporter) resetScrollRegionLocked() {
 func (p *Reporter) formatLine(now time.Time) string {
 	elapsed := p.elapsedLocked(now)
 	done := p.done.Load()
-	speed := float64(done) / elapsed.Seconds()
+	rateElapsed := p.rateElapsedLocked(now)
+	speed := float64(done) / rateElapsed.Seconds()
 
 	if p.totalKnown {
 		if p.total <= 0 {
@@ -285,5 +305,15 @@ func (p *Reporter) elapsedLocked(now time.Time) time.Duration {
 	if p.finished {
 		return p.elapsed
 	}
-	return max(now.Sub(p.startTime), time.Millisecond)
+	return max(now.Sub(p.overallStart), time.Millisecond)
+}
+
+// rateElapsedLocked returns the payload-processing duration. Reporters that
+// never opt into a separate payload clock retain the historical overall-rate
+// behavior used by list and extract operations.
+func (p *Reporter) rateElapsedLocked(now time.Time) time.Duration {
+	if !p.rateStarted {
+		return p.elapsedLocked(now)
+	}
+	return max(now.Sub(p.rateStart), time.Millisecond)
 }

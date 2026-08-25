@@ -38,3 +38,8 @@ func (r *Runner) openArchiveReader(ctx context.Context, ref locator.Ref) (io.Rea
 func (r *Runner) beginArchiveWriter(ctx context.Context, ref locator.Ref) (archiveWriteSession, error) {
 	return r.storage.beginArchiveWriter(ctx, ref)
 }
+
+// createWriterCapabilities queries destination guarantees without opening it.
+func (r *Runner) createWriterCapabilities(ref locator.Ref) createWriteCapabilities {
+	return r.storage.createWriterCapabilities(ref)
+}

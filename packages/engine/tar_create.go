@@ -3,7 +3,6 @@ package engine
 import (
 	"context"
 	"errors"
-	"io/fs"
 
 	"github.com/islishude/gotgz/packages/archiveprogress"
 	"github.com/islishude/gotgz/packages/cli"
@@ -23,17 +22,25 @@ func (r *Runner) runCreateTar(ctx context.Context, opts cli.Options, archiveRef 
 	if err != nil {
 		return 0, errors.Join(err, input.source.Close())
 	}
+	if err := input.registerWriterArtifacts(tw); err != nil {
+		rootErr := errors.Join(err, input.source.Close())
+		return warnings, errors.Join(rootErr, tw.Abort(rootErr))
+	}
+	reporter.BeginPayload()
 	createWarnings, err := input.source.Visit(
 		ctx,
 		func(ref locator.Ref) error {
 			return r.addS3TarMember(ctx, tw, ref, opts.Verbose, reporter)
 		},
 		func(source localCreateSource) (int, error) {
-			return visitLocalCreateSource(ctx, source, func(record localCreateRecord, info fs.FileInfo) (int, error) {
-				return r.writeLocalTarRecord(ctx, tw, record, info, opts.Verbose, metadataPolicy, reporter)
+			return visitLocalCreateSource(ctx, source, func(entry *localEntryHandle) (int, error) {
+				return r.writeLocalTarRecord(ctx, tw, entry, opts.Verbose, metadataPolicy, reporter)
 			})
 		},
 	)
+	if err == nil && input.streamingOutputWasSkipped() {
+		createWarnings += r.warnf(reporter, "create: archive output inside an input tree was skipped")
+	}
 	warnings += input.warnings + createWarnings
 	cleanupErr := input.source.Close()
 	if err != nil || cleanupErr != nil {

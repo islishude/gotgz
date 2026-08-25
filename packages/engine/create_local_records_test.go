@@ -92,7 +92,7 @@ func TestAddLocalRecordsUsesCurrentTarMetadata(t *testing.T) {
 	plan, err := runner.buildCreatePlan(context.Background(), cli.Options{
 		Members: []string{"file.txt"},
 		Chdir:   root,
-	}, nil)
+	})
 	if err != nil {
 		t.Fatalf("buildCreatePlan() error = %v", err)
 	}
@@ -103,8 +103,8 @@ func TestAddLocalRecordsUsesCurrentTarMetadata(t *testing.T) {
 	}
 
 	writer := &recordingTarWriter{}
-	warnings, err := visitLocalCreateSource(context.Background(), plannedLocalCreateSource{planPath: plan.members[0].localPlanPath}, func(record localCreateRecord, info fs.FileInfo) (int, error) {
-		return runner.writeLocalTarRecord(context.Background(), writer, record, info, false, MetadataPolicy{}, nil)
+	warnings, err := visitLocalCreateSource(context.Background(), plannedLocalCreateSource{planPath: plan.members[0].localPlanPath}, func(entry *localEntryHandle) (int, error) {
+		return runner.writeLocalTarRecord(context.Background(), writer, entry, false, MetadataPolicy{}, nil)
 	})
 	if err != nil {
 		t.Fatalf("visitLocalCreateSource() error = %v", err)
@@ -137,7 +137,7 @@ func TestAddLocalRecordsZipUsesCurrentMetadata(t *testing.T) {
 	plan, err := runner.buildCreatePlan(context.Background(), cli.Options{
 		Members: []string{"file.txt"},
 		Chdir:   root,
-	}, nil)
+	})
 	if err != nil {
 		t.Fatalf("buildCreatePlan() error = %v", err)
 	}
@@ -148,8 +148,8 @@ func TestAddLocalRecordsZipUsesCurrentMetadata(t *testing.T) {
 	}
 
 	writer := &recordingZipWriter{}
-	warnings, err := visitLocalCreateSource(context.Background(), plannedLocalCreateSource{planPath: plan.members[0].localPlanPath}, func(record localCreateRecord, info fs.FileInfo) (int, error) {
-		return runner.writeLocalZipRecord(context.Background(), writer, record, info, false, nil)
+	warnings, err := visitLocalCreateSource(context.Background(), plannedLocalCreateSource{planPath: plan.members[0].localPlanPath}, func(entry *localEntryHandle) (int, error) {
+		return runner.writeLocalZipRecord(context.Background(), writer, entry, false, nil)
 	})
 	if err != nil {
 		t.Fatalf("visitLocalCreateSource() error = %v", err)
@@ -189,7 +189,11 @@ func TestWriteLocalTarRecordRevalidatesSymlinkTarget(t *testing.T) {
 	}
 
 	writer := &recordingTarWriter{}
-	_, err = (&Runner{}).writeLocalTarRecord(context.Background(), writer, localCreateRecord{current: linkPath, archiveName: "link"}, info, false, MetadataPolicy{}, nil)
+	entry, err := openLocalEntry(localCreateRecord{current: linkPath, archiveName: "link"}, info.Mode().Type())
+	if err == nil {
+		defer func() { _ = entry.Close() }()
+		_, err = (&Runner{}).writeLocalTarRecord(context.Background(), writer, entry, false, MetadataPolicy{}, nil)
+	}
 	if err == nil {
 		t.Fatal("writeLocalTarRecord() error = nil, want unsafe replacement rejection")
 	}

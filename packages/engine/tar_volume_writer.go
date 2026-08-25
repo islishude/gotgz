@@ -58,6 +58,14 @@ type singleTarArchiveWriter struct {
 	session archiveWriteSession
 }
 
+func (w *singleTarArchiveWriter) EphemeralLocalPaths() []string {
+	artifacts, ok := w.session.(archiveWriteArtifacts)
+	if !ok {
+		return nil
+	}
+	return artifacts.EphemeralLocalPaths()
+}
+
 // WriteHeader writes one tar header to the underlying stream.
 func (w *singleTarArchiveWriter) WriteHeader(hdr *tar.Header) error {
 	return w.tw.WriteHeader(hdr)
