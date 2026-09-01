@@ -1,351 +1,385 @@
 # gotgz
 
-A Linux `tar`-compatible CLI tool written in Go, with native AWS S3 support as both archive source and destination, plus HTTP(S) archive source support for extract/list.
+`gotgz` is a tar-style archive CLI written in Go. It creates and reads tar
+archives, creates and reads ZIP archives, supports gzip/bzip2/xz/zstd/lz4
+compression, and treats AWS S3 as a first-class source or destination. HTTP
+and HTTPS are supported as archive sources for listing and extraction.
+
+It follows common GNU `tar` conventions, but it is not a complete replacement
+for every GNU `tar` option. Run `gotgz --help` for the command-line contract
+provided by the installed binary.
 
 ## Features
 
-- **Drop-in tar replacement** — supports common `tar` flags (`-c`, `-x`, `-t`, `-v`, `-f`, `-C`, `-O`) and long forms such as `--create`, `--extract`, `--list`, `--cd`/`--directory`, `--to-stdout`
-- **AWS S3 integration** — use `s3://bucket/key` URIs or S3 ARNs directly in `-f` and member arguments
-- **HTTP archive source** — use `http://` or `https://` URLs directly in `-f` for list/extract
-- **Multiple archive/compression formats** — native `.zip` plus tar-family compression: gzip (`-z`/`--gzip`/`--gunzip`), bzip2 (`-j`/`--bzip`/`--bzip2`), xz (`-J`/`--xz`), zstd (`--zstd`), lz4 (`--lz4`), with auto-detection on create/extract/list
-- **PAX format** — preserves metadata on demand: `--xattrs` for extended attributes and, on Linux, `--acl` for POSIX/NFSv4 ACL xattrs
-- **Permission control** — `--same-owner`, `--same-permissions` (`--numeric-owner` accepted for tar compatibility)
-- **Exclude patterns** — `--exclude` and `--exclude-from` (glob matching)
-- **Member filtering on extract/list** — explicit member names, optionally with `--wildcards`
-- **Path stripping on extract** — `--strip-components <count>` removes leading path segments
-- **Progress + timing** — byte-based progress with ETA and elapsed time on TTY (or force with `--progress`); `--no-progress` still prints the final elapsed time
-- **S3 encryption** — configurable server-side encryption (AES256, SSE-KMS)
-- **S3 object tags** — repeat `--s3-tag key=value` on S3 writes
+- Create, extract, and list archives with `-c`, `-x`, and `-t`.
+- Tar-style bundled flags such as `-cvf` and the legacy `cvf` form.
+- Local paths, `-` for stdin/stdout, S3 URIs and object ARNs, and HTTP(S)
+  archive sources.
+- ZIP plus tar-family output with automatic format/compression detection.
+- PAX metadata, optional extended attributes, Linux ACL xattrs, ownership and
+  permission controls, safe symlinks, hardlinks, and path stripping.
+- Glob and exclude filtering with deterministic archive member order.
+- Independently readable split volumes named `.partNNNN`.
+- Progress reporting, S3 server-side encryption, Cache-Control, and object
+  tags.
 
 ## Installation
 
-Build from source (requires Go 1.26+):
+Build from source with Go 1.26.1 or newer:
 
 ```bash
 go install github.com/islishude/gotgz/cmd/gotgz@latest
 ```
 
-Download pre-built binaries from the [releases page](https://github.com/islishude/gotgz/releases/latest)
+Pre-built binaries are available on the [releases page](https://github.com/islishude/gotgz/releases/latest).
 
-Use with docker:
+The published container image is available at `ghcr.io/islishude/gotgz`:
 
 ```bash
-docker run --rm -it -v "$(pwd)":/data ghcr.io/islishude/gotgz
+docker run --rm -v "$PWD:/data" ghcr.io/islishude/gotgz --help
 ```
 
-## Usage
+## Command shape
 
-`gotgz` follows the same CLI conventions as GNU `tar`:
-
-### Help and version
-
-```bash
-gotgz --help
-gotgz --version
-gotgz -V
+```text
+gotgz -c -f <archive> [options] <member>...
+gotgz -x -f <archive> [options] [member]...
+gotgz -t -f <archive> [options] [member]...
+gotgz [bundled flags] <archive> [options] [member]...
 ```
 
-`-v` remains the tar-compatible verbose flag in bundled forms such as `-cvf` and `-xvf`.
+`-f` is required. In create mode, member arguments are local paths or S3
+objects. In list/extract mode, member arguments select archive entries. `-C`
+is the source directory in create mode and the extraction target (a local path
+or S3 prefix) in extract mode; `--cd` and `--directory` are aliases.
 
-### Create an archive
+Options must appear before the first member argument. Use `--` when a member
+name begins with `-`.
+
+## Quick start
+
+### Create
 
 ```bash
-# Local files → local archive
-gotgz -cvf archive.tar dir1 file1.txt
+# Local files to an uncompressed tar archive
+gotgz -cvf backup.tar project/ README.md
 
-# Local files → zip archive (format inferred from filename)
-gotgz -cvf archive.zip dir1 file1.txt
+# Format and compression inferred from the final filename
+gotgz -cvf backup.tar.gz project/
+gotgz -cvf backup.tar.zst project/
+gotgz -cvf backup.zip project/
 
-# Local files → compressed archive (compression inferred from filename)
-gotgz -cvf archive.tar.gz dir1 file1.txt
-gotgz -cvf archive.tar.zst dir1 file1.txt
-# or explicitly with compression flags
-gotgz -cvzf archive.tar.gz dir1 file1.txt
-gotgz --zstd -cvf archive.tar.zst dir1 file1.txt
+# Explicit compression flags
+gotgz -cvzf backup.tar.gz project/
+gotgz --zstd -cvf backup.tar.zst project/
 
-# Add suffix to generated archive filename, date format is built-in and it uses `20060102` as the layout
-# You can also specify a custom suffix with `-suffix` flag, for example `-suffix backup` will generate `archive-backup.tar.gz`
-gotgz -cvf archive.tar.gz -suffix date dir1 file1.txt
+# Change the source directory
+gotgz -cvf backup.tar -C /srv/app .
 
-# Split large archive output into independently extractable volumes
-gotgz -cvf archive.tar.gz --split-size 2GiB dir1 file1.txt
-gotgz -cvf archive.zip --split-size 2GiB dir1 file1.txt
+# Add a date or custom suffix before format inference
+gotgz -cvf backup.tar.gz --suffix date project/
+gotgz -cvf backup.tar.gz --suffix daily project/
 
-# Local files → S3
-gotgz -cvf s3://my-bucket/backups/archive.tar.gz dir1 file1.txt
+# Write an archive to S3
+gotgz -cvf s3://my-bucket/backups/backup.tar.gz project/
 
-# Local files → S3 with Cache-Control
-gotgz -cvf s3://my-bucket/backups/archive.tar.gz --s3-cache-control "max-age=3600,public" dir1 file1.txt
+# Include S3 metadata, Cache-Control, and tags
+gotgz -cvf 's3://my-bucket/backups/backup.tar.gz?team=platform' \
+  --s3-cache-control 'max-age=3600,public' \
+  --s3-tag team=platform --s3-tag environment=prod project/
 
-# Local files → S3 with object tags
-gotgz -cvf s3://my-bucket/backups/archive.tar.gz --s3-tag team=archive --s3-tag env=prod dir1 file1.txt
-
-# S3 objects → local archive
-gotgz -cvf archive.tar s3://my-bucket/data/file1.txt s3://my-bucket/data/file2.txt
-
-# S3 objects → S3 archive
-gotgz -cvf s3://my-bucket/out.tar s3://my-bucket/data/file1.txt
-
-# Local files → S3 zip archive
-gotgz -cvf s3://my-bucket/out.zip dir1 file1.txt
+# Use S3 objects as archive members
+gotgz -cvf backup.tar s3://my-bucket/data/one.txt s3://my-bucket/data/two.txt
 ```
 
-### Extract an archive
+Creating an archive with no member arguments is rejected. A local single-file
+destination is finalized through a temporary file and atomic rename; an error
+does not replace an existing target. S3 single-object writes are committed
+only after archive finalization.
+
+### Extract
 
 ```bash
-# Local archive → local directory
-gotgz -xvf archive.tar.gz -C /tmp/output
+# Local archive to a directory
+gotgz -xvf backup.tar.gz -C /tmp/restore
 
-# Local zip archive → local directory
-gotgz -xvf archive.zip -C /tmp/output
+# ZIP archive to a directory
+gotgz -xvf backup.zip -C /tmp/restore
 
-# S3 archive → local directory
-gotgz -xvf s3://my-bucket/backups/archive.tar.gz -C /tmp/output
+# Select one member or subtree
+gotgz -xvf backup.tar.gz -C /tmp/restore project/
 
-# Split archive → local directory (pass the first volume only)
-gotgz -xvf backup.part0001.tar.gz -C /tmp/output
-gotgz -xvf backup.part0001.zip -C /tmp/output
+# Extract regular-file data to stdout
+gotgz -xOf backup.tar.gz project/config.yaml
 
-# HTTP archive → local directory
-gotgz -xvf https://example.com/backups/archive.tar.gz -C /tmp/output
+# Extract from S3 or HTTP(S)
+gotgz -xvf s3://my-bucket/backups/backup.tar.gz -C /tmp/restore
+gotgz -xvf https://example.com/backups/backup.tar.gz -C /tmp/restore
 
-# HTTP zip archive → local directory
-gotgz -xvf https://example.com/backups/archive.zip -C /tmp/output
-
-# Local archive → S3
-gotgz -xvf archive.tar -C s3://my-bucket/restored/
-
-# Local archive → S3 with Cache-Control
-gotgz -xvf archive.tar -C s3://my-bucket/restored/ --s3-cache-control no-store
-
-# Local archive → S3 with object tags
-gotgz -xvf archive.tar -C s3://my-bucket/restored/ --s3-tag team=restore --s3-tag env=prod
+# Extract entries to an S3 prefix
+gotgz -xvf backup.tar.gz -C s3://my-bucket/restored/
 ```
 
-### List contents
+### List
 
 ```bash
-gotgz -tf archive.tar.gz
-gotgz -tf archive.zip
-gotgz -tf backup.part0001.zip
-gotgz -tf s3://my-bucket/backups/archive.tar.gz
-gotgz -tf https://example.com/backups/archive.tar.gz
+gotgz -tf backup.tar.gz
+gotgz -tf backup.zip
+gotgz -tf s3://my-bucket/backups/backup.tar.gz
+gotgz -tf https://example.com/backups/backup.tar.gz
 ```
 
-### Compression options
+Use `-f -` to read an archive from stdin or, in create mode, write it to
+stdout. `--suffix` and `--split-size` are not valid with `-f -`.
 
-| Flag                       | Format |
-| -------------------------- | ------ |
-| `-z`, `--gzip`, `--gunzip` | gzip   |
-| `-j`, `--bzip`, `--bzip2`  | bzip2  |
-| `-J`, `--xz`               | xz     |
-| `--zstd`                   | zstd   |
-| `--lz4`                    | lz4    |
+## Formats and compression
 
-You can control compression strength for create mode with `-compression-level=<1-9>` (or `--compression-level=<1-9>`).  
-If not provided, each algorithm uses its own default level.
+Create mode selects ZIP when the final archive name ends in `.zip`. Other
+names select tar; recognized suffixes select compression as follows:
 
-In create mode, archive output is inferred from the archive name. `.zip` creates a zip archive.  
-For tar-family output, compression is inferred from the archive name when you omit `-z/-j/-J/--zstd/--lz4`.  
-Supported suffixes are `.tar.gz/.tgz/.gz`, `.tar.bz2/.tbz2/.tbz/.bz2`, `.tar.xz/.txz/.xz`, `.tar.zst/.tzst/.zst/.zstd`, and `.tar.lz4/.tlz4/.lz4`.  
-`.tar` and `.tape` mean uncompressed tar, and unknown suffixes default to uncompressed tar.  
-If you do pass an explicit tar-family compression flag in create mode, it must match the archive suffix. The only exception is `-f -`, because stdout has no filename.
-`--suffix` is applied before this inference. For example, `-f backup --suffix daily.gz` creates the gzip-compressed file `backup-daily.gz`; suffix values must be filename-only and cannot contain path separators.
+| Suffixes                             | Compression      |
+| ------------------------------------ | ---------------- |
+| `.tar.gz`, `.tgz`, `.gz`             | gzip             |
+| `.tar.bz2`, `.tbz2`, `.tbz`, `.bz2`  | bzip2            |
+| `.tar.xz`, `.txz`, `.xz`             | xz               |
+| `.tar.zst`, `.tzst`, `.zst`, `.zstd` | zstd             |
+| `.tar.lz4`, `.tlz4`, `.lz4`          | lz4              |
+| `.tar`, `.tape`                      | uncompressed tar |
 
-Single-file local and S3 archive outputs are committed only after successful archive finalization. A failed create leaves an existing single-file destination unchanged. For all-local input and a transactional local single-file destination, gotgz performs lightweight top-level validation, opens the rollback-safe temporary output, and then overlaps recursive planning with archive writes through a tail-readable private disk spool. The progress total is initially unknown and becomes exact as soon as scanning finishes; payload speed and ETA exclude preflight time. Stdout, split archives, legacy writers, S3 destinations, and S3/mixed inputs retain complete preflight before the destination is opened. Plan storage uses private `0700` directories with `0600` member files and is removed before destination publication, so memory use does not grow with the number of files. gotgz rejects an archive target explicitly listed as an input member, skips an existing output file found inside a recursively selected input tree, and excludes only the exact transaction artifacts created by its writer rather than matching temporary-looking names.
+Unknown create-time suffixes fall back to uncompressed tar. If an explicit
+tar compression flag is supplied, it must agree with the filename suffix;
+the exception is `-f -`, which has no filename hint. `--suffix` is applied
+before this decision and must be a filename-only value. The built-in `date`
+suffix uses `YYYYMMDD` (`20060102`).
 
-Regular-file payload reads on every platform are bounded to the refreshed header size, so later growth is excluded and truncation produces a short-read failure. On Linux, each planned regular file is additionally opened with no-follow semantics and then `fstat`ed; the archive header and payload use that same descriptor. Replacing a planned regular file with a symlink or special file therefore fails instead of being followed. Extended attributes and ACLs remain path-based and can still race with a concurrent path replacement.
+Compression flags are:
 
-When atomically replacing an existing local archive, gotgz preserves its permission bits, owner/group, extended attributes, and ACLs. Metadata preservation is fail-closed: an unreadable or unwriteable attribute leaves the old archive untouched. Targets with multiple hard links are rejected because replacing one directory entry cannot atomically update every link to the inode. Platforms without complete atomic-overwrite metadata support likewise reject overwriting an existing target; creating a new target remains supported.
+| Flag                       | Compression |
+| -------------------------- | ----------- |
+| `-z`, `--gzip`, `--gunzip` | gzip        |
+| `-j`, `--bzip`, `--bzip2`  | bzip2       |
+| `-J`, `--xz`               | xz          |
+| `--zstd`                   | zstd        |
+| `--lz4`                    | lz4         |
 
-Use `--split-size=<size>` in create mode to emit `.zip` or tar-family output as `partNNNN` volumes such as `archive.part0001.zip` or `archive.part0001.tar.gz`.  
-Split archives are discovered automatically from `part0001` during list/extract for local files and S3 objects.
-Split archives in extract mode are processed volume by volume in archive order.
+`--compression-level 1..9` controls tar compression and maps to ZIP Deflate
+when creating a ZIP archive. When reading, gotgz detects compression from
+magic bytes first, then the filename, then the content type.
 
-> **Known split-archive limitation:** creating a shorter split archive with the same base name does not remove older higher-numbered `partNNNN` files or S3 objects. Because list/extract discovers every continuous sibling beginning at `part0001`, stale tail volumes will also be processed. Before overwriting a split archive, use a new base name or manually remove every existing member of that split group. Manual S3 cleanup requires `s3:DeleteObject`; gotgz does not request that permission or delete old parts. A split create is not a set-level transaction, so verify the expected part count before use, especially after an interrupted run.
+ZIP does not use tar compression or PAX metadata. On ZIP list/extract,
+tar-only compression flags, `--xattrs`, `--acl`, `--same-owner`, and
+`--numeric-owner` are ignored with warnings. `--same-permissions` remains a
+permission policy for local extraction.
 
-When extracting or listing, archive/compression format is auto-detected by magic bytes first, then filename extension, then content type.
-Remote ZIP range reads are fenced to the initial S3 Version ID/ETag or HTTP ETag/Last-Modified validator. HTTP sources without a usable validator are staged from the original single response instead of being assembled from unfenced requests.
+## Filtering and path handling
 
-For extract/list on `.zip` archives, tar-specific compression flags (`-z/-j/-J/--zstd/--lz4`) and tar metadata-owner flags (`--xattrs`, `--acl`, `--same-owner`, `--numeric-owner`) are ignored with warnings. `--compression-level` still applies and maps to zip Deflate level during create.
-`--split-size` supports `.zip` plus uncompressed tar and gzip/bzip2/zstd/lz4 tar output, but not xz, `-f -`, or HTTP multi-volume input.
+`--exclude <pattern>` may be repeated. `--exclude-from <file>` reads one
+pattern per line; blank lines and lines beginning with `#` are ignored. The
+same matching rules apply to create, list, and extract.
 
-### S3 addressing
+Without `--wildcards`, a member argument is an exact path selector and a
+selected directory includes its descendants. With `--wildcards`:
 
-Both S3 URI and ARN forms are supported:
+- `*`, `?`, and bracket expressions match within one path segment.
+- `**` is the recursive path segment and can cross directories.
+- A pattern without `/`, such as `*.log`, matches basenames at any depth.
+- A directory matched by a glob does not automatically include its
+  descendants; use a pattern such as `dir/**` when that is intended.
+
+Examples:
 
 ```bash
-# S3 URI
+gotgz -tf backup.tar --wildcards 'src/*.go'
+gotgz -xvf backup.tar --wildcards 'src/**' -C /tmp/restore
+gotgz -cvf backup.tar --exclude='*.log' --exclude-from=exclude.txt project/
+```
+
+`--strip-components <count>` removes leading path elements during extraction.
+Entries that become empty are skipped. Tar hardlink targets are transformed by
+the same count; a target removed by stripping is skipped with a warning.
+
+## Metadata and safety
+
+Tar output uses PAX headers. `--xattrs` preserves extended attributes and
+`--acl` preserves the Linux POSIX/NFSv4 ACL xattrs recognized by gotgz. These
+options are disabled by default. xattrs are available on Unix builds; ACL
+preservation is available on Linux builds. Unsupported platforms warn and
+continue, returning exit status 1.
+
+For local extraction:
+
+- `--same-owner` and `--no-same-owner` control archive UID/GID restoration.
+- `--same-permissions` and `--no-same-permissions` control mode restoration
+  and umask handling.
+- `--numeric-owner` is accepted for tar compatibility but currently does not
+  change behavior.
+- File content and path-safety failures are fatal. Ordinary metadata,
+  ownership, permission, timestamp, and xattr/ACL restoration failures are
+  warnings after the content has been written; a missing or type-changed
+  extraction target fails closed during directory revalidation.
+
+Creation rejects empty, absolute, or archive-root-escaping symlink targets.
+Extraction keeps archive paths below the requested destination, rejects
+symlink traversal, and validates relative symlink targets before creation.
+Regular-file reads are bounded to the size observed for the entry; growth is
+not included and truncation fails rather than silently producing a shorter
+archive.
+
+## Split archives
+
+Use `--split-size` in create mode to write complete `.partNNNN` volumes:
+
+```bash
+gotgz -cvf backup.tar.gz --split-size 2GiB project/
+gotgz -cvf backup.zip --split-size 512MiB project/
+gotgz -cvf s3://my-bucket/backups/backup.tar.gz \
+  --split-size 512MiB project/
+```
+
+Supported split output is ZIP plus uncompressed tar, gzip, bzip2, zstd, and
+lz4 tar output. xz, stdout, and HTTP targets are not supported for split
+creation. Size values accept bytes and binary or decimal units such as `2GiB`,
+`512MiB`, `1GB`, and `100M`.
+
+Open the first volume for list or extract; gotgz discovers the remaining local
+files or S3 objects and processes them in numeric order:
+
+```bash
+gotgz -tf backup.part0001.tar.gz
+gotgz -xvf backup.part0001.zip -C /tmp/restore
+```
+
+Important limitation: a shorter create with the same base name does not delete
+old higher-numbered volumes. Since list/extract discovers every continuous
+volume beginning at `part0001`, stale tail volumes can be read as part of the
+archive. Use a new base name, or have an operator remove the complete old
+split group before creating a replacement. Manual S3 cleanup requires
+`s3:DeleteObject`; gotgz does not delete old parts. A split create is not a
+set-level transaction, so verify the expected part count after an interrupted
+run.
+
+## S3
+
+### Addressing
+
+S3 URIs and supported object/access-point ARNs can be used as archive sources,
+destinations, or create-mode member arguments:
+
+```bash
 gotgz -tf s3://my-bucket/path/to/archive.tar
-
-# S3 object ARN
 gotgz -tf arn:aws:s3:::my-bucket/path/to/archive.tar
-
-# S3 Access Point ARN
 gotgz -tf arn:aws:s3:us-west-2:123456789012:accesspoint/myap/object/path/to/archive.tar
-
-# S3 object as member argument
 gotgz -cvf archive.tar s3://my-bucket/path/to/file.txt
-
-# Add custom S3 object metadata via query string when uploading archives
-gotgz -cvzf "s3://my-bucket/backups/archive.tgz?env=prod&owner=platform" dir/
 ```
 
-Use `--s3-cache-control` to set the S3 `Cache-Control` header for archive uploads (`-f s3://...`) and extract targets (`-C s3://...`) without URL-encoding.
-Use repeatable `--s3-tag key=value` flags to add S3 object tags for archive uploads and extract targets.
+Query parameters on an S3 URI become user metadata on uploaded archive
+objects. Use `--s3-cache-control` for the Cache-Control header and repeat
+`--s3-tag key=value` for object tags. These options apply to S3 archive writes
+and extraction-to-S3 targets.
 
-### Required S3 permissions
+### Permissions
 
-`gotgz` only uses a small set of S3 data-plane permissions. The exact IAM policy depends on which S3 features you use:
+The usual data-plane permissions are:
 
-- **Read S3 archives or S3 member objects**: `s3:GetObject`
-- **Write S3 archives (`-f s3://...`) or extract to S3 (`-C s3://...`)**: `s3:PutObject`, `s3:AbortMultipartUpload`
-- **Write S3 object tags with `--s3-tag`**: `s3:PutObjectTagging`
-- **Open split archives from S3 (`*.part0001.zip`, `*.part0001.tar*`)**: `s3:ListBucket`
+| Workflow                                     | Permissions                                           |
+| -------------------------------------------- | ----------------------------------------------------- |
+| Read an S3 archive or create from S3 members | `s3:GetObject`                                        |
+| Write an archive or extract entries to S3    | `s3:PutObject`, `s3:AbortMultipartUpload`             |
+| Use `--s3-tag`                               | `s3:PutObjectTagging` in addition to write permission |
+| Read a split archive from S3                 | `s3:ListBucket` for sibling discovery                 |
 
-Notes:
+`HeadObject` is covered by `s3:GetObject`; there is no separate
+`s3:HeadObject` IAM action. SSE-KMS also requires the appropriate permissions
+on the customer-managed KMS key, commonly `kms:Decrypt` and
+`kms:GenerateDataKey`.
 
-- `gotgz` uses a built-in concurrent S3 reader for full objects. It issues `HeadObject` plus ranged `GetObject` requests, fences every range to the discovered version or ETag, and rejects mismatched range responses. Explicit archive range reads still use `GetObject` with a `Range` header, and metadata/progress checks use `HeadObject`. In IAM, `HeadObject` is covered by `s3:GetObject`; there is no separate `s3:HeadObject` action.
-- Uploads smaller than 16 MiB use `PutObject`; uploads of 16 MiB or more use multipart upload with bounded concurrency. S3 maps create/upload/complete calls to `s3:PutObject`, and failed uploads are cleaned up with `s3:AbortMultipartUpload` even when the original request context was canceled.
-- `s3:ListBucket` is only needed when `gotgz` must discover sibling split volumes under the same prefix.
-- If you use SSE-KMS (`GOTGZ_S3_SSE=aws:kms`) or the bucket enforces a customer-managed KMS key, you also need KMS permissions on that key, typically `kms:Decrypt` and `kms:GenerateDataKey`.
+S3 reads begin with object metadata and use bounded concurrent ranged reads for
+large objects. Non-empty objects must expose a Version ID or ETag; each range
+is fenced to that object version or validator. Uploads below 16 MiB use
+`PutObject`; uploads of 16 MiB or more use bounded multipart uploads and abort
+failed multipart work.
 
-Example bucket policy for a bucket-based read/write workflow:
+### S3 environment
 
-```json
-{
-  "Version": "2012-10-17",
-  "Statement": [
-    {
-      "Sid": "GotgzListSplitArchives",
-      "Effect": "Allow",
-      "Action": "s3:ListBucket",
-      "Resource": "arn:aws:s3:::my-bucket"
-    },
-    {
-      "Sid": "GotgzReadWriteObjects",
-      "Effect": "Allow",
-      "Action": ["s3:GetObject", "s3:PutObject", "s3:AbortMultipartUpload"],
-      "Resource": "arn:aws:s3:::my-bucket/*"
-    }
-  ]
-}
-```
+The AWS SDK default configuration is used, including standard variables such
+as `AWS_REGION`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, and
+`AWS_ENDPOINT_URL`. gotgz-specific settings are:
 
-If your workflow is read-only or write-only, remove the actions you do not need. If you use `--s3-tag`, add `s3:PutObjectTagging` to the object actions. For access point ARNs, the same actions apply, but the IAM `Resource` values must use the corresponding access-point object ARNs.
+| Variable                  | Meaning                                               | Default  |
+| ------------------------- | ----------------------------------------------------- | -------- |
+| `GOTGZ_S3_SSE`            | `AES256`/`sse-s3`, `aws:kms`/`sse-kms`, or `none`     | `AES256` |
+| `GOTGZ_S3_SSE_KMS_KEY_ID` | KMS key ID used with KMS encryption                   | unset    |
+| `GOTGZ_S3_PART_SIZE_MB`   | Transfer part size in MiB                             | `16`     |
+| `GOTGZ_S3_CONCURRENCY`    | Concurrent upload/download parts                      | `4`      |
+| `GOTGZ_S3_MAX_RETRIES`    | Total attempts for SDK requests and ranged body reads | `3`      |
+| `GOTGZ_S3_USE_PATH_STYLE` | Enable path-style addressing for emulators/MinIO      | `false`  |
 
-### HTTP archive source
+Part size must be an integer from 5 through 5120, concurrency and retries
+must be positive, path-style addressing must be a valid boolean, and a KMS key
+ID is rejected unless KMS encryption is selected. S3 initialization is lazy,
+so a broken AWS profile does not affect purely local or HTTP operations.
 
-`http://` and `https://` archive URLs are supported as `-f` sources for:
+## HTTP archive sources
 
-- `-x` extract
-- `-t` list
-
-Current limitation: HTTP URLs are source-only in this release. Create mode (`-c`) does not support HTTP targets, and HTTP requests use anonymous GET without custom headers/auth.
-
-Explicit member names select both that member and its descendants, so `gotgz -xf archive.tar dir` extracts the complete `dir/` subtree. With `--wildcards`, `*` matches one path segment and `**` crosses directories. A glob that matches a directory entry does not implicitly match its descendants; use `/**` when the complete subtree must match. A pattern without `/`, such as `*.log`, matches basenames at any depth. `--exclude` and `--exclude-from` apply consistently to create, list, and extract after member selection.
-
-Creation rejects symlinks whose targets are absolute or lexically escape the archive root. During extraction, directory permissions and timestamps are restored after descendants; metadata restoration failures produce warnings and exit status 1 while content or path-safety failures remain fatal. ACL preservation is supported only on Linux CGO-free builds; other platforms warn and ignore `--acl`. Non-Unix builds likewise warn for `--xattrs`.
-
-### Additional options
+HTTP(S) URLs can be used with `-f` for `-t` and `-x`:
 
 ```bash
-# Extract to stdout
-gotgz -xOf archive.tar path/to/file.txt
-
-# Exclude patterns
-gotgz -cvf archive.tar --exclude='*.log' --exclude-from=excludes.txt dir/
-
-# Split local or S3 archive output into 512 MiB volumes
-gotgz -cvf archive.tar --split-size 512MiB dir/
-gotgz -cvzf s3://my-bucket/backups/archive.tar.gz --split-size 512MiB dir/
-gotgz -cvf archive.zip --split-size 512MiB dir/
-
-# Wildcard member filtering for list/extract
-gotgz -tf archive.tar --wildcards 'src/*.go'
-
-# Set Cache-Control for S3 writes
-gotgz -cvf s3://my-bucket/out.tar --s3-cache-control "max-age=600,public" dir/
-gotgz -xvf archive.tar -C s3://my-bucket/restored/ --s3-cache-control no-cache
-
-# Set S3 object tags for S3 writes
-gotgz -cvf s3://my-bucket/out.tar --s3-tag team=archive --s3-tag env=prod dir/
-gotgz -xvf archive.tar -C s3://my-bucket/restored/ --s3-tag team=restore
-
-# Permission preservation
-gotgz -xvf archive.tar --same-owner --same-permissions
-
-# Explicitly enable ACL archive/extract
-gotgz -cvf archive.tar --acl dir/
-gotgz -xvf archive.tar --acl -C /tmp/output
-
-# Explicitly enable xattrs archive/extract
-gotgz -cvf archive.tar --xattrs dir/
-gotgz -xvf archive.tar --xattrs -C /tmp/output
-
-# Parsed for tar compatibility (currently no behavior change)
-gotgz -xvf archive.tar --numeric-owner
-
-# Strip leading path components while extracting
-gotgz -xvf archive.tar --strip-components=1 -C /tmp/output
-
-# Legacy (bundled) syntax
-gotgz cvf archive.tar dir/
-
-# Progress behavior
-gotgz -xvf archive.tar --progress
-gotgz -cvf out.tar --no-progress dir/   # hides live updates but still prints "completed in ..."
+gotgz -tf https://example.com/releases/archive.tar.gz
+gotgz -xvf https://example.com/releases/archive.zip -C /tmp/restore
 ```
 
-## Environment Variables
+HTTP is source-only: it cannot be a create destination or an extraction
+target. Requests use anonymous GET through Go's default HTTP client; gotgz
+does not provide a flag for custom headers or authentication.
 
-| Variable                        | Description                                                                           | Default      |
-| ------------------------------- | ------------------------------------------------------------------------------------- | ------------ |
-| `GOTGZ_S3_SSE`                  | Server-side encryption type (`AES256`/`sse-s3`, `aws:kms`/`sse-kms`, `none`)           | `AES256`     |
-| `GOTGZ_S3_SSE_KMS_KEY_ID`       | KMS key ID for SSE-KMS encryption                                                     |              |
-| `GOTGZ_S3_PART_SIZE_MB`         | S3 transfer part size in MB for multipart uploads and concurrent downloads             | `16`         |
-| `GOTGZ_S3_CONCURRENCY`          | S3 part concurrency for multipart uploads and concurrent downloads                     | `4`          |
-| `GOTGZ_S3_MAX_RETRIES`          | Override total attempts for S3 requests and ranged response-body reads                 | body: `3`    |
-| `GOTGZ_S3_USE_PATH_STYLE`       | Use path-style S3 addressing (for RustStack/MinIO)                                    | `false`      |
-| `GOTGZ_ZIP_STAGING_LIMIT_BYTES` | Max bytes spooled for non-local ZIP list/extract staging (`-`, `s3://`, `http(s)://`) | `1073741824` |
+ZIP sources use byte ranges when a reliable size and ETag/Last-Modified
+validator are available. Otherwise the initial response is staged to a
+temporary file. Non-local ZIP staging is limited by
+`GOTGZ_ZIP_STAGING_LIMIT_BYTES`, which defaults to 1 GiB; increase it when a
+large source cannot use range reads.
 
-Standard AWS SDK environment variables (`AWS_REGION`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_ENDPOINT_URL`, etc.) are also respected.
-AWS configuration is loaded lazily only for an actual S3 operation, so invalid AWS profiles do not affect local or HTTP workflows. If set, gotgz-specific values are validated strictly: retries and concurrency must be positive, part size must be 5–5120 MiB, path style must be a valid boolean, and SSE must be one of `AES256`, `sse-s3`, `aws:kms`, `sse-kms`, or `none`. A KMS key ID is rejected unless KMS SSE is selected.
+## Progress and exit status
+
+Progress is written to stderr. It is automatic on an interactive terminal;
+`--progress` forces it and `--no-progress` disables live updates. With
+`--no-progress`, a successful non-interactive run still prints a final
+`gotgz: completed in ...` line. `-v` writes member names to stdout.
+
+Exit statuses are:
+
+| Status | Meaning                                                                                             |
+| -----: | --------------------------------------------------------------------------------------------------- |
+|    `0` | Success with no warnings                                                                            |
+|    `1` | Operation completed with warnings, such as metadata recovery or an unsupported optional ZIP feature |
+|    `2` | Fatal parse, I/O, format, content, or path-safety failure                                           |
+
+When sending extracted file bytes to stdout with `-O`, keep progress and
+diagnostics on stderr and avoid `-v` if stdout must contain only data.
 
 ## Development
 
-### Prerequisites
+Prerequisites:
 
-- Go 1.26+
-- Docker & Docker Compose (for `make integration-test`)
+- Go 1.26.1 or newer.
+- Docker and Docker Compose for the integration layer.
+- `golangci-lint` for `make lint`.
 
-### Run unit tests
+Useful commands:
 
 ```bash
+make build
 make unit-test
+make integration-test
+make e2e-test
+make all
 ```
 
-### Run integration tests
-
-The repository now uses three explicit test layers:
-
-- `make unit-test` runs the default untagged unit suite and refreshes `coverage.txt`.
-- `make integration-test` starts the local S3 emulator with Docker Compose, sets `GOTGZ_TEST_S3_ENDPOINT=http://localhost:4566`, and runs `go test -tags=integration ./...`.
-- `make e2e-test` runs the tagged CLI subprocess suite with `go test -tags=e2e ./cmd/gotgz`.
-- `make test` runs all three layers in order.
-
-If you want to invoke the tagged layers directly:
-
-```bash
-go test ./...
-GOTGZ_TEST_S3_ENDPOINT=http://localhost:4566 go test -v -tags=integration ./...
-go test -v -tags=e2e ./cmd/gotgz
-```
-
-`packages/engine` is the package that owns the default engine unit tests and the tagged `integration` collaboration tests; the older `./internal/engine/` path is no longer used.
-
-The integration layer creates all fixtures dynamically with `t.TempDir()` plus temporary S3 buckets. The CLI end-to-end layer lives under `cmd/gotgz` and exercises real subprocess flows.
+`make test` runs the integration and CLI end-to-end layers. The integration
+command also includes ordinary tests without a build tag, but `make test` does
+not invoke the standalone `make unit-test` target. Run `make unit-test`
+separately for a Docker-free unit gate. See [AGENTS.md](AGENTS.md) for package
+boundaries, validation expectations, cache workarounds, and CI/release details.
 
 ## License
 
-See [LICENSE](LICENSE) for details.
+See [LICENSE](LICENSE).
