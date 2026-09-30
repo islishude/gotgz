@@ -95,7 +95,7 @@ func TestProgressReporterNilSafe(t *testing.T) {
 	p.BeforeExternalLineOutput()
 	p.AfterExternalLineOutput()
 	var buf bytes.Buffer
-	p.ExternalLinef(&buf, "hello %s\n", "world")
+	_ = p.ExternalLinef(&buf, "hello %s\n", "world")
 	p.Finish()
 	if got := buf.String(); got != "hello world\n" {
 		t.Fatalf("ExternalLinef() = %q, want %q", got, "hello world\n")
@@ -184,7 +184,7 @@ func TestProgressReporterExternalLinef(t *testing.T) {
 	var buf bytes.Buffer
 	p := NewReporter(&buf, cli.ProgressAlways, 100, true, time.Now().Add(-time.Second), false)
 	p.AddDone(10)
-	p.ExternalLinef(&buf, "external %s\n", "line")
+	_ = p.ExternalLinef(&buf, "external %s\n", "line")
 
 	out := buf.String()
 	if !strings.Contains(out, "external line\n") {

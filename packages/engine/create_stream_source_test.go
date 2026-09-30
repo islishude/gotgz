@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"io/fs"
 	"os"
@@ -10,6 +11,7 @@ import (
 	"reflect"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -254,5 +256,49 @@ func TestStreamingCreateSourceExcludesSpoolDirectoryInsideInput(t *testing.T) {
 	}
 	if got := strings.Join(seen, ","); got != ".,payload" {
 		t.Fatalf("records = %q, want root and payload without private spool", got)
+	}
+}
+
+func TestStreamingCreateSourceClosesQueuedSpoolsOnWriterFailure(t *testing.T) {
+	files := make(map[string]string)
+	var members []string
+	for i := range 3 * maxStreamingCreateMembers {
+		name := fmt.Sprintf("file-%03d", i)
+		files[name] = "payload"
+		members = append(members, name)
+	}
+	source, _, _ := newStreamingSourceFixture(t, files, members...)
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	defaults := defaultCreatePlanMetadataOps()
+	var inspected atomic.Int32
+	windowReady := make(chan struct{})
+	source.scannerConfig.metadata.lstat = func(ctx context.Context, path string) (fs.FileInfo, error) {
+		info, err := defaults.lstat(ctx, path)
+		if inspected.Add(1) == maxStreamingCreateMembers {
+			close(windowReady)
+		}
+		return info, err
+	}
+	want := errors.New("output failure with queued members")
+	_, err := source.Visit(ctx, nil, func(local localCreateSource) (int, error) {
+		return visitLocalCreateSource(ctx, local, func(*localEntryHandle) (int, error) {
+			select {
+			case <-windowReady:
+				return 0, want
+			case <-ctx.Done():
+				return 0, ctx.Err()
+			}
+		})
+	})
+	if !errors.Is(err, want) {
+		t.Fatalf("Visit() = %v", err)
+	}
+	if got := inspected.Load(); got != maxStreamingCreateMembers {
+		t.Fatalf("scanned %d inputs before first member was consumed", got)
+	}
+	entries, err := os.ReadDir(source.spoolDir)
+	if err != nil || len(entries) != 0 {
+		t.Fatalf("queued spools leaked: %v, %v", entries, err)
 	}
 }

@@ -32,6 +32,7 @@ func TestHelpTextMentionsZipAutoDetectAndWarnings(t *testing.T) {
 		"-x, --extract",
 		"-t, --list",
 		"-O, --to-stdout",
+		"Print member names (stderr when creating with -f -)",
 		"--cd <dir|s3://...>",
 		"--directory <dir|s3://...>",
 		"for .zip output it maps to Deflate level",

@@ -87,7 +87,9 @@ func (r *Runner) writeLocalZipRecord(ctx context.Context, zw zipArchiveWriter, e
 	}
 
 	if verbose {
-		reporter.ExternalLinef(r.stdout, "%s\n", hdr.Name)
+		if err := r.writeCreateMemberName(reporter, hdr.Name); err != nil {
+			return 0, err
+		}
 	}
 	return 0, nil
 }

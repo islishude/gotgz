@@ -26,9 +26,10 @@ type PermissionPolicy = cli.PermissionPolicy
 type MetadataPolicy = cli.MetadataPolicy
 
 type Runner struct {
-	storage *storageRouter
-	stderr  io.Writer
-	stdout  io.Writer
+	storage       *storageRouter
+	stderr        io.Writer
+	stdout        io.Writer
+	verboseOutput io.Writer
 }
 
 // RunResult summarizes one completed CLI operation together with progress metadata.
@@ -145,12 +146,17 @@ func (r *Runner) runCreate(ctx context.Context, opts cli.Options, reporter *arch
 	}
 	archiveRef = archiveRef.WithS3CacheControl(opts.S3CacheControl)
 	archiveRef = archiveRef.WithS3ObjectTags(opts.S3ObjectTags)
+	createRunner := *r
+	createRunner.verboseOutput = r.stdout
+	if archiveRef.Kind == locator.KindStdio {
+		createRunner.verboseOutput = r.stderr
+	}
 	format := archiveutil.DetectCreateArchiveFormat(archiveRef)
 	switch format {
 	case archiveutil.ArchiveFormatZip:
-		return r.runCreateZip(ctx, opts, archiveRef, reporter)
+		return createRunner.runCreateZip(ctx, opts, archiveRef, reporter)
 	case archiveutil.ArchiveFormatTar:
-		return r.runCreateTar(ctx, opts, archiveRef, reporter)
+		return createRunner.runCreateTar(ctx, opts, archiveRef, reporter)
 	default:
 		return 0, fmt.Errorf("cannot determine archive format for %q; consider using -suffix", archiveName)
 	}
@@ -210,4 +216,13 @@ func (r *Runner) dispatchExtractTarget(target locator.Ref, targetArg string, ext
 	default:
 		return 0, fmt.Errorf("unsupported extract target %q", targetArg)
 	}
+}
+
+// writeCreateMemberName keeps verbose names out of the archive data stream.
+func (r *Runner) writeCreateMemberName(reporter *archiveprogress.Reporter, name string) error {
+	output := r.verboseOutput
+	if output == nil {
+		output = r.stdout
+	}
+	return reporter.ExternalLinef(output, "%s\n", name)
 }

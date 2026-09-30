@@ -26,21 +26,10 @@ const (
 // temporary file to satisfy ReaderAt. progressReporter tracks archive bytes
 // consumed while preparing the zip reader.
 func (r *Runner) withZipReader(ctx context.Context, archiveRef locator.Ref, ar io.ReadCloser, info archiveReaderInfo, progressReporter *archiveprogress.Reporter, fn func(zr *zip.Reader) (int, error)) (int, error) {
-	if archiveRef.Kind == locator.KindLocal && info.SizeKnown && archiveRef.Path != "" {
-		f, err := os.Open(archiveRef.Path)
-		if err == nil {
-			defer f.Close() //nolint:errcheck
-			st, statErr := f.Stat()
-			if statErr == nil && st.Mode().IsRegular() {
-				zr, zipErr := zip.NewReader(f, st.Size())
-				if zipErr == nil {
-					if progressReporter != nil {
-						progressReporter.AddDone(st.Size())
-					}
-					return fn(zr)
-				}
-			}
-		}
+	if zr, file, size := tryLocalZipReader(archiveRef, info); zr != nil {
+		defer file.Close() //nolint:errcheck
+		progressReporter.AddDone(size)
+		return fn(zr)
 	}
 
 	if zr, err := r.tryRemoteZipReader(ctx, archiveRef, ar, info, progressReporter); zr != nil && err == nil {
@@ -88,6 +77,29 @@ func (r *Runner) withZipReader(ctx context.Context, archiveRef locator.Ref, ar i
 		return 0, err
 	}
 	return fn(zr)
+}
+
+// tryLocalZipReader keeps the existing stream available for staging when
+// direct random access is unavailable or the local ZIP cannot be opened.
+func tryLocalZipReader(ref locator.Ref, info archiveReaderInfo) (*zip.Reader, *os.File, int64) {
+	if ref.Kind != locator.KindLocal || !info.SizeKnown || ref.Path == "" {
+		return nil, nil, 0
+	}
+	f, err := os.Open(ref.Path)
+	if err != nil {
+		return nil, nil, 0
+	}
+	st, err := f.Stat()
+	if err != nil || !st.Mode().IsRegular() {
+		_ = f.Close()
+		return nil, nil, 0
+	}
+	zr, err := zip.NewReader(f, st.Size())
+	if err != nil {
+		_ = f.Close()
+		return nil, nil, 0
+	}
+	return zr, f, st.Size()
 }
 
 // tryRemoteZipReader opens a zip.Reader backed by remote range requests when

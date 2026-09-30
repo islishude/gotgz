@@ -170,8 +170,11 @@ func TestWithZipReaderUsesRemoteRangesForKnownS3Zip(t *testing.T) {
 	runner := newRunner(
 		nil,
 		fakeS3ZipArchiveStore{
-			openRange: func(_ context.Context, ref locator.Ref, offset int64, length int64) (io.ReadCloser, error) {
+			openRange: func(_ context.Context, ref locator.Ref, offset int64, length int64, snapshot archiveutil.Snapshot) (io.ReadCloser, error) {
 				rangeCalls++
+				if snapshot.ETag != `"etag"` {
+					t.Fatalf("snapshot = %+v", snapshot)
+				}
 				if ref.Key != "bundle.zip" {
 					t.Fatalf("ref.Key = %q, want %q", ref.Key, "bundle.zip")
 				}
@@ -226,8 +229,11 @@ func TestWithZipReaderStagesWhenRemoteSnapshotHasNoValidator(t *testing.T) {
 		nil,
 		nil,
 		fakeHTTPZipArchiveStore{
-			openRange: func(_ context.Context, ref locator.Ref, offset int64, length int64) (io.ReadCloser, error) {
+			openRange: func(_ context.Context, ref locator.Ref, offset int64, length int64, snapshot archiveutil.Snapshot) (io.ReadCloser, error) {
 				rangeCalls++
+				if snapshot.ETag != `"etag"` {
+					t.Fatalf("snapshot = %+v", snapshot)
+				}
 				return nil, errors.New("range unsupported")
 			},
 		},

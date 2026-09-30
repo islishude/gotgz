@@ -74,7 +74,9 @@ func (r *Runner) writeLocalTarRecord(ctx context.Context, tw tarArchiveWriter, e
 		return warnings, err
 	}
 	if verbose {
-		reporter.ExternalLinef(r.stdout, "%s\n", hdr.Name)
+		if err := r.writeCreateMemberName(reporter, hdr.Name); err != nil {
+			return warnings, err
+		}
 	}
 	return warnings, nil
 }

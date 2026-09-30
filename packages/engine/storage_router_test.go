@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/islishude/gotgz/packages/archiveutil"
 	"github.com/islishude/gotgz/packages/locator"
 	httpstore "github.com/islishude/gotgz/packages/storage/http"
 	localstore "github.com/islishude/gotgz/packages/storage/local"
@@ -50,12 +51,18 @@ func TestNewStorageRouterWiresZipRangeStores(t *testing.T) {
 	router := newStorageRouter(
 		nil,
 		fakeS3ZipArchiveStore{
-			openRange: func(_ context.Context, _ locator.Ref, _, _ int64) (io.ReadCloser, error) {
+			openRange: func(_ context.Context, _ locator.Ref, _, _ int64, snapshot archiveutil.Snapshot) (io.ReadCloser, error) {
+				if snapshot.ETag != `"etag"` {
+					t.Fatalf("snapshot = %+v", snapshot)
+				}
 				return io.NopCloser(strings.NewReader("s3-range")), nil
 			},
 		},
 		fakeHTTPZipArchiveStore{
-			openRange: func(_ context.Context, _ locator.Ref, _, _ int64) (io.ReadCloser, error) {
+			openRange: func(_ context.Context, _ locator.Ref, _, _ int64, snapshot archiveutil.Snapshot) (io.ReadCloser, error) {
+				if snapshot.ETag != `"etag"` {
+					t.Fatalf("snapshot = %+v", snapshot)
+				}
 				return io.NopCloser(strings.NewReader("http-range")), nil
 			},
 		},
@@ -66,7 +73,7 @@ func TestNewStorageRouterWiresZipRangeStores(t *testing.T) {
 		Raw:    "s3://bucket/archive.zip",
 		Bucket: "bucket",
 		Key:    "archive.zip",
-	}, 4, 8)
+	}, 4, 8, archiveutil.Snapshot{ETag: `"etag"`})
 	if err != nil {
 		t.Fatalf("openZipRangeReader() s3 error = %v", err)
 	}
@@ -83,7 +90,7 @@ func TestNewStorageRouterWiresZipRangeStores(t *testing.T) {
 		Kind: locator.KindHTTP,
 		Raw:  "https://example.test/archive.zip",
 		URL:  "https://example.test/archive.zip",
-	}, 2, 6)
+	}, 2, 6, archiveutil.Snapshot{ETag: `"etag"`})
 	if err != nil {
 		t.Fatalf("openZipRangeReader() http error = %v", err)
 	}
@@ -105,7 +112,7 @@ func TestStorageRouterOpenZipRangeReaderRequiresConfiguredRangeStore(t *testing.
 		Raw:    "s3://bucket/archive.zip",
 		Bucket: "bucket",
 		Key:    "archive.zip",
-	}, 0, 1)
+	}, 0, 1, archiveutil.Snapshot{ETag: `"etag"`})
 	if err == nil || !strings.Contains(err.Error(), "zip range store is not configured") {
 		t.Fatalf("openZipRangeReader() err = %v", err)
 	}
@@ -169,9 +176,9 @@ func TestStorageRouterDelegatesS3Operations(t *testing.T) {
 				assertRef("Stat", got)
 				return s3store.Metadata{Size: 9}, nil
 			},
-			openWriter: func(_ context.Context, got locator.Ref, metadata map[string]string) (io.WriteCloser, error) {
+			beginWriter: func(_ context.Context, got locator.Ref, metadata map[string]string) (s3store.WriteSession, error) {
 				if got.Kind != ref.Kind || got.Raw != ref.Raw || got.Bucket != ref.Bucket || got.Key != ref.Key {
-					t.Fatalf("OpenWriter ref = %+v, want bucket/key %s/%s", got, ref.Bucket, ref.Key)
+					t.Fatalf("BeginWriter ref = %+v, want bucket/key %s/%s", got, ref.Bucket, ref.Key)
 				}
 				if metadata["k"] != "v" {
 					t.Fatalf("metadata = %+v", metadata)

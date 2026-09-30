@@ -181,10 +181,11 @@ func (p *Reporter) AfterExternalLineOutput() {
 
 // ExternalLinef writes one formatted non-progress line while preserving the
 // reporter's terminal state for any active progress display.
-func (p *Reporter) ExternalLinef(writer io.Writer, format string, args ...any) {
+func (p *Reporter) ExternalLinef(writer io.Writer, format string, args ...any) error {
 	p.BeforeExternalLineOutput()
-	_, _ = fmt.Fprintf(writer, format, args...)
+	_, err := fmt.Fprintf(writer, format, args...)
 	p.AfterExternalLineOutput()
+	return err
 }
 
 // renderLocked prints one progress line if refresh throttling allows it.

@@ -96,30 +96,7 @@ func (r *Runner) buildPreparedCreatePlan(ctx context.Context, request preparedCr
 	var workers sync.WaitGroup
 	for range workerCount {
 		workers.Go(func() {
-			for {
-				select {
-				case <-workCtx.Done():
-					return
-				case task, ok := <-tasksCh:
-					if !ok {
-						return
-					}
-
-					result, include, err := r.runCreatePlanTask(workCtx, task, request.opts.Chdir, plan.spoolDir, request.excludeMatcher, request.outputPolicy, metadataLimiter)
-					if err != nil {
-						cancel(err)
-						return
-					}
-					result.index = task.index
-					result.include = include
-
-					select {
-					case resultsCh <- result:
-					case <-workCtx.Done():
-						return
-					}
-				}
-			}
+			r.runCreatePlanWorker(workCtx, cancel, request, plan.spoolDir, metadataLimiter, tasksCh, resultsCh)
 		})
 	}
 
@@ -157,6 +134,31 @@ func (r *Runner) buildPreparedCreatePlan(ctx context.Context, request preparedCr
 	plan.outputSkipped = request.outputPolicy.outputWasSkipped()
 
 	return plan, nil
+}
+
+// runCreatePlanWorker validates and scans assigned inputs without publishing output.
+func (r *Runner) runCreatePlanWorker(ctx context.Context, cancel context.CancelCauseFunc, request preparedCreateRequest, spoolDir string, limiter *createPlanMetadataLimiter, tasks <-chan createPlanTask, results chan<- createPlanTaskResult) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case task, ok := <-tasks:
+			if !ok {
+				return
+			}
+			result, include, err := r.runCreatePlanTask(ctx, task, request.opts.Chdir, spoolDir, request.excludeMatcher, request.outputPolicy, limiter)
+			if err != nil {
+				cancel(err)
+				return
+			}
+			result.index, result.include = task.index, include
+			select {
+			case results <- result:
+			case <-ctx.Done():
+				return
+			}
+		}
+	}
 }
 
 // Close removes all private local plan files. It is idempotent so callers can

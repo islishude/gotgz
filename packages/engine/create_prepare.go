@@ -10,10 +10,9 @@ import (
 	"github.com/islishude/gotgz/packages/locator"
 )
 
-// preparedCreateInput captures the normalized archive target together with the
-// create input source shared by tar and zip writers.
+// preparedCreateInput owns the input source and output exclusions shared by
+// tar and zip writers.
 type preparedCreateInput struct {
-	archiveRef   locator.Ref
 	source       createInputSource
 	strategy     createStrategy
 	outputPolicy *createOutputPolicy
@@ -62,7 +61,6 @@ func (r *Runner) prepareCreateInput(ctx context.Context, opts cli.Options, archi
 	}
 
 	return preparedCreateInput{
-		archiveRef:   archiveRef,
 		source:       source,
 		strategy:     strategy,
 		outputPolicy: request.outputPolicy,
@@ -70,7 +68,7 @@ func (r *Runner) prepareCreateInput(ctx context.Context, opts cli.Options, archi
 	}, nil
 }
 
-func (p preparedCreateInput) registerWriterArtifacts(writer any) error {
+func (p preparedCreateInput) registerWriterArtifacts(writer createArchiveWriter) error {
 	if p.strategy != createStrategyStreamingPlan {
 		return nil
 	}

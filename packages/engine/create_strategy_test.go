@@ -20,7 +20,7 @@ func TestSelectCreateStrategyUsesCapabilitiesAndInputScope(t *testing.T) {
 	archivePath := filepath.Join(root, "archive.tar")
 	localRef := locator.Ref{Kind: locator.KindLocal, Raw: archivePath, Path: archivePath}
 	transactional := newRunner(&localstore.ArchiveStore{}, nil, nil, io.Discard, io.Discard)
-	legacy := newRunner(fakeLocalArchiveStore{}, nil, nil, io.Discard, io.Discard)
+	noCapabilities := newRunner(fakeLocalArchiveStore{}, nil, nil, io.Discard, io.Discard)
 
 	tests := []struct {
 		name   string
@@ -37,8 +37,8 @@ func TestSelectCreateStrategyUsesCapabilitiesAndInputScope(t *testing.T) {
 			want:   createStrategyStreamingPlan,
 		},
 		{
-			name:   "legacy local writer uses full plan",
-			runner: legacy,
+			name:   "writer without streaming capabilities uses full plan",
+			runner: noCapabilities,
 			opts:   cli.Options{Archive: archivePath, Chdir: root, Members: []string{"input"}},
 			ref:    localRef,
 			want:   createStrategyFullPlan,

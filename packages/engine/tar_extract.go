@@ -82,69 +82,56 @@ func (r *Runner) prepareTarExtractState(opts cli.Options, reporter *archiveprogr
 
 // runExtractTarReader extracts archive members from a single tar volume reader.
 func (r *Runner) runExtractTarReader(ctx context.Context, opts cli.Options, reporter *archiveprogress.Reporter, ar io.ReadCloser, info archiveReaderInfo, state *tarExtractState) (int, error) {
-	if opts.ToStdout {
-		return r.scanTarArchiveFromReader(ctx, opts, reporter, info, opts.Archive, ar, func(hdr *tar.Header, tr *tar.Reader) (int, error) {
-			if shouldSkipReadMember(state.memberMatcher, state.excludeMatcher, hdr.Name) {
-				if _, err := archiveutil.CopyWithContext(ctx, io.Discard, tr); err != nil {
-					return 0, err
-				}
-				return 0, nil
-			}
-			if _, ok := archivepath.StripPathComponents(hdr.Name, opts.StripComponents); !ok {
-				if _, err := archiveutil.CopyWithContext(ctx, io.Discard, io.LimitReader(tr, hdr.Size)); err != nil {
-					return 0, err
-				}
-				return 0, nil
-			}
-			if hdr.Typeflag != tar.TypeReg {
-				if _, err := archiveutil.CopyWithContext(ctx, io.Discard, tr); err != nil {
-					return 0, err
-				}
-				return 0, nil
-			}
-			_, err := archiveutil.CopyWithContext(ctx, r.stdout, tr)
-			return 0, err
-		})
-	}
-
 	return r.scanTarArchiveFromReader(ctx, opts, reporter, info, opts.Archive, ar, func(hdr *tar.Header, tr *tar.Reader) (int, error) {
-		if shouldSkipReadMember(state.memberMatcher, state.excludeMatcher, hdr.Name) {
-			if _, err := archiveutil.CopyWithContext(ctx, io.Discard, tr); err != nil {
-				return 0, err
-			}
-			return 0, nil
-		}
-		extractName, ok := archivepath.StripPathComponents(hdr.Name, opts.StripComponents)
-		if !ok {
-			if _, err := archiveutil.CopyWithContext(ctx, io.Discard, io.LimitReader(tr, hdr.Size)); err != nil {
-				return 0, err
-			}
-			return 0, nil
-		}
-		effectiveHdr := *hdr
-		effectiveHdr.Name = extractName
-		if effectiveHdr.Typeflag == tar.TypeLink {
-			linkName, linkOK := archivepath.StripPathComponents(effectiveHdr.Linkname, opts.StripComponents)
-			if !linkOK || linkName == "" {
-				if _, err := archiveutil.CopyWithContext(ctx, io.Discard, io.LimitReader(tr, hdr.Size)); err != nil {
-					return 0, err
-				}
-				return r.warnf(reporter, "hardlink %s target %s was removed by --strip-components; skipping", hdr.Name, hdr.Linkname), nil
-			}
-			effectiveHdr.Linkname = linkName
-		}
-		if opts.Verbose {
-			reporter.ExternalLinef(r.stdout, "%s\n", effectiveHdr.Name)
-		}
-		return r.dispatchExtractTarget(
-			state.parsedTarget,
-			state.target,
-			func(target locator.Ref) (int, error) {
-				return r.extractToS3(ctx, target, &effectiveHdr, tr, reporter)
-			},
-			func(base string) (int, error) {
-				return r.extractToLocal(ctx, base, &effectiveHdr, tr, state.policy, state.metadataPolicy, state.safetyCache, state.metadataSession, reporter)
-			},
-		)
+		return r.extractTarMember(ctx, opts, reporter, state, hdr, tr)
 	})
+}
+
+func discardTarMember(ctx context.Context, tr *tar.Reader) (int, error) {
+	_, err := archiveutil.CopyWithContext(ctx, io.Discard, tr)
+	return 0, err
+}
+
+// extractTarMember applies selection and name transformations before either
+// emitting payload bytes or dispatching a validated entry to its destination.
+func (r *Runner) extractTarMember(ctx context.Context, opts cli.Options, reporter *archiveprogress.Reporter, state *tarExtractState, hdr *tar.Header, tr *tar.Reader) (int, error) {
+	if shouldSkipReadMember(state.memberMatcher, state.excludeMatcher, hdr.Name) {
+		return discardTarMember(ctx, tr)
+	}
+	extractName, ok := archivepath.StripPathComponents(hdr.Name, opts.StripComponents)
+	if !ok {
+		return discardTarMember(ctx, tr)
+	}
+	if opts.ToStdout {
+		if hdr.Typeflag != tar.TypeReg {
+			return discardTarMember(ctx, tr)
+		}
+		_, err := archiveutil.CopyWithContext(ctx, r.stdout, tr)
+		return 0, err
+	}
+	effectiveHdr := *hdr
+	effectiveHdr.Name = extractName
+	if effectiveHdr.Typeflag == tar.TypeLink {
+		linkName, linkOK := archivepath.StripPathComponents(effectiveHdr.Linkname, opts.StripComponents)
+		if !linkOK || linkName == "" {
+			if _, err := discardTarMember(ctx, tr); err != nil {
+				return 0, err
+			}
+			return r.warnf(reporter, "hardlink %s target %s was removed by --strip-components; skipping", hdr.Name, hdr.Linkname), nil
+		}
+		effectiveHdr.Linkname = linkName
+	}
+	if opts.Verbose {
+		if err := reporter.ExternalLinef(r.stdout, "%s\n", effectiveHdr.Name); err != nil {
+			return 0, err
+		}
+	}
+	return r.dispatchExtractTarget(state.parsedTarget, state.target,
+		func(target locator.Ref) (int, error) {
+			return r.extractToS3(ctx, target, &effectiveHdr, tr, reporter)
+		},
+		func(base string) (int, error) {
+			return r.extractToLocal(ctx, base, &effectiveHdr, tr, state.policy, state.metadataPolicy, state.safetyCache, state.metadataSession, reporter)
+		},
+	)
 }

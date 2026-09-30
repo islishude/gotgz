@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/islishude/gotgz/packages/archiveutil"
 	"github.com/islishude/gotgz/packages/locator"
 	httpstore "github.com/islishude/gotgz/packages/storage/http"
 	localstore "github.com/islishude/gotgz/packages/storage/local"
@@ -20,8 +21,8 @@ import (
 )
 
 type fakeLocalArchiveStore struct {
-	openReader func(ref locator.Ref) (io.ReadCloser, localstore.Metadata, error)
-	openWriter func(ref locator.Ref) (io.WriteCloser, error)
+	openReader  func(ref locator.Ref) (io.ReadCloser, localstore.Metadata, error)
+	beginWriter func(ref locator.Ref) (localstore.WriteSession, error)
 }
 
 func (f fakeLocalArchiveStore) OpenReader(ref locator.Ref) (io.ReadCloser, localstore.Metadata, error) {
@@ -31,17 +32,17 @@ func (f fakeLocalArchiveStore) OpenReader(ref locator.Ref) (io.ReadCloser, local
 	return f.openReader(ref)
 }
 
-func (f fakeLocalArchiveStore) OpenWriter(ref locator.Ref) (io.WriteCloser, error) {
-	if f.openWriter == nil {
+func (f fakeLocalArchiveStore) BeginWriter(ref locator.Ref) (localstore.WriteSession, error) {
+	if f.beginWriter == nil {
 		return nil, nil
 	}
-	return f.openWriter(ref)
+	return f.beginWriter(ref)
 }
 
 type fakeS3ArchiveStore struct {
 	openReader   func(ctx context.Context, ref locator.Ref) (io.ReadCloser, s3store.Metadata, error)
 	stat         func(ctx context.Context, ref locator.Ref) (s3store.Metadata, error)
-	openWriter   func(ctx context.Context, ref locator.Ref, metadata map[string]string) (io.WriteCloser, error)
+	beginWriter  func(ctx context.Context, ref locator.Ref, metadata map[string]string) (s3store.WriteSession, error)
 	uploadStream func(ctx context.Context, ref locator.Ref, body io.Reader, metadata map[string]string) error
 	listPrefix   func(ctx context.Context, bucket string, prefix string) ([]s3store.ListedObject, error)
 }
@@ -60,11 +61,11 @@ func (f fakeS3ArchiveStore) Stat(ctx context.Context, ref locator.Ref) (s3store.
 	return f.stat(ctx, ref)
 }
 
-func (f fakeS3ArchiveStore) OpenWriter(ctx context.Context, ref locator.Ref, metadata map[string]string) (io.WriteCloser, error) {
-	if f.openWriter == nil {
+func (f fakeS3ArchiveStore) BeginWriter(ctx context.Context, ref locator.Ref, metadata map[string]string) (s3store.WriteSession, error) {
+	if f.beginWriter == nil {
 		return nil, nil
 	}
-	return f.openWriter(ctx, ref, metadata)
+	return f.beginWriter(ctx, ref, metadata)
 }
 
 func (f fakeS3ArchiveStore) UploadStream(ctx context.Context, ref locator.Ref, body io.Reader, metadata map[string]string) error {
@@ -94,26 +95,26 @@ func (f fakeHTTPArchiveStore) OpenReader(ctx context.Context, ref locator.Ref) (
 
 type fakeS3ZipArchiveStore struct {
 	fakeS3ArchiveStore
-	openRange func(ctx context.Context, ref locator.Ref, offset int64, length int64) (io.ReadCloser, error)
+	openRange func(ctx context.Context, ref locator.Ref, offset int64, length int64, snapshot archiveutil.Snapshot) (io.ReadCloser, error)
 }
 
-func (f fakeS3ZipArchiveStore) OpenRangeReader(ctx context.Context, ref locator.Ref, offset int64, length int64) (io.ReadCloser, error) {
+func (f fakeS3ZipArchiveStore) OpenRangeReaderSnapshot(ctx context.Context, ref locator.Ref, offset int64, length int64, snapshot archiveutil.Snapshot) (io.ReadCloser, error) {
 	if f.openRange == nil {
 		return nil, errors.New("fakeS3ZipArchiveStore: OpenRangeReader not implemented")
 	}
-	return f.openRange(ctx, ref, offset, length)
+	return f.openRange(ctx, ref, offset, length, snapshot)
 }
 
 type fakeHTTPZipArchiveStore struct {
 	fakeHTTPArchiveStore
-	openRange func(ctx context.Context, ref locator.Ref, offset int64, length int64) (io.ReadCloser, error)
+	openRange func(ctx context.Context, ref locator.Ref, offset int64, length int64, snapshot archiveutil.Snapshot) (io.ReadCloser, error)
 }
 
-func (f fakeHTTPZipArchiveStore) OpenRangeReader(ctx context.Context, ref locator.Ref, offset int64, length int64) (io.ReadCloser, error) {
+func (f fakeHTTPZipArchiveStore) OpenRangeReaderSnapshot(ctx context.Context, ref locator.Ref, offset int64, length int64, snapshot archiveutil.Snapshot) (io.ReadCloser, error) {
 	if f.openRange == nil {
 		return nil, errors.New("fakeHTTPZipArchiveStore: OpenRangeReader not implemented")
 	}
-	return f.openRange(ctx, ref, offset, length)
+	return f.openRange(ctx, ref, offset, length, snapshot)
 }
 
 type fakeWriteCloser struct {
@@ -121,7 +122,9 @@ type fakeWriteCloser struct {
 	closeErr error
 }
 
-func (f *fakeWriteCloser) Close() error { return f.closeErr }
+func (f *fakeWriteCloser) Close() error    { return f.Commit() }
+func (f *fakeWriteCloser) Commit() error   { return f.closeErr }
+func (*fakeWriteCloser) Abort(error) error { return nil }
 
 type trackingReadCloser struct {
 	io.Reader

@@ -2,11 +2,7 @@ package engine
 
 import (
 	"context"
-	"fmt"
-	"io/fs"
 
-	"github.com/islishude/gotgz/packages/archivepath"
-	"github.com/islishude/gotgz/packages/cli"
 	"github.com/islishude/gotgz/packages/locator"
 )
 
@@ -18,24 +14,6 @@ type localCreateSource interface {
 	// Visit invokes visit for each entry with refreshed metadata and owns
 	// closing any regular-file handle after the callback returns.
 	Visit(ctx context.Context, visit func(entry *localEntryHandle) error) error
-}
-
-// liveLocalCreateSource walks one local member directly from the filesystem.
-type liveLocalCreateSource struct {
-	member         string
-	chdir          string
-	excludeMatcher *archivepath.CompiledPathMatcher
-}
-
-// Visit streams one live local member walk to the supplied visitor.
-func (s liveLocalCreateSource) Visit(ctx context.Context, visit func(entry *localEntryHandle) error) error {
-	return walkLocalCreateMember(ctx, s.member, s.chdir, s.excludeMatcher, func(record localCreateRecord, info fs.FileInfo) error {
-		entry, err := openLocalEntry(record, info.Mode().Type())
-		if err != nil {
-			return err
-		}
-		return visitLocalEntry(entry, visit)
-	})
 }
 
 // plannedLocalCreateSource replays one pre-scanned local record list using
@@ -52,13 +30,12 @@ func (s plannedLocalCreateSource) Visit(ctx context.Context, visit func(entry *l
 
 // createInputSource dispatches create-mode members and exposes any known total
 // payload size for progress reporting.
-// createInputSource abstracts the input used by a create operation.
 //
 // Implementations may represent local content, existing S3-backed content,
 // or a combination of both. Total reports the overall payload size when it
 // can be determined ahead of time. Visit walks the source and dispatches each
-// encountered item to the appropriate handler, returning the number of visited
-// items or the first error encountered.
+// encountered item to the appropriate handler, returning the accumulated warning count
+// and the first error encountered.
 type createInputSource interface {
 	// Total returns the total payload size and whether that total is known upfront.
 	Total() (int64, bool)
@@ -67,59 +44,6 @@ type createInputSource interface {
 	// Close releases private preflight resources before destination publication.
 	Close() error
 }
-
-// liveCreateInputSource parses create members on demand without precomputing a plan.
-type liveCreateInputSource struct {
-	opts           cli.Options
-	excludeMatcher *archivepath.CompiledPathMatcher
-}
-
-// Total reports that live create sources do not know their payload size upfront.
-func (s liveCreateInputSource) Total() (int64, bool) {
-	return 0, false
-}
-
-// Visit parses each create member and dispatches it by backend kind.
-func (s liveCreateInputSource) Visit(ctx context.Context, handleS3 func(ref locator.Ref) error, handleLocal func(source localCreateSource) (int, error)) (int, error) {
-	warnings := 0
-	for _, member := range s.opts.Members {
-		select {
-		case <-ctx.Done():
-			return warnings, ctx.Err()
-		default:
-		}
-
-		ref, err := locator.ParseMember(member)
-		if err != nil {
-			return warnings, err
-		}
-
-		switch ref.Kind {
-		case locator.KindS3:
-			if archivepath.MatchExcludeWithMatcher(s.excludeMatcher, ref.Key) {
-				continue
-			}
-			if err := handleS3(ref); err != nil {
-				return warnings, err
-			}
-		case locator.KindLocal:
-			w, err := handleLocal(liveLocalCreateSource{
-				member:         member,
-				chdir:          s.opts.Chdir,
-				excludeMatcher: s.excludeMatcher,
-			})
-			warnings += w
-			if err != nil {
-				return warnings, err
-			}
-		default:
-			return warnings, fmt.Errorf("unsupported member reference %q", member)
-		}
-	}
-	return warnings, nil
-}
-
-func (liveCreateInputSource) Close() error { return nil }
 
 // plannedCreateInputSource replays one pre-scanned create plan.
 type plannedCreateInputSource struct {

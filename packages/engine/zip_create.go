@@ -2,7 +2,6 @@ package engine
 
 import (
 	"context"
-	"errors"
 
 	"github.com/islishude/gotgz/packages/archiveprogress"
 	"github.com/islishude/gotgz/packages/cli"
@@ -13,42 +12,21 @@ import (
 func (r *Runner) runCreateZip(ctx context.Context, opts cli.Options, archiveRef locator.Ref, reporter *archiveprogress.Reporter) (int, error) {
 	warnings := r.warnZipCreateOptions(opts, reporter)
 
-	input, err := r.prepareCreateInput(ctx, opts, archiveRef, reporter)
-	if err != nil {
-		return warnings, err
-	}
-
-	zw, err := r.newZipArchiveWriter(ctx, opts, input.archiveRef)
-	if err != nil {
-		return warnings, errors.Join(err, input.source.Close())
-	}
-	if err := input.registerWriterArtifacts(zw); err != nil {
-		rootErr := errors.Join(err, input.source.Close())
-		return warnings, errors.Join(rootErr, zw.Abort(rootErr))
-	}
-	reporter.BeginPayload()
-	createWarnings, err := input.source.Visit(
-		ctx,
-		func(ref locator.Ref) error {
-			return r.addS3ZipMember(ctx, zw, ref, opts.Verbose, reporter)
-		},
-		func(source localCreateSource) (int, error) {
-			return visitLocalCreateSource(ctx, source, func(entry *localEntryHandle) (int, error) {
-				return r.writeLocalZipRecord(ctx, zw, entry, opts.Verbose, reporter)
-			})
-		},
-	)
-	if err == nil && input.streamingOutputWasSkipped() {
-		createWarnings += r.warnf(reporter, "create: archive output inside an input tree was skipped")
-	}
-	warnings += input.warnings + createWarnings
-	cleanupErr := input.source.Close()
-	if err != nil || cleanupErr != nil {
-		rootErr := errors.Join(err, cleanupErr)
-		return warnings, errors.Join(rootErr, zw.Abort(rootErr))
-	}
-	if err := zw.Close(); err != nil {
-		return warnings, err
-	}
-	return warnings, nil
+	return r.runCreateWithWriter(ctx, opts, archiveRef, reporter, warnings, func() (createArchiveOperation, error) {
+		writer, err := r.newZipArchiveWriter(ctx, opts, archiveRef)
+		if err != nil {
+			return createArchiveOperation{}, err
+		}
+		return createArchiveOperation{
+			writer: writer,
+			handleS3: func(ref locator.Ref) error {
+				return r.addS3ZipMember(ctx, writer, ref, opts.Verbose, reporter)
+			},
+			handleLocal: func(source localCreateSource) (int, error) {
+				return visitLocalCreateSource(ctx, source, func(entry *localEntryHandle) (int, error) {
+					return r.writeLocalZipRecord(ctx, writer, entry, opts.Verbose, reporter)
+				})
+			},
+		}, nil
+	})
 }

@@ -89,7 +89,9 @@ func (r *Runner) extractZipEntries(ctx context.Context, zr *zip.Reader, opts cli
 			continue
 		}
 		if opts.Verbose {
-			reporter.ExternalLinef(r.stdout, "%s\n", extractName)
+			if err := reporter.ExternalLinef(r.stdout, "%s\n", extractName); err != nil {
+				return warnings, err
+			}
 		}
 
 		w, err := r.dispatchExtractTarget(

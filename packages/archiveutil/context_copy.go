@@ -23,7 +23,7 @@ func CopyWithContext(ctx context.Context, dst io.Writer, src io.Reader) (int64, 
 // CopyWithContextLimit copies src into dst while enforcing a hard byte limit.
 // A negative limit disables the bound.
 func CopyWithContextLimit(ctx context.Context, dst io.Writer, src io.Reader, limit int64) (int64, error) {
-	// copies and shrinks it for small limited readers.
+	// Keep the buffer small for already bounded readers.
 	size := contextCopyBufferSize
 	if l, ok := src.(*io.LimitedReader); ok && int64(size) > l.N {
 		size = max(int(l.N), 1)
@@ -52,34 +52,14 @@ func CopyWithContextLimit(ctx context.Context, dst io.Writer, src io.Reader, lim
 
 		nr, rerr := src.Read(readBuf)
 		if nr > 0 {
-			writeCount := nr
-			if enforceLimit && int64(writeCount) > remaining {
-				writeCount = int(remaining)
+			maxWrite := int64(-1)
+			if enforceLimit {
+				maxWrite = remaining
 			}
-
-			// When remaining is 0 the read was a 1-byte probe to detect
-			// overflow; skip the write and report the limit breach.
-			if enforceLimit && writeCount == 0 {
-				return written, ErrCopyLimitExceeded
-			}
-
-			p := readBuf[:writeCount]
-			nw, werr := dst.Write(p)
-			if nw < 0 || len(p) < nw {
-				nw = 0
-				if werr == nil {
-					werr = ErrInvalidWrite
-				}
-			}
-			written += int64(nw)
-			if werr != nil {
-				return written, werr
-			}
-			if nw != len(p) {
-				return written, io.ErrShortWrite
-			}
-			if enforceLimit && int64(nr) > remaining {
-				return written, ErrCopyLimitExceeded
+			n, err := writeCopyChunk(dst, readBuf[:nr], maxWrite)
+			written += int64(n)
+			if err != nil {
+				return written, err
 			}
 		}
 		if rerr != nil {
@@ -89,4 +69,34 @@ func CopyWithContextLimit(ctx context.Context, dst io.Writer, src io.Reader, lim
 			return written, rerr
 		}
 	}
+}
+
+// writeCopyChunk writes at most remaining bytes, preserving writer failures
+// ahead of limit errors. A negative remaining value means unbounded.
+func writeCopyChunk(dst io.Writer, data []byte, remaining int64) (int, error) {
+	overflow := remaining >= 0 && int64(len(data)) > remaining
+	if overflow {
+		data = data[:remaining]
+	}
+	// A one-byte read after the limit is reached only probes for overflow.
+	if len(data) == 0 {
+		return 0, ErrCopyLimitExceeded
+	}
+	n, err := dst.Write(data)
+	if n < 0 || n > len(data) {
+		n = 0
+		if err == nil {
+			err = ErrInvalidWrite
+		}
+	}
+	if err != nil {
+		return n, err
+	}
+	if n != len(data) {
+		return n, io.ErrShortWrite
+	}
+	if overflow {
+		return n, ErrCopyLimitExceeded
+	}
+	return n, nil
 }

@@ -24,12 +24,12 @@ func TestWalkLocalCreateMember(t *testing.T) {
 	}
 
 	var seen []string
-	err := walkLocalCreateMember(context.Background(), "dir", root, archivepath.NewCompiledPathMatcher([]string{"dir/skipme"}), func(record localCreateRecord, _ fs.FileInfo) error {
+	err := walkLocalCreateMemberEntries(context.Background(), "dir", root, archivepath.NewCompiledPathMatcher([]string{"dir/skipme"}), func(record localCreateRecord, _ fs.DirEntry) error {
 		seen = append(seen, record.archiveName)
 		return nil
 	})
 	if err != nil {
-		t.Fatalf("walkLocalCreateMember() error = %v", err)
+		t.Fatalf("walkLocalCreateMemberEntries() error = %v", err)
 	}
 	joined := strings.Join(seen, ",")
 	if joined != "dir,dir/file.txt" {
@@ -44,12 +44,12 @@ func TestWalkLocalCreateMemberDotMember(t *testing.T) {
 	}
 
 	var seen []string
-	err := walkLocalCreateMember(context.Background(), ".", root, nil, func(record localCreateRecord, _ fs.FileInfo) error {
+	err := walkLocalCreateMemberEntries(context.Background(), ".", root, nil, func(record localCreateRecord, _ fs.DirEntry) error {
 		seen = append(seen, record.archiveName)
 		return nil
 	})
 	if err != nil {
-		t.Fatalf("walkLocalCreateMember() error = %v", err)
+		t.Fatalf("walkLocalCreateMemberEntries() error = %v", err)
 	}
 	joined := strings.Join(seen, ",")
 	if joined != ".,file.txt" {
@@ -69,14 +69,14 @@ func TestWalkLocalCreateMemberUsesSymlinkMetadata(t *testing.T) {
 	}
 
 	var linkMode fs.FileMode
-	err := walkLocalCreateMember(context.Background(), ".", root, nil, func(record localCreateRecord, info fs.FileInfo) error {
+	err := walkLocalCreateMemberEntries(context.Background(), ".", root, nil, func(record localCreateRecord, entry fs.DirEntry) error {
 		if record.archiveName == "link.txt" {
-			linkMode = info.Mode()
+			linkMode = entry.Type()
 		}
 		return nil
 	})
 	if err != nil {
-		t.Fatalf("walkLocalCreateMember() error = %v", err)
+		t.Fatalf("walkLocalCreateMemberEntries() error = %v", err)
 	}
 	if linkMode&os.ModeSymlink == 0 {
 		t.Fatalf("link mode = %v, want symlink", linkMode)
@@ -126,24 +126,24 @@ func TestWalkLocalCreateMemberGlobDirectoryDoesNotPruneDescendants(t *testing.T)
 	}
 
 	var seen []string
-	err := walkLocalCreateMember(context.Background(), "src", root, archivepath.NewCompiledPathMatcher([]string{"src/*"}), func(record localCreateRecord, _ fs.FileInfo) error {
+	err := walkLocalCreateMemberEntries(context.Background(), "src", root, archivepath.NewCompiledPathMatcher([]string{"src/*"}), func(record localCreateRecord, _ fs.DirEntry) error {
 		seen = append(seen, record.archiveName)
 		return nil
 	})
 	if err != nil {
-		t.Fatalf("walkLocalCreateMember() error = %v", err)
+		t.Fatalf("walkLocalCreateMemberEntries() error = %v", err)
 	}
 	if got, want := strings.Join(seen, ","), "src,src/cache/nested.txt"; got != want {
 		t.Fatalf("seen = %q, want %q", got, want)
 	}
 
 	seen = nil
-	err = walkLocalCreateMember(context.Background(), "src", root, archivepath.NewCompiledPathMatcher([]string{"src/**"}), func(record localCreateRecord, _ fs.FileInfo) error {
+	err = walkLocalCreateMemberEntries(context.Background(), "src", root, archivepath.NewCompiledPathMatcher([]string{"src/**"}), func(record localCreateRecord, _ fs.DirEntry) error {
 		seen = append(seen, record.archiveName)
 		return nil
 	})
 	if err != nil {
-		t.Fatalf("walkLocalCreateMember(recursive) error = %v", err)
+		t.Fatalf("walkLocalCreateMemberEntries(recursive) error = %v", err)
 	}
 	if len(seen) != 0 {
 		t.Fatalf("recursive exclude retained records: %v", seen)

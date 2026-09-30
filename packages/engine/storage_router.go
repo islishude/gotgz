@@ -21,10 +21,8 @@ type storageRouter struct {
 	s3Factory            func(context.Context) (s3ArchiveStore, error)
 	s3Once               sync.Once
 	s3Err                error
-	s3ZipRange           zipArchiveRangeStore
 	s3SnapshotZipRange   snapshotZipArchiveRangeStore
 	http                 httpArchiveStore
-	httpZipRange         zipArchiveRangeStore
 	httpSnapshotZipRange snapshotZipArchiveRangeStore
 }
 
@@ -48,14 +46,8 @@ func newStorageRouter(local localArchiveStore, s3 s3ArchiveStore, http httpArchi
 		s3:    s3,
 		http:  http,
 	}
-	if rangeStore, ok := s3.(zipArchiveRangeStore); ok {
-		router.s3ZipRange = rangeStore
-	}
 	if rangeStore, ok := s3.(snapshotZipArchiveRangeStore); ok {
 		router.s3SnapshotZipRange = rangeStore
-	}
-	if rangeStore, ok := http.(zipArchiveRangeStore); ok {
-		router.httpZipRange = rangeStore
 	}
 	if rangeStore, ok := http.(snapshotZipArchiveRangeStore); ok {
 		router.httpSnapshotZipRange = rangeStore
@@ -79,9 +71,6 @@ func (r *storageRouter) requireS3(ctx context.Context) (s3ArchiveStore, error) {
 	}
 	r.s3Once.Do(func() {
 		r.s3, r.s3Err = r.s3Factory(ctx)
-		if rangeStore, ok := r.s3.(zipArchiveRangeStore); ok {
-			r.s3ZipRange = rangeStore
-		}
 		if rangeStore, ok := r.s3.(snapshotZipArchiveRangeStore); ok {
 			r.s3SnapshotZipRange = rangeStore
 		}
@@ -160,14 +149,7 @@ func (r *storageRouter) beginArchiveWriter(ctx context.Context, ref locator.Ref)
 		if err := r.requireLocal(); err != nil {
 			return nil, err
 		}
-		if store, ok := r.local.(transactionalLocalArchiveStore); ok {
-			return store.BeginWriter(ref)
-		}
-		writer, err := r.local.OpenWriter(ref)
-		if err != nil {
-			return nil, err
-		}
-		return &legacyArchiveWriteSession{writer: writer}, nil
+		return r.local.BeginWriter(ref)
 	case locator.KindS3:
 		store, err := r.requireS3(ctx)
 		if err != nil {
@@ -176,14 +158,7 @@ func (r *storageRouter) beginArchiveWriter(ctx context.Context, ref locator.Ref)
 		if strings.TrimSpace(ref.Key) == "" {
 			return nil, fmt.Errorf("archive object key cannot be empty for -f")
 		}
-		if transactional, ok := store.(transactionalS3ArchiveStore); ok {
-			return transactional.BeginWriter(ctx, ref, ref.Metadata)
-		}
-		writer, err := store.OpenWriter(ctx, ref, ref.Metadata)
-		if err != nil {
-			return nil, err
-		}
-		return &legacyArchiveWriteSession{writer: writer}, nil
+		return store.BeginWriter(ctx, ref, ref.Metadata)
 	case locator.KindHTTP:
 		return nil, fmt.Errorf("unsupported archive target %q: http(s) archives are source-only", ref.Raw)
 	default:
@@ -191,52 +166,32 @@ func (r *storageRouter) beginArchiveWriter(ctx context.Context, ref locator.Ref)
 	}
 }
 
-type legacyArchiveWriteSession struct {
-	writer io.WriteCloser
-	once   sync.Once
-	err    error
-}
-
-func (s *legacyArchiveWriteSession) Write(p []byte) (int, error) { return s.writer.Write(p) }
-func (s *legacyArchiveWriteSession) Commit() error {
-	s.once.Do(func() { s.err = s.writer.Close() })
-	return s.err
-}
-func (s *legacyArchiveWriteSession) Abort(_ error) error {
-	s.once.Do(func() { s.err = s.writer.Close() })
-	return s.err
-}
-
 // openZipRangeReader opens one byte range from a remote archive source for ZIP
 // random access reads.
-func (r *storageRouter) openZipRangeReader(ctx context.Context, ref locator.Ref, offset int64, length int64, snapshots ...archiveutil.Snapshot) (io.ReadCloser, error) {
-	var snapshot archiveutil.Snapshot
-	if len(snapshots) > 0 {
-		snapshot = snapshots[0]
-	}
+func (r *storageRouter) openZipRangeReader(ctx context.Context, ref locator.Ref, offset int64, length int64, snapshot archiveutil.Snapshot) (io.ReadCloser, error) {
 	switch ref.Kind {
 	case locator.KindS3:
 		if _, err := r.requireS3(ctx); err != nil {
 			return nil, err
 		}
-		if r.s3ZipRange == nil {
+		if r.s3SnapshotZipRange == nil {
 			return nil, fmt.Errorf("s3 zip range store is not configured")
 		}
 		if strings.TrimSpace(ref.Key) == "" {
 			return nil, fmt.Errorf("archive object key cannot be empty for -f")
 		}
-		if r.s3SnapshotZipRange != nil {
-			return r.s3SnapshotZipRange.OpenRangeReaderSnapshot(ctx, ref, offset, length, snapshot)
+		if !snapshot.SupportsRangeFencing(true) {
+			return nil, fmt.Errorf("s3 zip range read requires a snapshot validator")
 		}
-		return r.s3ZipRange.OpenRangeReader(ctx, ref, offset, length)
+		return r.s3SnapshotZipRange.OpenRangeReaderSnapshot(ctx, ref, offset, length, snapshot)
 	case locator.KindHTTP:
-		if r.httpZipRange == nil {
+		if r.httpSnapshotZipRange == nil {
 			return nil, fmt.Errorf("http zip range store is not configured")
 		}
-		if r.httpSnapshotZipRange != nil {
-			return r.httpSnapshotZipRange.OpenRangeReaderSnapshot(ctx, ref, offset, length, snapshot)
+		if !snapshot.SupportsRangeFencing(false) {
+			return nil, fmt.Errorf("http zip range read requires a snapshot validator")
 		}
-		return r.httpZipRange.OpenRangeReader(ctx, ref, offset, length)
+		return r.httpSnapshotZipRange.OpenRangeReaderSnapshot(ctx, ref, offset, length, snapshot)
 	default:
 		return nil, fmt.Errorf("unsupported zip range source %q", ref.Raw)
 	}

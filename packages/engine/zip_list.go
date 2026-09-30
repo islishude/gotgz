@@ -52,7 +52,9 @@ func (r *Runner) listZipReader(ctx context.Context, zr *zip.Reader, memberMatche
 		if shouldSkipReadMember(memberMatcher, excludeMatcher, zf.Name) {
 			continue
 		}
-		reporter.ExternalLinef(r.stdout, "%s\n", zf.Name)
+		if err := reporter.ExternalLinef(r.stdout, "%s\n", zf.Name); err != nil {
+			return 0, err
+		}
 	}
 	return 0, nil
 }

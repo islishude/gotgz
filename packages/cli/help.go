@@ -38,7 +38,7 @@ Main Options:
                     Add an S3 object tag when writing to S3 targets
   --strip-components <count>
                     Remove <count> leading path elements when extracting
-  -v                Verbose output
+  -v                Print member names (stderr when creating with -f -)
   -O, --to-stdout   Extract regular file data to stdout
   --progress        Force progress output (writes to stderr)
   --no-progress     Disable live progress output but still print final elapsed time

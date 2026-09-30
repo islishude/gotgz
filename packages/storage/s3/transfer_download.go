@@ -299,44 +299,49 @@ func (r *transferReader) Read(buffer []byte) (int, error) {
 	written := 0
 	for written < len(buffer) {
 		if r.currentOffset == len(r.current) {
-			if r.hadCurrent {
-				r.current = nil
-				r.currentOffset = 0
-				r.hadCurrent = false
-				if err := r.scheduleNext(); err != nil {
-					r.terminal = err
-					if written > 0 {
-						return written, err
-					}
-					return 0, err
-				}
+			exhausted, err := r.advancePart()
+			if err != nil {
+				r.terminal = err
+				return written, err
 			}
-			if r.nextPart == r.totalParts {
+			if exhausted {
 				r.terminal = io.EOF
-				r.cancel(io.EOF)
 				if written > 0 {
 					return written, nil
 				}
 				return 0, io.EOF
 			}
-			result, err := r.awaitPart(r.nextPart)
-			if err != nil {
-				r.terminal = err
-				if written > 0 {
-					return written, err
-				}
-				return 0, err
-			}
-			r.current = result
-			r.currentOffset = 0
-			r.hadCurrent = true
-			r.nextPart++
 		}
 		n := copy(buffer[written:], r.current[r.currentOffset:])
 		r.currentOffset += n
 		written += n
 	}
 	return written, nil
+}
+
+// advancePart releases the consumed buffer before scheduling its replacement.
+func (r *transferReader) advancePart() (bool, error) {
+	if r.hadCurrent {
+		r.current = nil
+		r.currentOffset = 0
+		r.hadCurrent = false
+		if err := r.scheduleNext(); err != nil {
+			return false, err
+		}
+	}
+	if r.nextPart == r.totalParts {
+		r.cancel(io.EOF)
+		return true, nil
+	}
+	result, err := r.awaitPart(r.nextPart)
+	if err != nil {
+		return false, err
+	}
+	r.current = result
+	r.currentOffset = 0
+	r.hadCurrent = true
+	r.nextPart++
+	return false, nil
 }
 
 func (r *transferReader) awaitPart(index int) ([]byte, error) {

@@ -172,7 +172,7 @@ func TestRunReturnsReporterState(t *testing.T) {
 	}
 }
 
-func TestLiveCreateInputSourceVisit(t *testing.T) {
+func TestPlannedCreateInputSourceVisit(t *testing.T) {
 	ctx := context.Background()
 	root := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(root, "src"), 0o755); err != nil {
@@ -182,13 +182,24 @@ func TestLiveCreateInputSourceVisit(t *testing.T) {
 		t.Fatalf("WriteFile() error = %v", err)
 	}
 
-	source := liveCreateInputSource{
-		opts: cli.Options{
-			Members: []string{"src/file.txt", "s3://bucket/object.txt", "s3://bucket/skip.txt"},
-			Chdir:   root,
-		},
-		excludeMatcher: archivepath.NewCompiledPathMatcher([]string{"skip.txt"}),
+	runner := newRunner(nil, fakeS3ArchiveStore{}, nil, io.Discard, io.Discard)
+	request, err := runner.prepareCreateRequest(ctx, cli.Options{
+		Members: []string{"src/file.txt", "s3://bucket/object.txt", "s3://bucket/skip.txt"}, Chdir: root,
+	}, archivepath.NewCompiledPathMatcher([]string{"skip.txt"}))
+	if err != nil {
+		t.Fatal(err)
 	}
+	plan, err := runner.buildPreparedCreatePlan(ctx, request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	source := plannedCreateInputSource{plan: plan}
+	defer func() {
+		if err := source.Close(); err != nil {
+			t.Error(err)
+		}
+	}()
+
 	var seen []string
 
 	warnings, err := source.Visit(

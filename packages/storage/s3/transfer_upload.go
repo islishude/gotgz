@@ -205,66 +205,70 @@ func sectionPartProducer(body io.ReaderAt, start, size, partSize int64) uploadPa
 
 func (m *transferManager) streamPartProducer(body io.Reader, partSize, expectedSize int64) uploadPartProducer {
 	return func(ctx context.Context, jobs chan<- uploadPartTask) (int64, int32, error) {
-		bufferSize, err := checkedBufferSize(partSize)
-		if err != nil {
-			return 0, 0, err
-		}
-		pool := newLazyBufferPool(bufferSize, m.options.concurrency+1)
-		var total int64
-		var count int32
-		for {
-			buffer, err := pool.get(ctx)
-			if err != nil {
-				return total, count, err
-			}
-			n, readErr := readUntilFull(body, buffer)
-			if cause := context.Cause(ctx); cause != nil {
-				pool.put(buffer)
-				return total, count, cause
-			}
-			if readErr != nil && !errors.Is(readErr, io.EOF) {
-				pool.put(buffer)
-				return total, count, fmt.Errorf("read multipart upload body: %w", readErr)
-			}
-			if n == 0 {
-				pool.put(buffer)
-				break
-			}
-			if count == m.options.maxUploadParts {
-				pool.put(buffer)
-				return total, count, fmt.Errorf("upload exceeds maximum of %d parts", m.options.maxUploadParts)
-			}
-			if int64(n) > m.options.maxObjectSize-total {
-				pool.put(buffer)
-				return total, count, fmt.Errorf("upload exceeds S3 object limit %d", m.options.maxObjectSize)
-			}
-
-			count++
-			total += int64(n)
-			taskBuffer := buffer
-			task := uploadPartTask{
-				number: count,
-				body:   bytes.NewReader(taskBuffer[:n]),
-				size:   int64(n),
-				release: func() {
-					pool.put(taskBuffer)
-				},
-			}
-			select {
-			case jobs <- task:
-			case <-ctx.Done():
-				task.release()
-				return total - int64(n), count - 1, context.Cause(ctx)
-			}
-			if errors.Is(readErr, io.EOF) {
-				break
-			}
-		}
-		if expectedSize >= 0 && total != expectedSize {
-			return total, count, fmt.Errorf("upload body size changed: read %d bytes, expected %d", total, expectedSize)
-		}
-		return total, count, nil
+		return m.produceStreamParts(ctx, body, partSize, expectedSize, jobs)
 	}
+}
+
+func (m *transferManager) produceStreamParts(ctx context.Context, body io.Reader, partSize, expectedSize int64, jobs chan<- uploadPartTask) (int64, int32, error) {
+	bufferSize, err := checkedBufferSize(partSize)
+	if err != nil {
+		return 0, 0, err
+	}
+	pool := newLazyBufferPool(bufferSize, m.options.concurrency+1)
+	var total int64
+	var count int32
+	for {
+		buffer, err := pool.get(ctx)
+		if err != nil {
+			return total, count, err
+		}
+		n, readErr := readUntilFull(body, buffer)
+		if cause := context.Cause(ctx); cause != nil {
+			pool.put(buffer)
+			return total, count, cause
+		}
+		if readErr != nil && !errors.Is(readErr, io.EOF) {
+			pool.put(buffer)
+			return total, count, fmt.Errorf("read multipart upload body: %w", readErr)
+		}
+		if n == 0 {
+			pool.put(buffer)
+			break
+		}
+		if count == m.options.maxUploadParts {
+			pool.put(buffer)
+			return total, count, fmt.Errorf("upload exceeds maximum of %d parts", m.options.maxUploadParts)
+		}
+		if int64(n) > m.options.maxObjectSize-total {
+			pool.put(buffer)
+			return total, count, fmt.Errorf("upload exceeds S3 object limit %d", m.options.maxObjectSize)
+		}
+
+		count++
+		total += int64(n)
+		taskBuffer := buffer
+		task := uploadPartTask{
+			number: count,
+			body:   bytes.NewReader(taskBuffer[:n]),
+			size:   int64(n),
+			release: func() {
+				pool.put(taskBuffer)
+			},
+		}
+		select {
+		case jobs <- task:
+		case <-ctx.Done():
+			task.release()
+			return total - int64(n), count - 1, context.Cause(ctx)
+		}
+		if errors.Is(readErr, io.EOF) {
+			break
+		}
+	}
+	if expectedSize >= 0 && total != expectedSize {
+		return total, count, fmt.Errorf("upload body size changed: read %d bytes, expected %d", total, expectedSize)
+	}
+	return total, count, nil
 }
 
 func (m *transferManager) multipartUpload(ctx context.Context, cancel context.CancelCauseFunc, request *uploadRequest, produce uploadPartProducer) error {

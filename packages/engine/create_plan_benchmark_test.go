@@ -23,8 +23,8 @@ func (s fullPlanBenchmarkStore) OpenReader(ref locator.Ref) (io.ReadCloser, loca
 	return s.store.OpenReader(ref)
 }
 
-func (s fullPlanBenchmarkStore) OpenWriter(ref locator.Ref) (io.WriteCloser, error) {
-	return s.store.OpenWriter(ref)
+func (s fullPlanBenchmarkStore) BeginWriter(ref locator.Ref) (localstore.WriteSession, error) {
+	return s.store.BeginWriter(ref)
 }
 
 func BenchmarkSpoolLocalCreateRecords(b *testing.B) {

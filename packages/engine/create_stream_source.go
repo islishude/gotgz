@@ -16,156 +16,161 @@ type createTotalReporter interface {
 	SetTotal(total int64, known bool)
 }
 
-type streamingCreateMember struct {
-	task  createPlanTask
-	spool *streamingMemberSpool
-}
+// Bound open spool files and scanners independently of the number of CLI inputs.
+const maxStreamingCreateMembers = 8
 
-type streamingProducerResult struct {
-	total int64
+type streamingCreateMember struct {
+	spool *streamingMemberSpool
+	done  <-chan struct{}
 	err   error
 }
 
-// streamingCreateInputSource overlaps recursive local planning with archive
-// replay while retaining one disk-backed spool per top-level member.
+func (m streamingCreateMember) close() error {
+	if m.done != nil {
+		<-m.done
+	}
+	return m.spool.Close()
+}
+
+// streamingCreateInputSource plans ahead through a bounded window. A slot is
+// released only after its member has been consumed and its spool removed.
 type streamingCreateInputSource struct {
 	request       preparedCreateRequest
 	reporter      createTotalReporter
 	spoolDir      string
 	spoolInfo     fs.FileInfo
-	members       []streamingCreateMember
 	scannerConfig createPlanScannerConfig
 
-	stateMu      sync.Mutex
-	started      bool
-	cancel       context.CancelCauseFunc
-	producerDone chan struct{}
+	stateMu   sync.Mutex
+	started   bool
+	closed    bool
+	cancel    context.CancelCauseFunc
+	visitDone chan struct{}
 
 	closeOnce sync.Once
 	closeErr  error
 }
 
-func newStreamingCreateInputSource(request preparedCreateRequest, reporter createTotalReporter) (_ *streamingCreateInputSource, retErr error) {
+func newStreamingCreateInputSource(request preparedCreateRequest, reporter createTotalReporter) (*streamingCreateInputSource, error) {
+	for _, task := range request.tasks {
+		if task.ref.Kind != locator.KindLocal {
+			return nil, fmt.Errorf("streaming create plan does not support input %q", task.member)
+		}
+	}
 	spoolDir, err := os.MkdirTemp("", "gotgz-create-stream-*")
 	if err != nil {
 		return nil, fmt.Errorf("create streaming plan spool directory: %w", err)
 	}
 	if err := os.Chmod(spoolDir, 0o700); err != nil {
-		_ = os.RemoveAll(spoolDir)
-		return nil, fmt.Errorf("secure streaming plan spool directory: %w", err)
+		return nil, errors.Join(fmt.Errorf("secure streaming plan spool directory: %w", err), os.RemoveAll(spoolDir))
 	}
 	spoolInfo, err := os.Stat(spoolDir)
 	if err != nil {
-		_ = os.RemoveAll(spoolDir)
-		return nil, fmt.Errorf("stat streaming plan spool directory: %w", err)
+		return nil, errors.Join(fmt.Errorf("stat streaming plan spool directory: %w", err), os.RemoveAll(spoolDir))
 	}
-
 	limiter := newCreatePlanMetadataLimiter(defaultCreatePlanMetadataConcurrency())
-	source := &streamingCreateInputSource{
-		request:       request,
-		reporter:      reporter,
-		spoolDir:      spoolDir,
-		spoolInfo:     spoolInfo,
-		members:       make([]streamingCreateMember, 0, len(request.tasks)),
+	return &streamingCreateInputSource{
+		request: request, reporter: reporter, spoolDir: spoolDir, spoolInfo: spoolInfo,
 		scannerConfig: newCreatePlanScannerConfig(limiter),
-	}
-	defer func() {
-		if retErr != nil {
-			retErr = errors.Join(retErr, source.Close())
-		}
-	}()
-
-	for _, task := range request.tasks {
-		if task.ref.Kind != locator.KindLocal {
-			return nil, fmt.Errorf("streaming create plan does not support input %q", task.member)
-		}
-		spool, err := newStreamingMemberSpool(spoolDir)
-		if err != nil {
-			return nil, err
-		}
-		source.members = append(source.members, streamingCreateMember{task: task, spool: spool})
-	}
-	return source, nil
+	}, nil
 }
 
-func (*streamingCreateInputSource) Total() (int64, bool) {
-	return 0, false
-}
+func (*streamingCreateInputSource) Total() (int64, bool) { return 0, false }
 
-func (s *streamingCreateInputSource) Visit(ctx context.Context, _ func(ref locator.Ref) error, handleLocal func(source localCreateSource) (int, error)) (int, error) {
-	producerDone, cancel, err := s.start(ctx)
+func (s *streamingCreateInputSource) Visit(ctx context.Context, _ func(ref locator.Ref) error, handleLocal func(source localCreateSource) (int, error)) (warnings int, retErr error) {
+	slots := make(chan struct{}, maxStreamingCreateMembers)
+	workCtx, members, err := s.start(ctx, slots)
 	if err != nil {
 		return 0, err
 	}
-
-	warnings := 0
-	for _, member := range s.members {
-		select {
-		case <-ctx.Done():
-			cancel(ctx.Err())
-			<-producerDone
-			return warnings, ctx.Err()
-		default:
+	defer func() {
+		s.cancel(context.Canceled)
+		// Drain every scheduled member after cancellation; producers finish before
+		// their files are closed, including members the writer never reached.
+		for member := range members {
+			retErr = errors.Join(retErr, member.close())
 		}
-		memberWarnings, err := handleLocal(streamingLocalCreateSource{spool: member.spool})
-		warnings += memberWarnings
+		close(s.visitDone)
+	}()
+	for member := range members {
+		if err := context.Cause(workCtx); err != nil {
+			return warnings, errors.Join(err, member.close())
+		}
+		if member.err != nil {
+			return warnings, member.err
+		}
+		w, err := handleLocal(streamingLocalCreateSource{spool: member.spool})
+		warnings += w
 		if err != nil {
-			cancel(err)
-			<-producerDone
+			s.cancel(err)
+			return warnings, errors.Join(err, member.close())
+		}
+		if err := member.close(); err != nil {
 			return warnings, err
 		}
+		<-slots
 	}
-	<-producerDone
-	return warnings, nil
+	return warnings, context.Cause(workCtx)
 }
 
-func (s *streamingCreateInputSource) start(ctx context.Context) (<-chan struct{}, context.CancelCauseFunc, error) {
+func (s *streamingCreateInputSource) start(ctx context.Context, slots chan struct{}) (context.Context, <-chan streamingCreateMember, error) {
 	s.stateMu.Lock()
 	defer s.stateMu.Unlock()
+	if s.closed {
+		return nil, nil, fmt.Errorf("streaming create source is closed")
+	}
 	if s.started {
 		return nil, nil, fmt.Errorf("streaming create source can only be visited once")
 	}
 	s.started = true
 	workCtx, cancel := context.WithCancelCause(ctx)
 	s.cancel = cancel
-	s.producerDone = make(chan struct{})
-	producerDone := s.producerDone
-	results := make(chan streamingProducerResult, len(s.members))
+	s.visitDone = make(chan struct{})
+	members := make(chan streamingCreateMember, maxStreamingCreateMembers)
+	go s.produce(workCtx, slots, members)
+	return workCtx, members, nil
+}
 
-	var producers sync.WaitGroup
-	for _, member := range s.members {
-		producers.Go(func() {
-			total, _, err := scanLocalCreateRecords(
-				workCtx,
-				member.task.member,
-				s.request.opts.Chdir,
-				s.request.excludeMatcher,
-				s.request.outputPolicy,
-				s.spoolInfo,
-				member.spool,
-				s.scannerConfig,
-			)
-			member.spool.Finish(total, err)
-			results <- streamingProducerResult{total: total, err: err}
-		})
-	}
-	go func() {
-		producers.Wait()
-		close(results)
-		total := int64(0)
-		allComplete := true
-		for result := range results {
-			total = addCreatePlanSize(total, result.total)
-			if result.err != nil {
-				allComplete = false
-			}
-		}
-		if allComplete && s.reporter != nil {
+func (s *streamingCreateInputSource) produce(ctx context.Context, slots chan struct{}, members chan<- streamingCreateMember) {
+	defer close(members)
+	var workers sync.WaitGroup
+	var totalsMu sync.Mutex
+	var total int64
+	var completed int
+	defer func() {
+		workers.Wait()
+		if completed == len(s.request.tasks) && context.Cause(ctx) == nil && s.reporter != nil {
 			s.reporter.SetTotal(total, true)
 		}
-		close(producerDone)
 	}()
-	return producerDone, cancel, nil
+	for _, task := range s.request.tasks {
+		select {
+		case slots <- struct{}{}:
+		case <-ctx.Done():
+			return
+		}
+		spool, err := newStreamingMemberSpool(s.spoolDir)
+		if err != nil {
+			members <- streamingCreateMember{err: err}
+			return
+		}
+		done := make(chan struct{})
+		workers.Go(func() {
+			defer close(done)
+			size, _, err := scanLocalCreateRecords(ctx, task.member, s.request.opts.Chdir,
+				s.request.excludeMatcher, s.request.outputPolicy, s.spoolInfo, spool, s.scannerConfig)
+			spool.Finish(size, err)
+			if err == nil {
+				totalsMu.Lock()
+				total = addCreatePlanSize(total, size)
+				completed++
+				totalsMu.Unlock()
+			}
+		})
+		// Every queued or currently consumed member owns a slot, so this bounded
+		// channel always has room, even if cancellation stops the consumer.
+		members <- streamingCreateMember{spool: spool, done: done}
+	}
 }
 
 func (s *streamingCreateInputSource) Close() error {
@@ -174,24 +179,18 @@ func (s *streamingCreateInputSource) Close() error {
 	}
 	s.closeOnce.Do(func() {
 		s.stateMu.Lock()
-		cancel := s.cancel
-		producerDone := s.producerDone
+		s.closed = true
+		cancel, done := s.cancel, s.visitDone
 		s.stateMu.Unlock()
 		if cancel != nil {
 			cancel(context.Canceled)
 		}
-		if producerDone != nil {
-			<-producerDone
-		}
-
-		var errs []error
-		for _, member := range s.members {
-			errs = append(errs, member.spool.Close())
+		if done != nil {
+			<-done
 		}
 		if err := os.RemoveAll(s.spoolDir); err != nil {
-			errs = append(errs, fmt.Errorf("remove streaming plan spool directory %q: %w", s.spoolDir, err))
+			s.closeErr = fmt.Errorf("remove streaming plan spool directory %q: %w", s.spoolDir, err)
 		}
-		s.closeErr = errors.Join(errs...)
 	})
 	return s.closeErr
 }

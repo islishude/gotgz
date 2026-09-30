@@ -28,7 +28,9 @@ func (r *Runner) streamS3MemberToArchive(ctx context.Context, ref locator.Ref, v
 		return err
 	}
 	if verbose {
-		reporter.ExternalLinef(r.stdout, "%s\n", name)
+		if err := r.writeCreateMemberName(reporter, name); err != nil {
+			return err
+		}
 	}
 	return nil
 }

@@ -28,7 +28,9 @@ func (r *Runner) runListTar(ctx context.Context, opts cli.Options, reporter *arc
 				}
 				return 0, nil
 			}
-			reporter.ExternalLinef(r.stdout, "%s\n", hdr.Name)
+			if err := reporter.ExternalLinef(r.stdout, "%s\n", hdr.Name); err != nil {
+				return 0, err
+			}
 			if _, err := archiveutil.CopyWithContext(ctx, io.Discard, tr); err != nil {
 				return 0, err
 			}

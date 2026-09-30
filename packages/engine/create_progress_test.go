@@ -11,6 +11,7 @@ import (
 	"github.com/islishude/gotgz/packages/archiveprogress"
 	"github.com/islishude/gotgz/packages/cli"
 	"github.com/islishude/gotgz/packages/locator"
+	localstore "github.com/islishude/gotgz/packages/storage/local"
 	"github.com/islishude/gotgz/packages/storage/s3"
 )
 
@@ -23,7 +24,7 @@ func runCreateWithProgressMode(t *testing.T, progress cli.ProgressMode, run func
 	openReaderCalls := 0
 	runner := newRunner(
 		fakeLocalArchiveStore{
-			openWriter: func(ref locator.Ref) (io.WriteCloser, error) {
+			beginWriter: func(ref locator.Ref) (localstore.WriteSession, error) {
 				if ref.Path != archiveRef.Path {
 					t.Fatalf("archive path = %q, want %q", ref.Path, archiveRef.Path)
 				}
@@ -152,11 +153,11 @@ func TestCreateModeValidatesInputsBeforeOpeningArchiveWriter(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			openWriterCalls := 0
+			beginWriterCalls := 0
 			runner := newRunner(
 				fakeLocalArchiveStore{
-					openWriter: func(ref locator.Ref) (io.WriteCloser, error) {
-						openWriterCalls++
+					beginWriter: func(ref locator.Ref) (localstore.WriteSession, error) {
+						beginWriterCalls++
 						if ref.Path != tc.archiveRef.Path {
 							t.Fatalf("archive path = %q, want %q", ref.Path, tc.archiveRef.Path)
 						}
@@ -184,8 +185,8 @@ func TestCreateModeValidatesInputsBeforeOpeningArchiveWriter(t *testing.T) {
 			if warnings != 0 {
 				t.Fatalf("warnings = %d, want 0", warnings)
 			}
-			if openWriterCalls != 0 {
-				t.Fatalf("openWriterCalls = %d, want 0", openWriterCalls)
+			if beginWriterCalls != 0 {
+				t.Fatalf("beginWriterCalls = %d, want 0", beginWriterCalls)
 			}
 		})
 	}

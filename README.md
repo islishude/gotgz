@@ -343,7 +343,9 @@ large source cannot use range reads.
 Progress is written to stderr. It is automatic on an interactive terminal;
 `--progress` forces it and `--no-progress` disables live updates. With
 `--no-progress`, a successful non-interactive run still prints a final
-`gotgz: completed in ...` line. `-v` writes member names to stdout.
+`gotgz: completed in ...` line. `-v` writes member names to stdout, except when
+creating with `-f -`: member names go to stderr so stdout contains only archive
+data.
 
 Exit statuses are:
 

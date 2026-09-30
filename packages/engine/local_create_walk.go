@@ -56,17 +56,6 @@ func walkLocalCreateMemberEntries(ctx context.Context, member string, chdir stri
 	})
 }
 
-// walkLocalCreateMember normalizes one local create member and visits all non-excluded entries.
-func walkLocalCreateMember(ctx context.Context, member string, chdir string, excludeMatcher *archivepath.CompiledPathMatcher, visit func(record localCreateRecord, info fs.FileInfo) error) error {
-	return walkLocalCreateMemberEntries(ctx, member, chdir, excludeMatcher, func(record localCreateRecord, entry fs.DirEntry) error {
-		info, err := entry.Info()
-		if err != nil {
-			return err
-		}
-		return visit(record, info)
-	})
-}
-
 // localCreateBasePrefix returns the fast-path prefix used to derive archive
 // member names without calling filepath.Rel for every visited path.
 func localCreateBasePrefix(basePath string) string {

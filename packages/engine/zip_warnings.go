@@ -49,6 +49,6 @@ func normalizeCompressionHint(v cli.CompressionHint) cli.CompressionHint {
 
 // warnf prints one warning and returns 1 for warning-count accumulation.
 func (r *Runner) warnf(reporter *archiveprogress.Reporter, format string, args ...any) int {
-	reporter.ExternalLinef(r.stderr, "gotgz: warning: "+format+"\n", args...)
+	_ = reporter.ExternalLinef(r.stderr, "gotgz: warning: "+format+"\n", args...)
 	return 1
 }

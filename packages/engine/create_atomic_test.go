@@ -238,10 +238,10 @@ func TestCreateJoinsAbortCleanupFailure(t *testing.T) {
 	}
 }
 
-func TestCreateStdoutPreflightFailureDoesNotOpenWriter(t *testing.T) {
+func TestCreateStdoutPreflightFailureDoesNotBeginWriter(t *testing.T) {
 	root := t.TempDir()
 	openCalls := 0
-	local := fakeLocalArchiveStore{openWriter: func(locator.Ref) (io.WriteCloser, error) {
+	local := fakeLocalArchiveStore{beginWriter: func(locator.Ref) (localstore.WriteSession, error) {
 		openCalls++
 		return &fakeWriteCloser{}, nil
 	}}
@@ -251,7 +251,7 @@ func TestCreateStdoutPreflightFailureDoesNotOpenWriter(t *testing.T) {
 		t.Fatalf("Run() = %+v, want fatal preflight error", result)
 	}
 	if openCalls != 0 {
-		t.Fatalf("openWriter calls = %d, want 0", openCalls)
+		t.Fatalf("beginWriter calls = %d, want 0", openCalls)
 	}
 }
 
