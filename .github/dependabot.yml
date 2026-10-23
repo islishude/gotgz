@@ -22,3 +22,8 @@ updates:
     directory: /
     schedule:
       interval: weekly
+
+  - package-ecosystem: "docker-compose"
+    directory: /
+    schedule:
+      interval: monthly
