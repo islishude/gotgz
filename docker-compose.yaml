@@ -2,7 +2,7 @@ name: "gotgz"
 
 services:
   s3mock:
-    image: ghcr.io/tyrchen/rustack:0.9.1
+    image: ghcr.io/tyrchen/rustack:0.10.0
     environment:
       SERVICES: s3
     ports:
