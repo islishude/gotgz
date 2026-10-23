@@ -8,7 +8,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.114.3
 	github.com/dsnet/compress v0.0.1
 	github.com/klauspost/compress v1.20.3
-	github.com/klauspost/pgzip v1.2.6
+	github.com/klauspost/pgzip v1.3.0
 	github.com/mikelolasagasti/xz v1.0.1
 	github.com/pierrec/lz4/v4 v4.1.31
 	github.com/ulikunitz/xz v0.5.17
